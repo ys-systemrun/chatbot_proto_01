@@ -1,0 +1,36 @@
+version: '3.9'
+
+services:
+  app:
+    build: ./app
+    container_name: chatbot_app
+    ports:
+      - "${BOT_PORT:-8000}:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:${DB_PORT:-5432}/chatbot
+      - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
+      - MODEL_EMBEDDING=${MODEL_EMBEDDING}
+      - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
+      - MODEL_CHAT=${MODEL_CHAT}
+    tty: true
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: pgvector/pgvector:pg15
+    container_name: chatbot_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: chatbot
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      - ./${DB_DIR:-db_nomic}/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./${DB_DIR:-db_nomic}/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d chatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
