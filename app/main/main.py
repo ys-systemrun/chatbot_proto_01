@@ -34,7 +34,7 @@ def ask(q: Question):
 
     # 3. コンテキスト生成
     context = "\n".join(
-        [f"Q: {r[0]}\nA: {r[1]}" for r in results]
+        [f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results]
     )
 
     # 4. LLM生成

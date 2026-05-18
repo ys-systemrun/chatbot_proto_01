@@ -21,7 +21,7 @@ EMBEDDING_MODEL=os.environ["MODEL_EMBEDDING"]
 def main():
 
     with DB(DATABASE_URL) as db:
-        result = db.exist_any()
+        result = db.exists_category()
         print(result)
 
 

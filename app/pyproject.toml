@@ -20,6 +20,9 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 
 [project.scripts]
-seed = "main.seed:main"
+seed="main.seed:main_seed_all"
+seed_category="main.seed:main_seed_category"
+seed_qa_original="main.seed:main_seed_qa_original"
+seed_question_altered="main.seed:main_seed_question_altered"
 debug = "main.debug:main"
 debug_question = "main.debug_question:main"
