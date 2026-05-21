@@ -47,7 +47,8 @@ class DB:
                 SELECT 
                     question_altered.text as question, 
                     qa_original.answer_text as answer,
-                    qa_original.question_text as question_original
+                    qa_original.question_text as question_original,
+                    question_altered.qa_id as qa_id
                 FROM question_altered
                 LEFT JOIN qa_original ON question_altered.qa_id = qa_original.uuid
                 ORDER BY embedding <-> %s

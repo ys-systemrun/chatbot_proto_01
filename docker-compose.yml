@@ -7,7 +7,7 @@ services:
     ports:
       - "${BOT_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:${DB_PORT:-5432}/chatbot
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/chatbot
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
@@ -16,6 +16,7 @@ services:
       - QA_ORIGINAL_FILE=${QA_ORIGINAL_FILE}
       - QUESTION_ALTERED_FILE=${QUESTION_ALTERED_FILE}
       - CATEGORY_FILE=${CATEGORY_FILE}
+      - EVAL_QUERIES_CSV=${EVAL_QUERIES_CSV}
     tty: true
     volumes:
       - ./app:/app
