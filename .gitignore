@@ -2,3 +2,4 @@ db_nomic/data/
 .env
 app/chatbot_invitro.egg-info/
 **/__pycache__/
+db_multilingual/data/
