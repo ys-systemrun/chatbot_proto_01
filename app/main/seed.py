@@ -27,15 +27,14 @@ def main_seed_question_altered():
     question_altered_rows = load_question_altered_csv(
         CSV_DATA_DIR, QUESTION_ALTERED_FILE
     )
-    for row in question_altered_rows:
-        if row.embedding is None:
-            row.embedding = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, row.text)
-
     with DB(DATABASE_URL) as db:
         if db.exists_question_altered():
             print(datetime.now(ZoneInfo("Asia/Tokyo")))
             print("question_altered table already has data. Skipping insertion.")
             return
+        for row in question_altered_rows:
+            if row.embedding is None:
+                row.embedding = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, row.text)
         if question_altered_rows:
             db.insert_question_altered(question_altered_rows)
     print(datetime.now(ZoneInfo("Asia/Tokyo")))

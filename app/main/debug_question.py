@@ -22,7 +22,7 @@ def main():
 
     question:str = "マスタにない歩掛を独自で作成するにはどうすればいいですか？"
     print(datetime.now(ZoneInfo("Asia/Tokyo")))
-    print(f"\n====== Question:\n{question}\n\n")
+    print(f"====== Question:\n{question}\n\n")
     # 1. embedding
     emb = get_embedding(
         EMBEDDING_URL, 
@@ -39,7 +39,7 @@ def main():
         [f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results]
     )
     print(datetime.now(ZoneInfo("Asia/Tokyo")))
-    print(f"\n====== Similar:\n{context}\n\n")
+    print(f"====== Similar:\n{context}\n\n")
 
     # 4. LLM生成
     answer = generate_answer(
@@ -49,7 +49,7 @@ def main():
         question
     )
     print(datetime.now(ZoneInfo("Asia/Tokyo")))
-    print(f"\n====== Answer:\n{answer}\n\n")
+    print(f"====== Answer:\n{answer}\n\n")
     return {"answer": answer}
 
 
