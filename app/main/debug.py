@@ -20,9 +20,16 @@ EMBEDDING_MODEL=os.environ["MODEL_EMBEDDING"]
 
 def main():
 
-    with DB(DATABASE_URL) as db:
-        result = db.exists_category()
-        print(result)
+    emb = get_embedding(
+        "http://host.docker.internal:1234/v1/embeddings",
+        "multilingual-e5-small-gguf",
+        "Aaaaaaaaaaaaa_bbbbbbbbbbbbbbcccccccccccccddddddddddddd"
+    )
+    print(len(emb))
+
+    # with DB(DATABASE_URL) as db:
+    #     result = db.exists_category()
+    #     print(result)
 
 
 

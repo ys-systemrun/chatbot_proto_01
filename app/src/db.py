@@ -3,7 +3,7 @@ from typing import List
 import psycopg2
 import uuid
 
-from src.models import Category, QaOriginal, QuestionAltered
+from app.src.models.models import Category, QaOriginal, QuestionAltered
 
 
 

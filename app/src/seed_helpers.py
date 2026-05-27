@@ -4,7 +4,7 @@ import os
 import uuid
 from typing import List
 
-from .models import Category, QaOriginal, QuestionAltered
+from .models.models import Category, QaOriginal, QuestionAltered
 
 def resolve_csv_path(filename: str, data_dir: str) -> str:
     if not data_dir:
