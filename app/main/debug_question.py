@@ -36,7 +36,7 @@ def main():
 
     # 3. コンテキスト生成
     context = "\n".join(
-        [f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results]
+        [f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}\nDistance: {r[4]}" for r in results]
     )
     print(datetime.now(ZoneInfo("Asia/Tokyo")))
     print(f"====== Similar:\n{context}\n\n")

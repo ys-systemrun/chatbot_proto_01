@@ -17,6 +17,7 @@ services:
       - QUESTION_ALTERED_FILE=${QUESTION_ALTERED_FILE}
       - CATEGORY_FILE=${CATEGORY_FILE}
       - EVAL_QUERIES_CSV=${EVAL_QUERIES_CSV}
+      - EVAL_NOISE_QUERIES_CSV=${EVAL_NOISE_QUERIES_CSV}
     tty: true
     volumes:
       - ./app:/app

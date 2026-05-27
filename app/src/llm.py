@@ -32,10 +32,22 @@ def get_prompt_with_role(context:str, question:str) -> str:
     """
 
 
+def generate_answer_stateful(
+        url: str,
+        model_name: str,
+        messages: list[dict],
+) -> str:
+    res = requests.post(
+        url,
+        json={"model": model_name, "messages": messages}
+    )
+    return res.json()["choices"][0]["message"]["content"]
+
+
 def generate_answer(
         url:str,
         model_name:str,
-        context:str, 
+        context:str,
         question:str
 ):
     prompt = get_prompt_with_role(context, question)
