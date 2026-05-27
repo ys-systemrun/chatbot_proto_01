@@ -5,20 +5,6 @@ from typing import List, Optional
 
 
 @dataclass
-class QaOriginal:
-    uuid: str
-    question_text: str
-    answer_text: str
-    category_id: Optional[int] = None
-
-
-@dataclass
-class Category:
-    id: int
-    name: str
-
-
-@dataclass
 class QuestionAltered:
     qa_id: str
     text: str

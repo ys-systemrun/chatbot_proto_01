@@ -4,7 +4,9 @@ import os
 import uuid
 from typing import List
 
-from .models.models import Category, QaOriginal, QuestionAltered
+from .models.category import Category
+from .models.qa_original import QAOriginal
+from .models.question_altered import QuestionAltered
 
 def resolve_csv_path(filename: str, data_dir: str) -> str:
     if not data_dir:
@@ -38,7 +40,7 @@ def load_category_map(data_dir: str, category_file: str):
 def load_qa_original_json(data_dir: str, exportjson_file: str, category_file: str):
     json_path = resolve_csv_path(exportjson_file, data_dir)
     category_map = load_category_map(data_dir, category_file)
-    rows: List[QaOriginal] = []
+    rows: List[QAOriginal] = []
     with open(json_path, "r", encoding="utf-8") as f:
         items = json.load(f)
 
@@ -66,7 +68,7 @@ def load_qa_original_json(data_dir: str, exportjson_file: str, category_file: st
                 )
 
         rows.append(
-            QaOriginal(
+            QAOriginal(
                 uuid=rec_uuid,
                 question_text=question_text,
                 answer_text=answer_text,

@@ -3,7 +3,9 @@ from typing import List
 import psycopg2
 import uuid
 
-from app.src.models.models import Category, QaOriginal, QuestionAltered
+from .models.category import Category
+from .models.qa_original import QAOriginal
+from .models.question_altered import QuestionAltered
 
 
 
@@ -84,7 +86,7 @@ class DB:
             results = cur.fetchone()[0]
             return results
 
-    def insert_qa_original(self, rows: List[QaOriginal]):
+    def insert_qa_original(self, rows: List[QAOriginal]):
         with self.conn.cursor() as cur:
             cur.executemany(
                 """
