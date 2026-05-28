@@ -53,24 +53,30 @@ def compute_mrr(
     embed_url: str,
     embed_model: str,
     top_k: int = 10,
-):
-    reciprocal_ranks = []
-    details = []
-
+) -> tuple:
+    """
+    MRR (Mean Reciprocal Rank) を計算する。
+    distance は search_similar の返り値末尾要素 (index 4) を使用する。
+    """
     if not rows:
-        return 0.0, details
+        return 0.0, 0.0, 0.0, []
 
     text_field, qa_field = detect_fields(rows[0])
+
+    reciprocal_ranks = []
+    top1_distances = []
+    details = []
 
     for r in rows:
         query_text = r.get(text_field, "").strip()
         correct_qa = r.get(qa_field, "").strip() if qa_field else ""
 
         emb = get_embedding(embed_url, embed_model, query_text)
-
         results = db.search_similar(emb, top_k)
 
-        # search_similar now returns tuples: (question, answer, question_original, qa_id)
+        top1_distance = results[0][4] if results else float("inf")
+        top1_distances.append(top1_distance)
+
         rank = 0
         for i, rec in enumerate(results, start=1):
             returned_qa = str(rec[3]) if len(rec) > 3 else ""
@@ -80,10 +86,19 @@ def compute_mrr(
 
         rr = 1.0 / rank if rank > 0 else 0.0
         reciprocal_ranks.append(rr)
-        details.append({"query": query_text, "correct_qa": correct_qa, "rank": rank, "reciprocal_rank": rr})
+        details.append({
+            "query": query_text,
+            "correct_qa": correct_qa,
+            "rank": rank,
+            "reciprocal_rank": rr,
+            "top1_distance": top1_distance,
+        })
 
-    mrr = statistics.mean(reciprocal_ranks) if reciprocal_ranks else 0.0
-    return mrr, details
+    mrr = statistics.mean(reciprocal_ranks)
+    avg_distance = statistics.mean(top1_distances)
+    max_distance = max(top1_distances)
+
+    return mrr, avg_distance, max_distance, details
 
 
 def compute_tnr(
@@ -154,25 +169,29 @@ def main():
     rows = load_queries(args.csv)
 
     with DB(args.db_url) as db:
-        mrr, mrr_details = compute_mrr(db, rows, args.embed_url, args.embed_model, args.top_k)
+        mrr, mrr_avg_dist, mrr_max_dist, mrr_details = compute_mrr(
+            db, rows, args.embed_url, args.embed_model, args.top_k
+        )
 
         if args.noise_csv:
             noise_rows = load_queries(args.noise_csv)
-            tnr, avg_dist, min_dist, tnr_details = compute_tnr(
+            tnr, tnr_avg_dist, tnr_min_dist, tnr_details = compute_tnr(
                 db, noise_rows, args.embed_url, args.embed_model, args.threshold
             )
         else:
-            tnr, avg_dist, min_dist, tnr_details = None, None, None, []
+            tnr, tnr_avg_dist, tnr_min_dist, tnr_details = None, None, None, []
 
     print(f"MRR: {mrr:.6f} (n={len(mrr_details)})")
+    print(f"  avg_top1_distance: {mrr_avg_dist:.6f}")
+    print(f"  max_top1_distance: {mrr_max_dist:.6f}")
     if tnr is not None:
         print(f"TNR: {tnr:.6f} (n={len(tnr_details)}, threshold={args.threshold})")
-        print(f"  avg_noise_distance: {avg_dist:.6f}")
-        print(f"  min_noise_distance: {min_dist:.6f}")
+        print(f"  avg_noise_distance: {tnr_avg_dist:.6f}")
+        print(f"  min_noise_distance: {tnr_min_dist:.6f}")
 
     if args.output:
         with open(args.output, "w", newline='', encoding='utf-8') as f:
-            fieldnames = ["query", "correct_qa", "rank", "reciprocal_rank"]
+            fieldnames = ["query", "correct_qa", "rank", "reciprocal_rank", "top1_distance"]
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for d in mrr_details:
