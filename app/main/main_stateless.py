@@ -33,63 +33,72 @@ _SYSTEM_PROMPT = """\
 # - 開発・単一プロセス: InMemorySessionStore()
 # - ファイル永続化:    FileSessionStore("sessions/")
 # - Redis 分散:        RedisSessionStore(os.environ["REDIS_URL"])
-store = InMemorySessionStore()
+# store = InMemorySessionStore()
+
+# class Message(BaseModel):
+#     order: int # summary_message の order は 0 とする？
+#     role: str
+#     content: str
+#     summary_message: bool
+
+# class Request(BaseModel):
+#     session_id: str | None = None  # None の場合はサーバー側で新規発行
+#     text: str
+#     messages: list[Message]
 
 
-class Question(BaseModel):
-    session_id: str | None = None  # None の場合はサーバー側で新規発行
-    text: str
+# class Response(BaseModel):
+#     session_id: str
+#     messages: list[Message]
+
+# @app.post("/ask", response_model=Response)
+    
 
 
-class Answer(BaseModel):
-    session_id: str
-    answer: str
+# def _build_user_content(context: str, question: str) -> str:
+#     return f"参考情報:\n{context}\n\n質問:\n{question}"
 
 
-def _build_user_content(context: str, question: str) -> str:
-    return f"参考情報:\n{context}\n\n質問:\n{question}"
+# @app.post("/ask", response_model=Answer)
+# def ask(q: Question):
+#     # セッション解決
+#     session_id = q.session_id or str(uuid.uuid4())
+
+#     state = store.get(session_id)
+#     if state is None:
+#         state = ConversationState()
+#         state.append_message("system", _SYSTEM_PROMPT)
+
+#     # 1. embedding
+#     emb = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, q.text)
+
+#     # 2. 類似検索
+#     with DB(DATABASE_URL) as db:
+#         results = db.search_similar(emb, 3)
+
+#     # 3. コンテキスト生成
+#     context = "\n".join(
+#         f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results
+#     )
+
+#     # 4. メッセージ追加 → LLM 生成
+#     state.append_message("user", _build_user_content(context, q.text))
+
+#     answer = generate_answer_stateful(
+#         LMSTUDIO_CHAT_URL,
+#         MODEL_CHAT,
+#         state.messages_as_dicts(),
+#     )
+
+#     state.append_message("assistant", answer)
+
+#     # 5. セッション保存
+#     store.save(session_id, state)
+
+#     return Answer(session_id=session_id, answer=answer)
 
 
-@app.post("/ask", response_model=Answer)
-def ask(q: Question):
-    # セッション解決
-    session_id = q.session_id or str(uuid.uuid4())
-
-    state = store.get(session_id)
-    if state is None:
-        state = ConversationState()
-        state.append_message("system", _SYSTEM_PROMPT)
-
-    # 1. embedding
-    emb = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, q.text)
-
-    # 2. 類似検索
-    with DB(DATABASE_URL) as db:
-        results = db.search_similar(emb, 3)
-
-    # 3. コンテキスト生成
-    context = "\n".join(
-        f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results
-    )
-
-    # 4. メッセージ追加 → LLM 生成
-    state.append_message("user", _build_user_content(context, q.text))
-
-    answer = generate_answer_stateful(
-        LMSTUDIO_CHAT_URL,
-        MODEL_CHAT,
-        state.messages_as_dicts(),
-    )
-
-    state.append_message("assistant", answer)
-
-    # 5. セッション保存
-    store.save(session_id, state)
-
-    return Answer(session_id=session_id, answer=answer)
-
-
-@app.delete("/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_session(session_id: str):
-    """セッションを明示的に削除する。"""
-    store.delete(session_id)
+# @app.delete("/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+# def delete_session(session_id: str):
+#     """セッションを明示的に削除する。"""
+#     store.delete(session_id)

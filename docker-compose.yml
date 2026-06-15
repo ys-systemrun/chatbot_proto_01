@@ -26,6 +26,17 @@ services:
       db:
         condition: service_healthy
 
+  frontend:
+    build: ./front_dev
+    container_name: chatbot_frontend
+    ports:
+      - "${FRONT_PORT:-5173}:5173"
+    volumes:
+      - ./front_dev:/app
+      - /app/node_modules   # コンテナ内でビルドした node_modules をホストで上書きさせない
+    depends_on:
+      - app
+
   db:
     image: pgvector/pgvector:pg15
     container_name: chatbot_db

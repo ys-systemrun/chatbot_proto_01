@@ -33,3 +33,20 @@ class ConversationState:
     def messages_as_dicts(self) -> list[dict[str, str]]:
         """LLM API に渡せる dict のリストに変換する。"""
         return [m.to_dict() for m in self._messages]
+
+    def to_dict(self) -> dict:
+        """SessionStore への保存に使える dict に直列化する。"""
+        return {
+            "messages": self.messages_as_dicts(),
+            "slots": {k: v.value for k, v in self._slots.items()},
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ConversationState":
+        """to_dict() の出力から ConversationState を復元する。"""
+        state = cls()
+        for m in data.get("messages", []):
+            state.append_message(m["role"], m["content"])
+        for k, v in data.get("slots", {}).items():
+            state.set_slot(k, v)
+        return state

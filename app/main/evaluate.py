@@ -16,7 +16,7 @@ from src.db import DB
     CSVは以下のような形式を想定（ヘッダー行あり）。クエリテキストと正解QA IDを含む必要がある。正解QA IDはDBに格納されているqa_idと一致させる必要がある。
     query,qa_id 
     
-    2: ノイズクエリに対するTNR (True Negative Rate) を計算する。
+    2: ノイズクエリに対するTNR (True Negative Rate, 真陰性率) を計算する。
     ノイズクエリ（DBに関連するQAが存在しないクエリ）をCSVで与えると、DB.search_similarのtop-1の距離が閾値以上になる割合を計算してTNRを出力する
     (1.0 に近いほどノイズクエリを正しく拒否できていることになる。)
     CSVは以下のような形式を想定（ヘッダー行あり）。クエリテキストを含む必要がある。
