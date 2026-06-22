@@ -19,10 +19,11 @@ export const StateContainer: React.FC<props> = ({}) => {
       setMessages((prev) => [...prev, { order: nextOrder, role: "user", content: text }]);
 
       try {
+        const currentSummary = summary ?? { id: "", content: "", summarized_upto: 0 };
         const res = await askStateless({
           text,
-          messages,
-          summary: summary ?? { id: "", content: "", summarized_upto: 0 },
+          messages: messages.filter((m) => m.order > currentSummary.summarized_upto),
+          summary: currentSummary,
         });
 
         const displayMessages = res.messages.map((m) =>
