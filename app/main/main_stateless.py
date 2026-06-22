@@ -6,9 +6,8 @@ import os
 
 from src.embedding import get_embedding
 from src.db import DB
-from src.llm import generate_answer_stateful
-from src.models.conversation_state import ConversationState
-from src.session import InMemorySessionStore
+from src.llm import generate_answer_stateful, SummarizeLLM
+from src.models.stateless.message import Message as ModelMessage
 
 app = FastAPI()
 
@@ -29,76 +28,112 @@ _SYSTEM_PROMPT = """\
 4. 問い合わせ内容が当社製品と関係がない場合は、「申し訳ございません、当社の製品に関する操作方法やトラブルシューティングの範疇を超えるため、現在お手持ちの情報からはお答えすることができませんでした。」と回答してください。
 """
 
-# セッションストア（実装の差し替えはここだけ）
-# - 開発・単一プロセス: InMemorySessionStore()
-# - ファイル永続化:    FileSessionStore("sessions/")
-# - Redis 分散:        RedisSessionStore(os.environ["REDIS_URL"])
-# store = InMemorySessionStore()
-
-# class Message(BaseModel):
-#     order: int # summary_message の order は 0 とする？
-#     role: str
-#     content: str
-#     summary_message: bool
-
-# class Request(BaseModel):
-#     session_id: str | None = None  # None の場合はサーバー側で新規発行
-#     text: str
-#     messages: list[Message]
+_summarizer = SummarizeLLM(LMSTUDIO_CHAT_URL, MODEL_CHAT)
 
 
-# class Response(BaseModel):
-#     session_id: str
-#     messages: list[Message]
-
-# @app.post("/ask", response_model=Response)
-    
+class Message(BaseModel):
+    order: int
+    role: str
+    content: str
 
 
-# def _build_user_content(context: str, question: str) -> str:
-#     return f"参考情報:\n{context}\n\n質問:\n{question}"
+class Summary(BaseModel):
+    content: str
+    summarized_upto: int
 
 
-# @app.post("/ask", response_model=Answer)
-# def ask(q: Question):
-#     # セッション解決
-#     session_id = q.session_id or str(uuid.uuid4())
-
-#     state = store.get(session_id)
-#     if state is None:
-#         state = ConversationState()
-#         state.append_message("system", _SYSTEM_PROMPT)
-
-#     # 1. embedding
-#     emb = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, q.text)
-
-#     # 2. 類似検索
-#     with DB(DATABASE_URL) as db:
-#         results = db.search_similar(emb, 3)
-
-#     # 3. コンテキスト生成
-#     context = "\n".join(
-#         f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results
-#     )
-
-#     # 4. メッセージ追加 → LLM 生成
-#     state.append_message("user", _build_user_content(context, q.text))
-
-#     answer = generate_answer_stateful(
-#         LMSTUDIO_CHAT_URL,
-#         MODEL_CHAT,
-#         state.messages_as_dicts(),
-#     )
-
-#     state.append_message("assistant", answer)
-
-#     # 5. セッション保存
-#     store.save(session_id, state)
-
-#     return Answer(session_id=session_id, answer=answer)
+class Request(BaseModel):
+    session_id: str | None = None  # None の場合はサーバー側で新規発行
+    text: str
+    messages: list[Message]
+    summary: Summary
 
 
-# @app.delete("/session/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
-# def delete_session(session_id: str):
-#     """セッションを明示的に削除する。"""
-#     store.delete(session_id)
+class Response(BaseModel):
+    session_id: str
+    messages: list[Message]
+    summary: Summary
+
+
+def _summarize_oldest(
+    messages: list[Message],
+    summary: Summary,
+    n: int = 3,
+) -> tuple[list[Message], Summary]:
+    """order の昇順で先頭 n 件を要約し、残りメッセージと更新後の Summary を返す。
+
+    既存の summary.content がある場合は新しい要約テキストを末尾に追記する。
+    """
+    sorted_msgs = sorted(messages, key=lambda m: m.order)
+    to_summarize = sorted_msgs[:n]
+    rest = sorted_msgs[n:]
+
+    msgs = [ModelMessage(m.order, m.role, m.content) for m in to_summarize]
+    new_text = _summarizer.summarize(msgs, summary.content)
+
+    # combined = (
+    #     f"{summary.content}\n{new_text}".strip() if summary.content else new_text
+    # )
+
+    return rest, Summary(
+        content=new_text,
+        summarized_upto=to_summarize[-1].order,
+    )
+
+
+@app.post("/ask-sl", response_model=Response)
+def ask(req: Request):
+    session_id = req.session_id or str(uuid.uuid4())
+    messages = list(req.messages)
+    summary = req.summary
+
+    # 15件以上のとき、order が若い順に 3 件を要約して messages から除外する
+    if len(messages) >= 15:
+        messages, summary = _summarize_oldest(messages, summary)
+
+    # 1. embedding
+    emb = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, req.text)
+
+    # 2. 類似検索
+    with DB(DATABASE_URL) as db:
+        results = db.search_similar(emb, 3)
+
+    # 3. コンテキスト生成
+    context = "\n".join(
+        f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}" for r in results
+    )
+
+    # 4. 新規メッセージの order 決定
+    next_order = (max(m.order for m in messages) + 1) if messages else 1
+
+    # 5. ユーザーメッセージ追加
+    user_msg = Message(
+        order=next_order,
+        role="user",
+        content=f"参考情報:\n{context}\n\n質問:\n{req.text}",
+    )
+    messages.append(user_msg)
+
+    # 6. LLM 用メッセージリスト構築（system + 要約 + 履歴を order 順に並べる）
+    system_content = _SYSTEM_PROMPT
+    if summary.content:
+        system_content += f"\n\n## これまでの会話の要約:\n{summary.content}"
+
+    llm_messages = [{"role": "system", "content": system_content}]
+    llm_messages += [
+        {"role": m.role, "content": m.content}
+        for m in sorted(messages, key=lambda m: m.order)
+    ]
+
+    # 7. LLM 回答生成
+    answer = generate_answer_stateful(LMSTUDIO_CHAT_URL, MODEL_CHAT, llm_messages)
+
+    # 8. アシスタントメッセージ追加
+    assistant_msg = Message(order=next_order + 1, role="assistant", content=answer)
+    messages.append(assistant_msg)
+
+    return Response(
+        session_id=session_id,
+        messages=messages,
+        summary=summary,
+    )

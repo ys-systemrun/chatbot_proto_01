@@ -1,13 +1,12 @@
 import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-// Vite dev server がリクエストをバックエンドへ転送する。
-// ブラウザから見ると同一オリジンになるため CORS 設定が不要。
 export default defineConfig({
+  plugins: [react()],
   server: {
-    host: true,   // Docker コンテナ外からアクセスできるよう 0.0.0.0 でバインド
+    host: true,
     port: 5173,
     proxy: {
-      // POST /ask, DELETE /session/:id をバックエンドへ転送
       '/ask': {
         target: 'http://app:8000',
         changeOrigin: true,

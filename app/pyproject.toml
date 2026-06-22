@@ -20,7 +20,7 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 
 [tool.fastapi]
-entrypoint = "main.main:app" 
+entrypoint = "main.main_stateless:app" 
 
 [project.scripts]
 seed="main.seed:main_seed_all"

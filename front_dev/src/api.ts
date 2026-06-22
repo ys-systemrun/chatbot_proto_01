@@ -1,22 +1,24 @@
-import type { AskRequest, AskResponse } from './types'
+import type { AskRequest, AskResponse } from "./domain/statefull/types";
+import { Request } from "./domain/stateless/request";
+import { Response } from "./domain/stateless/response";
 
 /**
  * POST /ask を呼び出す。
  * Vite のプロキシが http://app:8000/ask へ転送する。
  */
 export async function ask(req: AskRequest): Promise<AskResponse> {
-  const res = await fetch('/ask', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+  const res = await fetch("/ask", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
-  })
+  });
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '(no body)')
-    throw new Error(`HTTP ${res.status} ${res.statusText}: ${body}`)
+    const body = await res.text().catch(() => "(no body)");
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${body}`);
   }
 
-  return res.json() as Promise<AskResponse>
+  return res.json() as Promise<AskResponse>;
 }
 
 /**
@@ -25,6 +27,21 @@ export async function ask(req: AskRequest): Promise<AskResponse> {
  */
 export async function deleteSession(sessionId: string): Promise<void> {
   await fetch(`/session/${encodeURIComponent(sessionId)}`, {
-    method: 'DELETE',
-  })
+    method: "DELETE",
+  });
+}
+
+export async function askStateless(req: Request): Promise<Response> {
+  const res = await fetch("/ask-sl", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(no body)");
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${body}`);
+  }
+
+  return res.json() as Promise<Response>;
 }

@@ -1,0 +1,13 @@
+services:
+  frontend:
+    build: ./front_dev
+    container_name: chatbot_storybook
+    command: ["npm", "run", "storybook"]
+    ports:
+      - "${STORYBOOK_PORT:-6006}:6006"
+    volumes:
+      - ./front_dev:/app
+      - chatbot_storybook_node_modules:/app/node_modules
+
+volumes:
+  chatbot_storybook_node_modules:

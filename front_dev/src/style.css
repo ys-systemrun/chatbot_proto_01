@@ -28,6 +28,14 @@ body {
   box-shadow: 0 0 24px rgba(0, 0, 0, 0.12);
 }
 
+/* ── Stateless layout fill ──────────────────────────────────── */
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
 /* ── Header ─────────────────────────────────────────────────── */
 #header {
   background: #1a1a2e;

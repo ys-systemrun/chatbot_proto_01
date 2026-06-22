@@ -1,0 +1,12 @@
+{
+  "folders": [
+    { "name": "front_dev", "path": "front_dev" },
+    { "name": "app",       "path": "app"       },
+    { "name": "data (Go)", "path": "data"      },
+    { "name": "root",      "path": "."         }
+  ],
+  "settings": {
+    "typescript.tsdk": "front_dev/node_modules/typescript/lib",
+    "python.defaultInterpreterPath": "/usr/local/bin/python"
+  }
+}

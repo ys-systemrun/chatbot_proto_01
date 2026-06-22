@@ -3,11 +3,17 @@ from __future__ import annotations
 
 import requests
 
-from src.models.conversation_state.message import Message
+from src.models.stateless.message import Message
 
 _SYSTEM_PROMPT = """\
 以下はユーザーとAIアシスタントの会話履歴です。
 この会話の内容を3文程度の日本語で要約してください。
+要約以外の文字（前置き・説明・番号など）は含めないこと。\
+"""
+
+_SYSTEM_PROMPT_WITH_EXISTING = """\
+以下はユーザーとAIアシスタントの会話履歴です。
+「既存の要約」を踏まえたうえで、「追加の会話履歴」の内容も含めた全体を3文程度の日本語で要約してください。
 要約以外の文字（前置き・説明・番号など）は含めないこと。\
 """
 
@@ -29,7 +35,7 @@ class SummarizeLLM:
         self._url = url
         self._model_name = model_name
 
-    def summarize(self, messages: list[Message]) -> str:
+    def summarize(self, messages: list[Message], summary: str = "") -> str:
         """Message のリストを受け取り、会話全体を3文程度に要約して返す。
 
         system ロールのメッセージは要約対象から除外する。
@@ -37,17 +43,26 @@ class SummarizeLLM:
 
         Args:
             messages: 要約対象の Message リスト（ConversationState.messages で取得できる）。
+            summary:  既存の要約テキスト。渡された場合はそれを踏まえた要約を生成する。
 
         Returns:
             要約テキスト。失敗時は空文字列。
         """
         turns = [m for m in messages if m.role != "system"]
         if not turns:
-            return ""
+            return summary
 
-        conversation = "\n".join(
-            f"[{m.role}]: {m.content}" for m in turns
-        )
+        conversation = "\n".join(f"[{m.role}]: {m.content}" for m in turns)
+
+        if summary:
+            system_prompt = _SYSTEM_PROMPT_WITH_EXISTING
+            user_content = (
+                f"[既存の要約]\n{summary}\n\n"
+                f"[追加の会話履歴]\n{conversation}"
+            )
+        else:
+            system_prompt = _SYSTEM_PROMPT
+            user_content = conversation
 
         try:
             res = requests.post(
@@ -55,11 +70,11 @@ class SummarizeLLM:
                 json={
                     "model": self._model_name,
                     "messages": [
-                        {"role": "system", "content": _SYSTEM_PROMPT},
-                        {"role": "user",   "content": conversation},
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user",   "content": user_content},
                     ],
                 },
             )
             return res.json()["choices"][0]["message"]["content"].strip()
         except Exception:
-            return ""
+            return summary
