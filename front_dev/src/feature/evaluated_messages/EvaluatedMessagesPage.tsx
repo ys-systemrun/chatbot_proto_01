@@ -8,8 +8,20 @@ function formatDate(iso: string): string {
   return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function MessageRow({ msg }: { msg: EvaluatedMessage }) {
+function ExpandableCell({ text, className }: { text: string | null; className: string }) {
   const [expanded, setExpanded] = useState(false);
+  if (!text) return <td className={className}>－</td>;
+  return (
+    <td className={className}>
+      <span className={expanded ? "" : "ev-input-truncate"}>{text}</span>
+      <button className="ev-expand-btn" onClick={() => setExpanded((v) => !v)}>
+        {expanded ? "折りたたむ" : "展開"}
+      </button>
+    </td>
+  );
+}
+
+function MessageRow({ msg }: { msg: EvaluatedMessage }) {
   const roleLabel = msg.role === 1 ? "ユーザー" : "アシスタント";
   const evalLabel = msg.evaluation === 1 ? "👍" : msg.evaluation === 2 ? "👎" : "－";
 
@@ -19,17 +31,8 @@ function MessageRow({ msg }: { msg: EvaluatedMessage }) {
       <td className="ev-td">{roleLabel}</td>
       <td className="ev-td ev-td-center">{evalLabel}</td>
       <td className="ev-td ev-td-model">{msg.model ?? "－"}</td>
-      <td className="ev-td ev-td-content">{msg.content ?? "－"}</td>
-      <td className="ev-td ev-td-input">
-        {msg.input ? (
-          <>
-            <span className={expanded ? "" : "ev-input-truncate"}>{msg.input}</span>
-            <button className="ev-expand-btn" onClick={() => setExpanded((v) => !v)}>
-              {expanded ? "折りたたむ" : "展開"}
-            </button>
-          </>
-        ) : "－"}
-      </td>
+      <ExpandableCell text={msg.content} className="ev-td ev-td-content" />
+      <ExpandableCell text={msg.input} className="ev-td ev-td-input" />
       <td className="ev-td ev-td-date">{formatDate(msg.created_at)}</td>
     </tr>
   );
