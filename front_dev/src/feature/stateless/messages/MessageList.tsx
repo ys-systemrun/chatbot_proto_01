@@ -5,9 +5,10 @@ import type { Message } from "../../../domain/stateless/message";
 interface props {
   messages: Message[];
   isLoading?: boolean;
+  onEvaluate: (order: number, value: number) => void;
 }
 
-export default function MessageList({ messages, isLoading = false }: props) {
+export default function MessageList({ messages, isLoading = false, onEvaluate }: props) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -17,7 +18,15 @@ export default function MessageList({ messages, isLoading = false }: props) {
   return (
     <div id="messages">
       {messages.map((msg) => (
-        <MessageBubble key={msg.order} role={msg.role} content={msg.content} />
+        <MessageBubble
+          key={msg.order}
+          role={msg.role}
+          content={msg.content}
+          evaluation={msg.evaluation}
+          onEvaluate={msg.role === "assistant"
+            ? (value) => onEvaluate(msg.order, value)
+            : undefined}
+        />
       ))}
       {isLoading && (
         <div className="message assistant loading">

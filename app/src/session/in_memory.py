@@ -1,7 +1,7 @@
 """オンメモリ SessionStore の実装。"""
 from __future__ import annotations
 
-from src.models.conversation_state import ConversationState
+from src.models.stateful import ConversationState
 
 
 class InMemorySessionStore:

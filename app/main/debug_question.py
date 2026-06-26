@@ -20,6 +20,8 @@ EMBEDDING_MODEL=os.environ["MODEL_EMBEDDING"]
 
 def main():
 
+    """ スクリプト内の質問に対し類似検索⇒回答生成までを呼んでデバッグする """
+
     question:str = "マスタにない歩掛を独自で作成するにはどうすればいいですか？"
     print(datetime.now(ZoneInfo("Asia/Tokyo")))
     print(f"====== Question:\n{question}\n\n")

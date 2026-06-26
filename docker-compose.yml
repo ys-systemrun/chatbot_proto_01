@@ -6,6 +6,7 @@ services:
       - "${BOT_PORT:-8000}:8000"
     environment:
       - DATABASE_URL=postgresql://postgres:postgres@db:5432/chatbot
+      - CONVERSATION_DB_URL=postgresql://postgres:postgres@conversation_db:5432/conversation
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
@@ -22,6 +23,8 @@ services:
       - ./${CSV_DATA_DIR:-data}:/data
     depends_on:
       db:
+        condition: service_healthy
+      conversation_db:
         condition: service_healthy
 
   frontend:
@@ -50,6 +53,24 @@ services:
       - ./${DB_DIR:-db_nomic}/data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d chatbot"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  conversation_db:
+    image: postgres:16
+    container_name: chatbot_conversation_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: conversation
+    ports:
+      - "${CONVERSATION_DB_PORT:-5433}:5432"
+    volumes:
+      - ./db_conversation/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./db_conversation/data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d conversation"]
       interval: 5s
       timeout: 5s
       retries: 20

@@ -2,14 +2,14 @@ import { useCallback, useState } from "react";
 import { LayoutContainer } from "./LayoutContainer";
 import { Message } from "../../domain/stateless/message";
 import { Summary } from "../../domain/stateless/summary";
-import { askStateless } from "../../api";
+import { askStateless, evaluateResponse } from "../../api";
 
-interface props {}
-
-export const StateContainer: React.FC<props> = ({}) => {
+export const StateContainer: React.FC<{}> = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [summary, setSummary] = useState<Summary | undefined>(undefined);
+  const [conversationId, setConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
   const handleSubmit = useCallback(
     async (text: string) => {
       setIsLoading(true);
@@ -21,6 +21,7 @@ export const StateContainer: React.FC<props> = ({}) => {
       try {
         const currentSummary = summary ?? { id: "", content: "", summarized_upto: 0 };
         const res = await askStateless({
+          ...(conversationId ? { conversation_id: conversationId } : {}),
           text,
           messages: messages.filter((m) => m.order > currentSummary.summarized_upto),
           summary: currentSummary,
@@ -31,6 +32,7 @@ export const StateContainer: React.FC<props> = ({}) => {
         );
         setMessages(displayMessages);
         setSummary(res.summary);
+        setConversationId(res.conversation_id);
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -44,7 +46,29 @@ export const StateContainer: React.FC<props> = ({}) => {
         setIsLoading(false);
       }
     },
-    [messages, summary],
+    [messages, summary, conversationId],
+  );
+
+  const handleEvaluate = useCallback(
+    async (order: number, value: number) => {
+      if (!conversationId) return;
+
+      const updatedMessages = messages.map((m) =>
+        m.order === order ? { ...m, evaluation: value } : m
+      );
+      setMessages(updatedMessages);
+
+      try {
+        await evaluateResponse({
+          conversation_id: conversationId,
+          messages: updatedMessages,
+        });
+      } catch (err) {
+        setMessages(messages);
+        console.error("evaluate failed:", err);
+      }
+    },
+    [conversationId, messages],
   );
 
   return (
@@ -52,6 +76,7 @@ export const StateContainer: React.FC<props> = ({}) => {
       messages={messages}
       isLoading={isLoading}
       onSubmit={handleSubmit}
+      onEvaluate={handleEvaluate}
     />
   );
 };

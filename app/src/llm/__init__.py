@@ -6,6 +6,7 @@ from .llm import (
 )
 from .summarize_llm import SummarizeLLM
 from .gen_answer_llm import GenerateAnswerLLM
+from .format_query_to_embed import FormatQueryToEmbed
 
 __all__ = [
     "get_prompt_00",
@@ -14,4 +15,5 @@ __all__ = [
     "generate_answer_stateful",
     "SummarizeLLM",
     "GenerateAnswerLLM",
+    "FormatQueryToEmbed",
 ]

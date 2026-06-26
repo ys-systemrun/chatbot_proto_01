@@ -19,17 +19,28 @@ EMBEDDING_MODEL=os.environ["MODEL_EMBEDDING"]
 
 
 def main():
+    """ 自由デバッグ用 """
 
+    question:str = "吉祥寺駅周辺のおいしいお店を教えて"
+    print(datetime.now(ZoneInfo("Asia/Tokyo")))
+    print(f"====== Question:\n{question}\n\n")
+    # 1. embedding
     emb = get_embedding(
-        "http://host.docker.internal:1234/v1/embeddings",
-        "multilingual-e5-small-gguf",
-        "Aaaaaaaaaaaaa_bbbbbbbbbbbbbbcccccccccccccddddddddddddd"
+        EMBEDDING_URL, 
+        EMBEDDING_MODEL, 
+        question
     )
-    print(len(emb))
 
-    # with DB(DATABASE_URL) as db:
-    #     result = db.exists_category()
-    #     print(result)
+    # 2. 類似検索
+    with DB(DATABASE_URL) as db:
+        results = db.search_similar(emb, 1)
+
+    # 3. コンテキスト生成
+    context = "\n".join(
+        [f"Q_similar: {r[0]}\nQ_original: {r[2]}\nA_original: {r[1]}\nDistance: {r[4]}" for r in results]
+    )
+    print(datetime.now(ZoneInfo("Asia/Tokyo")))
+    print(f"====== Similar:\n{context}\n\n")
 
 
 

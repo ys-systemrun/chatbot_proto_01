@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from src.models.conversation_state import ConversationState
+from src.models.stateful import ConversationState
 
 
 @runtime_checkable

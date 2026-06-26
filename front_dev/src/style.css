@@ -203,6 +203,150 @@ body {
   line-height: 1.5;
 }
 
+/* ── Evaluated messages page ────────────────────────────────── */
+body.page-evaluated #app {
+  max-width: 1200px;
+  height: auto;
+  min-height: 100vh;
+}
+
+.ev-page {
+  padding: 24px 28px;
+  flex: 1;
+}
+
+.ev-title {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: #1a1a2e;
+}
+
+.ev-status {
+  color: #888;
+  padding: 12px 0;
+}
+
+.ev-error {
+  color: #c0392b;
+}
+
+.ev-conv {
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.ev-conv-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 14px;
+  background: #f5f6fa;
+  cursor: pointer;
+  font-size: 0.85rem;
+  list-style: none;
+}
+
+.ev-conv-header::-webkit-details-marker { display: none; }
+
+.ev-conv-id {
+  font-family: monospace;
+  color: #555;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ev-conv-date { color: #888; white-space: nowrap; }
+
+.ev-table-wrap { overflow-x: auto; }
+
+.ev-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.ev-th {
+  background: #fafafa;
+  border-bottom: 1px solid #e0e0e0;
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+}
+
+.ev-td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+
+.ev-td-num     { width: 40px; text-align: center; color: #aaa; }
+.ev-td-center  { text-align: center; }
+.ev-td-model   { width: 140px; word-break: break-all; font-size: 0.78rem; color: #777; }
+.ev-td-content { max-width: 300px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+.ev-td-date    { width: 130px; font-size: 0.78rem; color: #aaa; white-space: nowrap; }
+
+.ev-role-user { background: #fafcff; }
+.ev-role-assistant { background: #fff; }
+
+.ev-input-truncate {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-wrap;
+}
+
+.ev-expand-btn {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.75rem;
+  color: #2980b9;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.ev-expand-btn:hover { text-decoration: underline; }
+
+/* ── Evaluation buttons ─────────────────────────────────────── */
+.eval-buttons {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.eval-btn {
+  background: none;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 0.15s, border-color 0.15s;
+  line-height: 1.6;
+}
+
+.eval-btn:hover {
+  opacity: 0.8;
+}
+
+.eval-btn.active {
+  opacity: 1;
+  border-color: transparent;
+}
+
+.eval-btn.good.active { background: #eaf6ea; }
+.eval-btn.bad.active  { background: #fdecea; }
+
 /* ── Input bar ──────────────────────────────────────────────── */
 #input-bar {
   flex-shrink: 0;

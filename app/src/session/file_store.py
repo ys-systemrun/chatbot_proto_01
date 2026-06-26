@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from src.models.conversation_state import ConversationState
+from src.models.stateful import ConversationState
 
 
 class FileSessionStore:

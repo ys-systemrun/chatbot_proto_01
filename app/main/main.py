@@ -7,7 +7,7 @@ import os
 from src.embedding import get_embedding
 from src.db import DB
 from src.llm import generate_answer_stateful
-from src.models.conversation_state import ConversationState
+from src.models.stateful import ConversationState
 from src.session import InMemorySessionStore
 
 app = FastAPI()

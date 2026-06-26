@@ -7,13 +7,16 @@ export default defineConfig({
     host: true,
     port: 5173,
     proxy: {
-      '/ask': {
+      '/ask': { target: 'http://app:8000', changeOrigin: true },
+      '/session': { target: 'http://app:8000', changeOrigin: true },
+      '/evaluate_response': { target: 'http://app:8000', changeOrigin: true },
+      '/evaluated_messages': {
         target: 'http://app:8000',
         changeOrigin: true,
-      },
-      '/session': {
-        target: 'http://app:8000',
-        changeOrigin: true,
+        bypass(req) {
+          // ブラウザのページ遷移はフロントエンドに返す
+          if (req.headers.accept?.includes('text/html')) return '/index.html';
+        },
       },
     },
   },
