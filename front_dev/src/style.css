@@ -316,6 +316,15 @@ body.page-evaluated #app {
 
 .ev-expand-btn:hover { text-decoration: underline; }
 
+/* ── Disclaimer ─────────────────────────────────────────────── */
+.disclaimer {
+  margin-top: 8px;
+  font-size: 0.72rem;
+  color: #999;
+  text-align: center;
+  line-height: 1.5;
+}
+
 /* ── Evaluation buttons ─────────────────────────────────────── */
 .eval-buttons {
   display: flex;

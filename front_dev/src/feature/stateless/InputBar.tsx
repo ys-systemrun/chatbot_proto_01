@@ -46,6 +46,9 @@ export default function InputBar({ onSubmit, disabled = false }: props) {
           {disabled ? "送信中…" : "送信"}
         </button>
       </form>
+      <p className="disclaimer">
+        Chatbotの回答は誤りを含む可能性があります。内容は必ずご確認ください。
+      </p>
     </footer>
   );
 }
