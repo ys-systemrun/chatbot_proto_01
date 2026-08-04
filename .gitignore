@@ -4,3 +4,4 @@ app/chatbot_invitro.egg-info/
 **/__pycache__/
 db_multilingual/data/
 db_conversation/data/
+data/original_qa_frac/
