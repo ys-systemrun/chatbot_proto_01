@@ -5,3 +5,4 @@ app/chatbot_invitro.egg-info/
 db_multilingual/data/
 db_conversation/data/
 data/original_qa_frac/
+web_backend/chatbot_invitro.egg-info/

@@ -1,0 +1,27 @@
+[project]
+name = "knowledge_mcp"
+version = "0.1.0"
+description = "Knowledge MCP server for chatbot_invitro (search_knowledge + tag management tools)"
+requires-python = ">=3.11"
+
+dependencies = [
+    "mcp>=1.2.0",
+    "psycopg2-binary",
+    "requests",
+    "uvicorn",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+knowledge-mcp = "knowledge_mcp.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+]

@@ -1,7 +1,7 @@
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
 2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。
-3. app\main\debug_question.py 内の ''' question:str = ''' の後ろ部分を任意の質問に変更し、debug_question を実行するとシーディング(不要な場合スキップ)および問い合わせに対する類似データ検索・回答生成の動作を確認できます。
+3. web_backend\main\debug_question.py 内の ''' question:str = ''' の後ろ部分を任意の質問に変更し、debug_question を実行するとシーディング(不要な場合スキップ)および問い合わせに対する類似データ検索・回答生成の動作を確認できます。
 
 #### .env 設定項目
 
@@ -55,7 +55,7 @@ docker compose up -d --build
 ```bash
 docker compose ps
 docker compose logs -f frontend   # Vite の起動ログ
-docker compose logs -f app        # FastAPI の起動ログ
+docker compose logs -f web_backend        # FastAPI の起動ログ
 ```
 
 `chatbot_frontend` のログに `Local: http://localhost:5173/` が表示されれば準備完了です。
@@ -111,7 +111,7 @@ http://localhost:5173
 | 症状 | 確認箇所 |
 |---|---|
 | `http://localhost:5173` に繋がらない | `docker compose ps` で `chatbot_frontend` が `Up` か確認。`docker compose logs frontend` でエラーを確認 |
-| 質問を送ると `502 Bad Gateway` が返る | `chatbot_app` が起動しているか確認。`docker compose logs app` を参照 |
+| 質問を送ると `502 Bad Gateway` が返る | `chatbot_app` が起動しているか確認。`docker compose logs web_backend` を参照 |
 | 回答が返らず長時間待機になる | LMStudio でモデルがロードされているか確認 |
 | `Session ID` が毎回変わる | `chatbot_app` が再起動している可能性あり。`InMemorySessionStore` はプロセス再起動でデータが失われる |
 
@@ -149,7 +149,7 @@ MODEL_EMBEDDING=text-embedding-nomic-embed-text-v1.5@q8_0
 - 開発インストールしてプロジェクトスクリプトを使う方法（推奨、一度だけ）:
 
 ```bash
-python -m pip install -e app
+python -m pip install -e web_backend
 evaluate
 ```
 
@@ -160,4 +160,45 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 ```
 
 実行時は `DATABASE_URL`, `LMSTUDIO_EMBEDDING_URL`, `MODEL_EMBEDDING` が環境に設定されている必要があります。出力に MRR が表示され、`--output` でクエリごとの順位情報を CSV に保存できます。
+
+## Knowledge MCP サーバ
+
+`knowledge_mcp/` は、既存の Q&A ナレッジベースを MCP（Model Context Protocol）経由で検索・管理するための独立サービスです（IMPL-202608041013 / ADR-0001〜0006）。既存 `web_backend` の `search_similar` はそのまま残し、並行運用します。
+
+- トランスポート: Streamable HTTP（MCP エンドポイントは `/mcp`、ヘルスチェックは `/health`）
+- 提供ツール:
+  - `search_knowledge` … クエリの意味検索。`tags` / `category` フィルタ、`min_score` に対応
+  - `list_tags` / `create_tag` / `rename_tag` / `move_tag` / `delete_tag` … タグマスタ管理（`tag` / `qa_tag` テーブル）
+
+### 事前準備（DBスキーマ移行）
+
+既存の稼働中 `chatbot_db` には `title` 列と `tag` / `qa_tag` テーブルが必要です。`db_nomic/init.sql` は初回起動時のみ実行されるため、**既存DBには移行SQLを個別に適用**してください。
+
+```bash
+# 既存DBへ移行を適用（title 列 + tag/qa_tag テーブル・インデックス）
+docker compose exec -T db_hiroba_qa psql -U postgres -d chatbot < knowledge_mcp/migrations/0001_add_title_and_tag_tables.sql
+
+# 既存JSONから title を補完（タグはJSONに tags フィールドがある場合のみ投入。冪等）
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chatbot \
+  python knowledge_mcp/migrations/backfill_title_and_tags.py --json data/exportjson_withguid.json
+```
+
+> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、補完バッチでは `title` のみが補完されます（タグ投入は 0 件）。
+
+### 起動
+
+```bash
+docker compose up -d knowledge_mcp
+# ヘルスチェック
+curl -f http://localhost:${KNOWLEDGE_MCP_PORT:-8100}/health
+```
+
+`.env` 設定項目（`.env.example` 参照）:
+
+| 項目 | 値の例 | 説明 |
+|---|---|---|
+| KNOWLEDGE_MCP_PORT | 8100 | Knowledge MCP サーバの対ホストポート |
+| KNOWLEDGE_MCP_DEFAULT_TOP_K | 5 | `search_knowledge` の既定 top_k |
+
+> セキュリティ: 本フェーズでは追加認証を実装していません（Open Issue #4, #10）。書き込み系のタグ管理ツールを含むため、社内ネットワーク外へポートを公開しないでください。
 
