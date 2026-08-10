@@ -11,6 +11,8 @@ dependencies = [
     "psycopg2-binary",
     "requests",
     "uvicorn",
+    # AWS 環境（EMBEDDING_PROVIDER=bedrock）で Bedrock InvokeModel API を呼び出すため（IMPL-202608101616）。
+    "boto3",
 ]
 
 [build-system]

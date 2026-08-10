@@ -8,6 +8,9 @@ dependencies = [
     "langgraph",
     "langchain-mcp-adapters",
     "langchain-openai",
+    # AWS 環境（LLM_PROVIDER=bedrock）で ChatBedrockConverse を使うため（IMPL-202608101616）。
+    # boto3 は langchain-aws の依存として導入される。
+    "langchain-aws",
     "ipython",
 ]
 
