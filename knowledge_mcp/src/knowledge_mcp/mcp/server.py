@@ -14,6 +14,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ..db.connection import Database
+from ..repository.qa_management_repository import QaManagementRepository
 from ..repository.qa_repository import QARepository
 from ..repository.tag_repository import TagRepository
 from ..services.search_service import SearchService
@@ -43,6 +44,7 @@ def create_server() -> FastMCP:
 
     qa_repository = QARepository(db, embed_fn)
     tag_repository = TagRepository(db)
+    qa_management_repository = QaManagementRepository(db, embed_fn)
     # MVP では QARepository のみ。将来 PDF/Manual Repository を append すれば拡張可能。
     search_service = SearchService([qa_repository])
 
@@ -56,6 +58,7 @@ def create_server() -> FastMCP:
         mcp,
         search_service=search_service,
         tag_repository=tag_repository,
+        qa_management_repository=qa_management_repository,
         default_top_k=default_top_k,
     )
 

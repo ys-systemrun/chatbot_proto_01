@@ -5,7 +5,9 @@ description = "Knowledge MCP server for chatbot_invitro (search_knowledge + tag 
 requires-python = ">=3.11"
 
 dependencies = [
-    "mcp>=1.2.0",
+    # FastMCP（mcp.server.fastmcp）を用いるため 1.x 系に固定する。
+    # 2.0 系はパッケージ構成が変わり mcp.server.fastmcp が存在しない。
+    "mcp>=1.2.0,<2",
     "psycopg2-binary",
     "requests",
     "uvicorn",

@@ -10,8 +10,6 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Iterator
 
-import psycopg2
-
 
 class Database:
     """DB接続ファクトリ。リポジトリにDIで渡す。"""
@@ -20,7 +18,13 @@ class Database:
         self.url = url
 
     def connect(self):
-        """新規のpsycopg2コネクションを返す。"""
+        """新規のpsycopg2コネクションを返す。
+
+        psycopg2 は接続時のみ必要なため、遅延importする
+        （Fake DB を使う単体テストがドライバ未導入環境でも動くようにする）。
+        """
+        import psycopg2
+
         return psycopg2.connect(self.url)
 
     @contextmanager

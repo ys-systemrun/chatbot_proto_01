@@ -1,12 +1,13 @@
+"""シードデータ（CSV/JSON）の読み込み（web_backend/src/seed_helpers.py から移管）。"""
+
 import csv
 import json
 import os
 import uuid
 from typing import List
 
-from .models.category import Category
-from .models.qa_original import QAOriginal
-from .models.question_altered import QuestionAltered
+from models import Category, QAOriginal, QuestionAltered
+
 
 def resolve_csv_path(filename: str, data_dir: str) -> str:
     if not data_dir:
@@ -24,9 +25,7 @@ def load_category_csv(data_dir: str, category_file: str):
         fieldnames = reader.fieldnames or []
         required = {"id", "name"}
         if not required.issubset(fieldnames):
-            raise ValueError(
-                "category CSV must contain headers: id, name"
-            )
+            raise ValueError("category CSV must contain headers: id, name")
         for row in reader:
             rows.append(Category(id=int(row["id"]), name=row["name"]))
     return rows

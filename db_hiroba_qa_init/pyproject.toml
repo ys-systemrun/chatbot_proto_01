@@ -1,0 +1,20 @@
+[project]
+name = "db_hiroba_qa_init"
+version = "0.1.0"
+description = "One-shot DB migration & seed service for chatbot_invitro (IMPL-202608061016)"
+requires-python = ">=3.11"
+
+dependencies = [
+    "psycopg2-binary",
+    "requests",
+    "yoyo-migrations",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+# src/ はスクリプトとして直接実行する（python src/main.py）ため、
+# パッケージとしてのインストール対象は持たない。依存関係のインストールのみを目的とする。
+[tool.setuptools]
+py-modules = []

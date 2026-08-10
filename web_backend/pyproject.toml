@@ -10,6 +10,10 @@ dependencies = [
     "psycopg2-binary",
     "requests",
     "numpy",
+    # Bedrock 版 LLM クラス（src/llm/*_bedrock.py）が import するため必須。
+    "boto3",
+    # MCPクライアント（Knowledge MCP 接続）に使用。2.0 系はパッケージ構成が変わるため 1.x 系に固定する。
+    "mcp>=1.8.0,<2",
 ]
 
 [build-system]
@@ -23,10 +27,7 @@ where = ["."]
 entrypoint = "main.main_stateless:app" 
 
 [project.scripts]
-seed="main.seed:main_seed_all"
-seed_category="main.seed:main_seed_category"
-seed_qa_original="main.seed:main_seed_qa_original"
-seed_question_altered="main.seed:main_seed_question_altered"
+# シード機能は db_hiroba_qa_init サービスへ移管した（IMPL-202608061016）。
 debug = "main.debug:main"
 debug_question = "main.debug_question:main"
 evaluate = "main.evaluate:main"

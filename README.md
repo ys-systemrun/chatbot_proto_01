@@ -1,7 +1,21 @@
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
-2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。
-3. web_backend\main\debug_question.py 内の ''' question:str = ''' の後ろ部分を任意の質問に変更し、debug_question を実行するとシーディング(不要な場合スキップ)および問い合わせに対する類似データ検索・回答生成の動作を確認できます。
+2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。`DB_DIR` に対応した `EMBEDDING_VECTOR_DIM`（`db_nomic` なら 768、`db_multilingual` なら 384）を必ず設定してください。
+3. `docker compose up` を実行してください。スキーマ作成（マイグレーション）と初期データ投入（シード、embedding計算を含む）は、専用のワンショットサービス `db_hiroba_qa_init` が自動的に実行します（IMPL-202608061016 / ADR-0016〜0018）。手動でのシーディング操作は不要です。既存データが投入済みの場合は、テーブル単位の存在チェックにより自動的にスキップされます。
+
+> **注意**: シードは `question_altered` の各行について LM Studio の embedding エンドポイントを呼び出します。`docker compose up` の前に LM Studio を起動し、embedding 用モデルをロードしておいてください。未起動のままだと `db_hiroba_qa_init` がシードに失敗し（非0終了）、これに依存する `web_backend` / `knowledge_mcp` / `tag_selector_mcp` は起動しません。ログは `docker compose logs db_hiroba_qa_init` で確認できます。
+
+#### 既存環境（手動 migration 適用済みボリューム）からの移行
+
+既に旧方式（`db_nomic/init.sql` ＋ `knowledge_mcp/migrations/` 等の手動適用）でスキーマを構築済みの既存 `db_nomic/data` を使う場合、`db_hiroba_qa_init` の全マイグレーションSQLは `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` でガードされているため、**そのまま `docker compose up` しても既存テーブル・列に対して無害に完了します**（未追跡のマイグレーションを yoyo が再実行しても、実体は作成済みのためスキップと同義）。
+
+マイグレーションを「適用済み」として yoyo の追跡テーブルに明示登録（ベースライン化）したい場合は、`yoyo mark` を利用できます。
+
+```bash
+# 実行前に LM Studio 等は不要（マイグレーション履歴の登録のみ）。既存の全ステップを適用済みとして記録する。
+docker compose run --rm db_hiroba_qa_init \
+  yoyo mark --batch --database "postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot" ./migrations
+```
 
 #### .env 設定項目
 
@@ -10,7 +24,8 @@
 | BOT_PORT | 8000 | FastAPI がリクエストを受け付けるポート |
 | FRONT_PORT | 5173 | デバッグ UI (Vite dev server) の対ホストポート |
 | DB_PORT | 5432 | Q&Aおよび埋め込みベクトルデータを保存するPostgreSQL DBコンテナの対ホストポート |
-| DB_DIR | db_nomic | DBとして使うディレクトリ。embedding用のモデルを切り替える場合、埋め込み次元数の都合上テーブル定義が変わってくるので init.sql を可換とする。 ./{DB_DIR}/data 下には PostgreSQL のデータクラスタが構築される。 |
+| DB_DIR | db_nomic | DBとして使うディレクトリ。 ./{DB_DIR}/data 下には PostgreSQL のデータクラスタが構築される（永続化ボリューム）。 |
+| EMBEDDING_VECTOR_DIM | 768 | `db_hiroba_qa_init` が `question_altered.embedding` を `VECTOR(N)` で作成する際の次元数。`DB_DIR` に対応させる（`db_nomic`→768, `db_multilingual`→384）。埋め込みモデル差異はこの1変数で吸収し、スキーマは単一のマイグレーション履歴で管理する（ADR-0017）。 |
 | CSV_DATA_DIR | data | 読み込むデータ内容を記述したCSVファイルやJSONファイルを配置したディレクトリ。 |
 | QA_ORIGINAL_FILE | exportjson_withguid_small.json | オリジナルの質問・回答の組データのJSONファイル。(GUIDを付与したもの) |
 | QUESTION_ALTERED_FILE | question_altered_small.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
@@ -169,21 +184,14 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 - 提供ツール:
   - `search_knowledge` … クエリの意味検索。`tags` / `category` フィルタ、`min_score` に対応
   - `list_tags` / `create_tag` / `rename_tag` / `move_tag` / `delete_tag` … タグマスタ管理（`tag` / `qa_tag` テーブル）
+  - `set_tag_description` / `add_tag_alias` / `remove_tag_alias` … タグの説明文・同義語管理（IMPL-202608060837 / `tag_alias` テーブル）。`create_tag` / `rename_tag` は任意の `description` パラメータに対応。`list_tags` は `description` / `aliases` を含む
+  - `list_qa` / `get_qa` / `create_qa` / `update_qa` / `list_categories` … QA管理（IMPL-202608060837 / ADR-0014）。`create_qa` は `question_text` から embedding を計算し、主となる `question_altered`（`is_primary=true`）を1件生成する
 
 ### 事前準備（DBスキーマ移行）
 
-既存の稼働中 `chatbot_db` には `title` 列と `tag` / `qa_tag` テーブルが必要です。`db_nomic/init.sql` は初回起動時のみ実行されるため、**既存DBには移行SQLを個別に適用**してください。
+`title` 列・`tag` / `qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
 
-```bash
-# 既存DBへ移行を適用（title 列 + tag/qa_tag テーブル・インデックス）
-docker compose exec -T db_hiroba_qa psql -U postgres -d chatbot < knowledge_mcp/migrations/0001_add_title_and_tag_tables.sql
-
-# 既存JSONから title を補完（タグはJSONに tags フィールドがある場合のみ投入。冪等）
-DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chatbot \
-  python knowledge_mcp/migrations/backfill_title_and_tags.py --json data/exportjson_withguid.json
-```
-
-> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、補完バッチでは `title` のみが補完されます（タグ投入は 0 件）。
+> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_hiroba_qa_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
 
 ### 起動
 
@@ -202,3 +210,79 @@ curl -f http://localhost:${KNOWLEDGE_MCP_PORT:-8100}/health
 
 > セキュリティ: 本フェーズでは追加認証を実装していません（Open Issue #4, #10）。書き込み系のタグ管理ツールを含むため、社内ネットワーク外へポートを公開しないでください。
 
+## Tag Selector MCP サーバ
+
+`tag_selector_mcp/` は、質問文に最も関連する既存タグを選択するための独立サービスです（IMPL-202608051712 / ADR-0007〜0012）。Knowledge MCP が管理する `tag` テーブルを正本とし、`tag_alias`（同義語）と `tag.description` を用いて選択します。
+
+- トランスポート: Streamable HTTP（MCP エンドポイントは `/mcp`、ヘルスチェックは `/health`）
+- タグ選択方式（MVP, ADR-0009）: Alias 辞書によるルールベース照合 ＋ ローカルLLM（LM Studio）による一段階選択。Embedding 層・階層探索は未実装。
+- 提供ツール:
+  - `select_tags` … 質問文に関連するタグを `id` / `name` / `score` / `path` で score 降順に返す（`max_tags` / `confidence_threshold` に対応）
+  - `list_taxonomy` … キャッシュ中のタグ知識ベース（`id` / `name` / `description` / `parent_tag_id` / `aliases`）を返す
+  - `reload_taxonomy` … タグ知識ベースをDBから再読込し件数を返す
+- タグ知識ベースは起動時ロード＋定期ポーリング（`TAXONOMY_RELOAD_INTERVAL_SEC`）＋ `reload_taxonomy` による明示リロードでメモリにキャッシュします（ADR-0011）。
+
+### 事前準備（DBスキーマ移行・暫定シード）
+
+`tag.description` 列・`tag_alias` テーブルの作成、および動作確認用の暫定 description / alias 投入は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用・暫定シードスクリプトの手動実行は不要になりました。旧 `tag_selector_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/0005_add_tag_description_and_alias.sql` および `db_hiroba_qa_init` のシード処理へ統合済みです。
+
+> 注: この暫定 description / alias は MVP 動作確認用のデータです。本番運用向けの網羅的な整備は Knowledge MCP 側のタグ管理ツール拡張後に別途行います（Open Issue #2）。
+
+### 起動
+
+LM Studio でチャット補完モデルをロードし、`.env` に接続情報を設定した上で起動します。
+
+```bash
+docker compose up -d tag_selector_mcp
+# ヘルスチェック
+curl -f http://localhost:${TAG_SELECTOR_MCP_PORT:-8200}/health
+```
+
+`.env` 設定項目（`.env.example` 参照）:
+
+| 項目 | 値の例 | 説明 |
+|---|---|---|
+| TAG_SELECTOR_MCP_PORT | 8200 | Tag Selector MCP サーバの対ホストポート |
+| LLM_PROVIDER | lmstudio | LLM 実装の切り替え（MVP は `lmstudio` のみ） |
+| LMSTUDIO_CHAT_URL | http://host.docker.internal:1234/v1/chat/completions | LM Studio のチャット補完API（ベースURL・フルURLどちらでも可） |
+| LMSTUDIO_CHAT_MODEL | （ロード済みモデル名） | チャット補完に使用するモデル名 |
+| TAXONOMY_RELOAD_INTERVAL_SEC | 300 | タグ知識ベースの自動リロード間隔（秒） |
+| TAG_SELECTOR_DEFAULT_MAX_TAGS | 3 | `select_tags` の既定 `max_tags` |
+| TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD | 0.0 | `select_tags` の既定 `confidence_threshold` |
+
+> セキュリティ: 本フェーズでは追加認証を実装していません（Open Issue #6）。社内ネットワーク外へポートを公開しないでください。
+
+
+## QA・タグ管理 UI（front_dev / web_backend 拡張）
+
+`front_dev` の `/admin` 配下に、QAデータとタグ階層を登録・編集するための管理画面を追加しました（IMPL-202608060837 / ADR-0013〜0015）。`web_backend` が MCP クライアントとして Knowledge MCP のツールを呼び出す BFF（`/api/*`）を提供し、`chatbot_db` への直接書き込みは行いません。
+
+- 画面（`react-router-dom` を `/admin` 配下のみで使用。既存3画面の分岐方式は不変）:
+  - `http://localhost:5173/admin/qa` … QA一覧（キーワード・カテゴリ・タグで絞り込み、ページング）
+  - `http://localhost:5173/admin/qa/new` … QA新規登録
+  - `http://localhost:5173/admin/qa/:id` … QA編集
+  - `http://localhost:5173/admin/tags` … タグ階層（作成・名称変更・説明編集・親変更・削除。同義語は表示のみ）
+- BFF API（`web_backend`、`/api` プロキシ経由）:
+  - `GET/POST /api/qa`, `GET/PUT /api/qa/{id}`, `GET /api/categories`
+  - `GET/POST /api/tags`, `PUT/DELETE /api/tags/{id}`
+- タグ削除は、`qa_tag` 参照・子タグ存在時は拒否され、削除可能な場合は紐づく `tag_alias` も連動削除されます。
+
+### 事前準備
+
+Knowledge MCP サーバ（上記）が起動していることが前提です。`question_altered.is_primary` 列を含むスキーマ移行は `db_hiroba_qa_init` が自動適用します（IMPL-202608061016）。`web_backend` は `KNOWLEDGE_MCP_URL` で Knowledge MCP へ接続します。
+
+`.env` 設定項目（`.env.example` 参照）:
+
+| 項目 | 値の例 | 説明 |
+|---|---|---|
+| KNOWLEDGE_MCP_URL | http://knowledge_mcp:8100/mcp | `web_backend` が接続する Knowledge MCP のエンドポイント |
+
+### 起動
+
+```bash
+docker compose up -d knowledge_mcp web_backend frontend
+```
+
+ブラウザで `http://localhost:5173/admin/qa` を開きます。`web_backend` は `knowledge_mcp` のヘルスチェック完了後に起動します（`depends_on`）。
+
+> セキュリティ: 本フェーズでは書き込み系API（QA・タグの登録編集削除）に追加認証を実装していません（Open Issue #2）。社内ネットワーク外へ公開しないでください。

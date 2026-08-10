@@ -1,8 +1,7 @@
--- IMPL-202608041013 / T2
--- 既存 chatbot_db に title 列 + tag / qa_tag テーブルを追加するマイグレーション。
--- 稼働中DBには init.sql が再実行されないため、本SQLを個別に適用する（実装指示書4.2節）。
---   docker compose exec db psql -U postgres -d chatbot -f /path/to/0001_add_title_and_tag_tables.sql
--- 冪等（IF NOT EXISTS）なので複数回適用しても安全。
+-- IMPL-202608061016 / 統合マイグレーション 0003
+-- 旧 knowledge_mcp/migrations/0001_add_title_and_tag_tables.sql 相当。
+-- qa_original.title 列と tag / qa_tag テーブル・インデックスを追加する。
+-- 冪等（IF NOT EXISTS）。
 
 ALTER TABLE qa_original
     ADD COLUMN IF NOT EXISTS title TEXT;

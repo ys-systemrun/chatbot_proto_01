@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import os
 
@@ -10,8 +11,21 @@ from src.conversation_db import ConversationDB, EvaluatedConversationData, Messa
 from src.llm import FormatQueryToEmbed, GenerateAnswerLLM, SummarizeLLM
 from src.log import log_format_query, log_generate, log_search
 from src.models.stateless.message import Message as ModelMessage
+from src.mcp_client import KnowledgeMcpError
+from main.admin_qa import router as admin_qa_router
+from main.admin_tags import router as admin_tags_router
 
 app = FastAPI()
+
+# 管理UI向け /api ルータ（既存 /ask-sl 等のエンドポイントは変更しない）。
+app.include_router(admin_qa_router)
+app.include_router(admin_tags_router)
+
+
+@app.exception_handler(KnowledgeMcpError)
+async def _knowledge_mcp_error_handler(_request: Request, exc: KnowledgeMcpError):
+    """Knowledge MCP 側の業務エラー（QaError/TagError 相当）を 409 へマッピングする（T13）。"""
+    return JSONResponse(status_code=409, content={"detail": exc.message})
 
 DATABASE_URL = os.environ["DATABASE_URL"]
 CONVERSATION_DB_URL = os.environ["CONVERSATION_DB_URL"]

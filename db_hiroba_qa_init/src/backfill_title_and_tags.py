@@ -1,32 +1,22 @@
-"""既存投入データの補完バッチ（実装指示書 T3 / 4.3節）。
+"""既存投入データの title / タグ補完（knowledge_mcp/migrations/backfill_title_and_tags.py から移管）。
 
-data/exportjson_withguid.json を読み込み、以下を投入する。
+QA_ORIGINAL_FILE（exportjson_withguid.json 等）を読み込み、以下を投入する。
   1. title の補完: guid を qa_original.uuid に突き合わせて title を UPDATE。
   2. タグの投入（2段階）:
      (a) ユニークなタグ名を tag へ INSERT ... ON CONFLICT (name) DO NOTHING（parent_tag_id は NULL）。
      (b) guid とタグ名から tag.id を引き当て、qa_tag(qa_id, tag_id) へ INSERT ... ON CONFLICT DO NOTHING。
 
-- 冪等（何度実行しても同じ結果。ON CONFLICT DO NOTHING を活用）。
-- 既存 app/src/seed_helpers.py の JSON パースロジックを参考にしている。
+- 冪等（何度実行しても同じ結果。ON CONFLICT DO NOTHING を活用）。存在チェックではなく
+  「未設定の行のみ」を対象にするため、db_hiroba_qa_init のシードフローで毎回安全に呼べる。
 - 現行の exportjson_withguid.json にはレコード単位の "tags" フィールドが無いため、
   実運用ではタグ投入は 0 件となる（title のみ補完される）。将来 JSON にタグが付与された場合、
   レコードの "tags"（配列）または "tag" を自動的に取り込む。
-
-使い方（例）:
-    # ホストからDBへ直接接続する場合
-    DATABASE_URL=postgresql://postgres:postgres@localhost:5432/chatbot \
-      python knowledge_mcp/migrations/backfill_title_and_tags.py \
-      --json data/exportjson_withguid.json
 """
 
 from __future__ import annotations
 
-import argparse
 import json
-import os
 from typing import List
-
-import psycopg2
 
 
 def _normalize_tags(item: dict) -> List[str]:
@@ -117,41 +107,3 @@ def backfill(conn, items: list) -> dict:
         "unique_tags": len(tag_names),
         "qa_tag_links": linked,
     }
-
-
-def main() -> None:
-    parser = argparse.ArgumentParser(
-        description="Backfill title and tags into chatbot_db from exportjson."
-    )
-    parser.add_argument(
-        "--json",
-        default=os.environ.get("BACKFILL_JSON", "data/exportjson_withguid.json"),
-        help="Path to exportjson_withguid.json",
-    )
-    parser.add_argument(
-        "--db-url",
-        default=os.environ.get("DATABASE_URL"),
-        help="Database URL (env DATABASE_URL)",
-    )
-    args = parser.parse_args()
-
-    if not args.db_url:
-        raise SystemExit("DATABASE_URL not provided via --db-url or environment")
-
-    items = load_records(args.json)
-    conn = psycopg2.connect(args.db_url)
-    try:
-        stats = backfill(conn, items)
-    finally:
-        conn.close()
-
-    print(
-        "backfill done: "
-        f"titles updated={stats['updated_titles']}, "
-        f"unique tags={stats['unique_tags']}, "
-        f"qa_tag links={stats['qa_tag_links']}"
-    )
-
-
-if __name__ == "__main__":
-    main()

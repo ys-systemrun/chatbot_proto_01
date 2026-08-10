@@ -17,6 +17,8 @@ services:
       - CATEGORY_FILE=${CATEGORY_FILE}
       - EVAL_QUERIES_CSV=${EVAL_QUERIES_CSV}
       - EVAL_NOISE_QUERIES_CSV=${EVAL_NOISE_QUERIES_CSV}
+      # 管理UI（IMPL-202608060837）: Knowledge MCP へ MCPクライアントとして接続する
+      - KNOWLEDGE_MCP_URL=${KNOWLEDGE_MCP_URL:-http://knowledge_mcp:8100/mcp}
     tty: true
     volumes:
       - ./web_backend:/app
@@ -24,7 +26,11 @@ services:
     depends_on:
       db_hiroba_qa:
         condition: service_healthy
+      db_hiroba_qa_init:
+        condition: service_completed_successfully
       conversation_db:
+        condition: service_healthy
+      knowledge_mcp:
         condition: service_healthy
 
   frontend:
@@ -49,13 +55,37 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      - ./${DB_DIR:-db_nomic}/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # IMPL-202608061016: スキーマ作成は db_hiroba_qa_init に集約したため
+      # init.sql のマウントは廃止。データ永続化ボリュームのみ残す。
       - ./${DB_DIR:-db_nomic}/data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d chatbot"]
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # IMPL-202608061016 / ADR-0016〜0018:
+  # スキーマ作成（マイグレーション）とシード（embedding計算を含む）を一度だけ実行し
+  # 終了するワンショットサービス。db_hiroba_qa の healthy 後に起動し、正常終了（exit 0）を
+  # もって web_backend / knowledge_mcp / tag_selector_mcp の起動条件を満たす。
+  db_hiroba_qa_init:
+    build: ./db_hiroba_qa_init
+    container_name: chatbot_db_init
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
+      - EMBEDDING_VECTOR_DIM=${EMBEDDING_VECTOR_DIM}
+      - CSV_DATA_DIR=${CSV_DATA_DIR}
+      - QA_ORIGINAL_FILE=${QA_ORIGINAL_FILE}
+      - QUESTION_ALTERED_FILE=${QUESTION_ALTERED_FILE}
+      - CATEGORY_FILE=${CATEGORY_FILE}
+      - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
+      - MODEL_EMBEDDING=${MODEL_EMBEDDING}
+    volumes:
+      - ./${CSV_DATA_DIR:-data}:/data
+    depends_on:
+      db_hiroba_qa:
+        condition: service_healthy
+    restart: "no"
 
   knowledge_mcp:
     build: ./knowledge_mcp
@@ -70,11 +100,59 @@ services:
     depends_on:
       db_hiroba_qa:
         condition: service_healthy
+      db_hiroba_qa_init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
       interval: 5s
       timeout: 5s
       retries: 20
+
+  tag_selector_mcp:
+    build: ./tag_selector_mcp
+    container_name: chatbot_tag_selector_mcp
+    ports:
+      - "${TAG_SELECTOR_MCP_PORT:-8200}:8200"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
+      - LLM_PROVIDER=${LLM_PROVIDER:-lmstudio}
+      - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
+      - LMSTUDIO_CHAT_MODEL=${LMSTUDIO_CHAT_MODEL:-${MODEL_CHAT}}
+      - TAXONOMY_RELOAD_INTERVAL_SEC=${TAXONOMY_RELOAD_INTERVAL_SEC:-300}
+      - TAG_SELECTOR_DEFAULT_MAX_TAGS=${TAG_SELECTOR_DEFAULT_MAX_TAGS:-3}
+      - TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD=${TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD:-0.0}
+    depends_on:
+      db_hiroba_qa:
+        condition: service_healthy
+      db_hiroba_qa_init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Conversation Agent（LangGraph MCPホスト実験、IMPL-202608061725 / ADR-0019〜0022）。
+  # 常駐HTTPサーバー化はせず、docker compose exec agent_invitro ipython で対話的に動作確認する。
+  agent_invitro:
+    build: ./agent_invitro
+    container_name: chatbot_agent_invitro
+    environment:
+      - KNOWLEDGE_MCP_URL=${KNOWLEDGE_MCP_URL:-http://knowledge_mcp:8100/mcp}
+      - TAG_SELECTOR_MCP_URL=${TAG_SELECTOR_MCP_URL:-http://tag_selector_mcp:8200/mcp}
+      - LLM_PROVIDER=${LLM_PROVIDER:-lmstudio}
+      - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
+      - LMSTUDIO_CHAT_MODEL=${LMSTUDIO_CHAT_MODEL:-${MODEL_CHAT}}
+    tty: true
+    stdin_open: true
+    command: ["sleep", "infinity"]
+    volumes:
+      - ./agent_invitro:/app
+    depends_on:
+      knowledge_mcp:
+        condition: service_healthy
+      tag_selector_mcp:
+        condition: service_healthy
 
   conversation_db:
     image: postgres:16

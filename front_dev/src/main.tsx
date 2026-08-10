@@ -4,11 +4,15 @@ import "./style.css";
 import App from "./App";
 import AppStateless from "./AppStateless";
 import AppEvaluatedMessages from "./AppEvaluatedMessages";
+import AppAdmin from "./AppAdmin";
 
 const path = window.location.pathname;
 
 let root;
-if (path === "/evaluated_messages") {
+if (path.startsWith("/admin")) {
+  document.body.classList.add("page-admin");
+  root = <AppAdmin />;
+} else if (path === "/evaluated_messages") {
   document.body.classList.add("page-evaluated");
   root = <AppEvaluatedMessages />;
 } else {

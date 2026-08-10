@@ -1,0 +1,29 @@
+[project]
+name = "tag_selector_mcp"
+version = "0.1.0"
+description = "Tag Selector MCP server for chatbot_invitro (select_tags + taxonomy tools)"
+requires-python = ">=3.11"
+
+dependencies = [
+    # FastMCP（mcp.server.fastmcp）を用いるため 1.x 系に固定する。
+    # 2.0 系はパッケージ構成が変わり mcp.server.fastmcp が存在しない。
+    "mcp>=1.2.0,<2",
+    "psycopg2-binary",
+    "requests",
+    "uvicorn",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+tag-selector-mcp = "tag_selector_mcp.main:main"
+
+[dependency-groups]
+dev = [
+    "pytest",
+]
