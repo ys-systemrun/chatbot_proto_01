@@ -4,23 +4,25 @@ from __future__ import annotations
 
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from ..config import Settings
 
-
-def build_mcp_client(settings: Settings) -> MultiServerMCPClient:
+def build_mcp_client(
+    tag_selector_mcp_url: str, knowledge_mcp_url: str
+) -> MultiServerMCPClient:
     """Tag Selector MCP・Knowledge MCP の2サーバーへの接続設定を持つ client を構築する。
 
+    Settings オブジェクトを直接受け取らず、必要な2つのURLをプリミティブな引数として
+    直接受け取る（ADR-0033）。呼び出し元（main.py）が Settings からの値の展開を行う。
     転送方式はいずれも streamable_http を指定する
     （ADR-0021、既存2サーバーの実装と一致）。
     """
     return MultiServerMCPClient(
         {
             "tag_selector_mcp": {
-                "url": settings.tag_selector_mcp_url,
+                "url": tag_selector_mcp_url,
                 "transport": "streamable_http",
             },
             "knowledge_mcp": {
-                "url": settings.knowledge_mcp_url,
+                "url": knowledge_mcp_url,
                 "transport": "streamable_http",
             },
         }

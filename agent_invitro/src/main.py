@@ -16,11 +16,27 @@ from .mcp_clients.client import build_mcp_client, load_tools
 
 
 async def build():
-    """settings, mcp_client, tools, llm, agent を構築し、(agent, mcp_client) を返す。"""
+    """settings, mcp_client, tools, llm, agent を構築し、(agent, mcp_client) を返す。
+
+    main.py は Settings の形状を知る唯一のモジュールとして、load_settings() で
+    取得した値をフィールドごとに展開し、各モジュールの関数へキーワード引数として
+    明示的に渡す（ADR-0033、コンポジションルート）。
+    """
     settings = load_settings()
-    mcp_client = build_mcp_client(settings)
+
+    mcp_client = build_mcp_client(
+        tag_selector_mcp_url=settings.tag_selector_mcp_url,
+        knowledge_mcp_url=settings.knowledge_mcp_url,
+    )
     tools = await load_tools(mcp_client)
-    llm = build_llm(settings)
+
+    llm = build_llm(
+        llm_provider=settings.llm_provider,
+        lmstudio_chat_url=settings.lmstudio_chat_url,
+        lmstudio_chat_model=settings.lmstudio_chat_model,
+        bedrock_chat_model_id=settings.bedrock_chat_model_id,
+        bedrock_region=settings.bedrock_region,
+    )
     agent = build_agent(llm, tools)
     return agent, mcp_client
 

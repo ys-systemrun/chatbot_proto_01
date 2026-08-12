@@ -33,7 +33,13 @@ class GetWeather(BaseModel):
 
 def main() -> None:
     settings = load_settings()
-    llm = build_llm(settings)
+    llm = build_llm(
+        llm_provider=settings.llm_provider,
+        lmstudio_chat_url=settings.lmstudio_chat_url,
+        lmstudio_chat_model=settings.lmstudio_chat_model,
+        bedrock_chat_model_id=settings.bedrock_chat_model_id,
+        bedrock_region=settings.bedrock_region,
+    )
     llm_with_tools = llm.bind_tools([GetWeather])
 
     query = "東京の天気を教えて"

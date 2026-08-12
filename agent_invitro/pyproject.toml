@@ -18,8 +18,9 @@ dependencies = [
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools]
+package-dir = {"agent_invitro" = "src"}
+packages = ["agent_invitro", "agent_invitro.graph", "agent_invitro.mcp_clients"]
 
 [dependency-groups]
 dev = [

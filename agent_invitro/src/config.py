@@ -1,12 +1,13 @@
-"""環境変数の読み込みと設定値の保持（実装指示書 5.1 / T4）。"""
+"""環境変数の読み込みと設定値の保持（実装指示書 5.1 / T4, ADR-0033）。
+
+本モジュールの責務は「環境変数の読み込みと Settings の保持」のみ。
+to_openai_base_url() は LLM 層固有の関心事であるため llm.py へ移設した（ADR-0033）。
+"""
 
 from __future__ import annotations
 
-import logging
 import os
 from dataclasses import dataclass
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -65,26 +66,3 @@ def load_settings() -> Settings:
         )
 
     return Settings(llm_provider=llm_provider, **values)
-
-
-def to_openai_base_url(chat_completions_url: str) -> str:
-    """LMSTUDIO_CHAT_URL を langchain_openai.ChatOpenAI の base_url 形式へ変換する。
-
-    既存の LMSTUDIO_CHAT_URL は末尾に '/chat/completions' を含む完全なエンドポイント形式
-    （例: http://host.docker.internal:1234/v1/chat/completions）だが、
-    ChatOpenAI の base_url は 'v1' までのルート
-    （例: http://host.docker.internal:1234/v1）を要求する。
-    末尾の '/chat/completions' を取り除いて返す。
-    想定外の形式の場合は警告ログを出し、そのまま返す（フォールバック）。
-    """
-    url = chat_completions_url.rstrip("/")
-    suffix = "/chat/completions"
-    if url.endswith(suffix):
-        return url[: -len(suffix)]
-
-    logger.warning(
-        "LMSTUDIO_CHAT_URL が想定形式（末尾 '/chat/completions'）ではありません。"
-        "そのまま base_url として使用します: %s",
-        chat_completions_url,
-    )
-    return chat_completions_url

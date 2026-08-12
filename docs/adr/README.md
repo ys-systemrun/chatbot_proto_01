@@ -35,6 +35,8 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0029](./0029-mcp-inspector-verification-ecs-exec.md) | MCP Inspectorによるプロトコル層検証の実行方式（ECS Execによる一時検証タスク） | Accepted |
 | [0030](./0030-db-hiroba-qa-init-aws-deployment.md) | db_hiroba_qa_initのAWS展開方式（ECR + ECSによるマイグレーション・シード実行） | Accepted |
 | [0031](./0031-aws-llm-provider-bedrock.md) | AWS環境におけるLLM接続先をAmazon Bedrockへ切り替える（チャット・エンベディング） | Accepted |
+| [0032](./0032-agent-invitro-flatten-src-layout.md) | agent_invitroのディレクトリ構成の平坦化（`src/agent_invitro/`→`src/`） | Accepted |
+| [0033](./0033-agent-invitro-settings-injection.md) | agent_invitroのllm.py・mcp_clients/client.pyをSettingsへ直接依存させず、main.pyから引数注入する構成へ変更 | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

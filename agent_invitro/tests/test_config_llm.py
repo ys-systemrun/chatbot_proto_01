@@ -14,7 +14,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from agent_invitro.config import Settings, load_settings
+from agent_invitro.config import load_settings
 
 
 # --- load_settings -------------------------------------------------------
@@ -116,14 +116,11 @@ def test_build_llm_bedrock(monkeypatch):
     calls = _install_fake_langchain(monkeypatch)
     from agent_invitro.llm import build_llm
 
-    s = Settings(
-        knowledge_mcp_url="http://k/mcp",
-        tag_selector_mcp_url="http://t/mcp",
+    build_llm(
         llm_provider="bedrock",
         bedrock_chat_model_id="anthropic.claude",
         bedrock_region="ap-northeast-1",
     )
-    build_llm(s)
     assert calls["bedrock"]["model"] == "anthropic.claude"
     assert calls["bedrock"]["region_name"] == "ap-northeast-1"
 
@@ -132,13 +129,10 @@ def test_build_llm_lmstudio(monkeypatch):
     calls = _install_fake_langchain(monkeypatch)
     from agent_invitro.llm import build_llm
 
-    s = Settings(
-        knowledge_mcp_url="http://k/mcp",
-        tag_selector_mcp_url="http://t/mcp",
+    build_llm(
         llm_provider="lmstudio",
         lmstudio_chat_url="http://lm/v1/chat/completions",
         lmstudio_chat_model="gemma",
     )
-    build_llm(s)
     assert calls["openai"]["model"] == "gemma"
     assert calls["openai"]["base_url"] == "http://lm/v1"

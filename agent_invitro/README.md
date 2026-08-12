@@ -36,16 +36,15 @@ agent_invitro/
 ├── Dockerfile                         … sleep infinity で常駐（HTTPサーバは持たない）
 ├── pyproject.toml                     … 依存: langgraph / langchain-mcp-adapters / langchain-openai / ipython
 ├── README.md
-├── src/
-│   └── agent_invitro/
-│       ├── __init__.py
-│       ├── config.py                  … 環境変数の読み込み・URL変換
-│       ├── llm.py                     … LM Studio 接続用 ChatOpenAI のビルダー
-│       ├── mcp_clients/
-│       │   └── client.py              … MultiServerMCPClient のセットアップ・ツール取得
-│       ├── graph/
-│       │   └── agent.py               … ReActエージェント構築・システムプロンプト
-│       └── main.py                    … IPython から呼び出す build() / run()
+├── src/                              … Python パッケージ名は agent_invitro（pyproject.toml の package-dir で対応付け）
+│   ├── __init__.py
+│   ├── config.py                     … 環境変数の読み込み・Settings の保持
+│   ├── llm.py                        … Chat モデルのビルダー・URL変換（to_openai_base_url）
+│   ├── mcp_clients/
+│   │   └── client.py                 … MultiServerMCPClient のセットアップ・ツール取得
+│   ├── graph/
+│   │   └── agent.py                  … ReActエージェント構築・システムプロンプト
+│   └── main.py                       … IPython から呼び出す build() / run()（コンポジションルート）
 ├── scripts/
 │   └── check_tool_calling.py          … Phase 1 スモークテスト（Tool Calling 対応可否の確認）
 └── tests/
@@ -56,9 +55,9 @@ agent_invitro/
 
 | ファイル | 役割 | 主な関数・定数 |
 |---|---|---|
-| `config.py` | 環境変数を読み込み `Settings` を返す。LM Studio の URL 形式を ChatOpenAI 用に変換する。 | `Settings`（dataclass）、`load_settings()`、`to_openai_base_url()` |
-| `llm.py` | LM Studio の OpenAI 互換 Chat Completions API へ接続する `ChatOpenAI` を構築する。 | `build_llm(settings)` |
-| `mcp_clients/client.py` | 2つの MCP サーバーへの接続設定を持つ `MultiServerMCPClient` を構築し、ツール一覧を取得する。 | `build_mcp_client(settings)`、`load_tools(client)`（async） |
+| `config.py` | 環境変数を読み込み `Settings` を返す。 | `Settings`（dataclass）、`load_settings()` |
+| `llm.py` | `llm_provider` に応じた Chat モデル（LM Studio の `ChatOpenAI` / Bedrock の `ChatBedrockConverse`）を構築する。LM Studio の URL 形式を ChatOpenAI 用に変換する。 | `build_llm(llm_provider, ...)`、`to_openai_base_url()` |
+| `mcp_clients/client.py` | 2つの MCP サーバーへの接続設定を持つ `MultiServerMCPClient` を構築し、ツール一覧を取得する。 | `build_mcp_client(tag_selector_mcp_url, knowledge_mcp_url)`、`load_tools(client)`（async） |
 | `graph/agent.py` | `create_react_agent` で ReAct エージェントを組む。呼び出し順序を誘導するシステムプロンプトを持つ。 | `SYSTEM_PROMPT`、`build_agent(llm, tools)` |
 | `main.py` | IPython から使うエントリポイント。構築一式と1クエリ実行を提供。ツール呼び出し・応答・最終回答をログ出力する。 | `build()`（async）、`run(agent, query)`（async） |
 | `scripts/check_tool_calling.py` | ロード済みモデルが構造化 `tool_calls` を返せるかを実機確認する（Phase 1）。 | `main()` |
@@ -66,7 +65,7 @@ agent_invitro/
 
 ### 実装上の要点
 
-- **URL 形式の変換（`config.to_openai_base_url`）**: 既存の `LMSTUDIO_CHAT_URL` は末尾に `/chat/completions` を含む完全URL（例 `http://host.docker.internal:1234/v1/chat/completions`）。一方 `ChatOpenAI(base_url=...)` は `.../v1` までのルートを要求する。そのまま渡すとパスが二重になりエラーになるため、必ずこの変換を経由する。
+- **URL 形式の変換（`llm.to_openai_base_url`）**: 既存の `LMSTUDIO_CHAT_URL` は末尾に `/chat/completions` を含む完全URL（例 `http://host.docker.internal:1234/v1/chat/completions`）。一方 `ChatOpenAI(base_url=...)` は `.../v1` までのルートを要求する。そのまま渡すとパスが二重になりエラーになるため、必ずこの変換を経由する。
 - **非同期 API**: `MultiServerMCPClient` の取得（`get_tools`）とエージェント実行（`ainvoke`）は非同期。IPython の top-level await で `await build()` / `await run(...)` の形で呼べる。通常の `python` REPL では動かない（IPython を採用した理由の一つ）。
 - **API キー**: LM Studio はキーを検証しないため、ダミー文字列（`"lm-studio"`）を渡している。
 
