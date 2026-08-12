@@ -1,0 +1,41 @@
+# envs/verify 変数サンプル（ADR-0028）。
+# これをコピーして terraform.tfvars を作り、実値を設定する（terraform.tfvars は Git 管理外）。
+# cp terraform.tfvars.example terraform.tfvars
+
+# --- 発注者から受領（Open Issue #6, 実装着手前に必須）---
+aws_account_id = "123456789012"
+aws_region     = "ap-northeast-1"
+
+# --- ネットワーク（§5.1）---
+vpc_cidr           = "10.20.0.0/16"
+availability_zones = ["ap-northeast-1a", "ap-northeast-1c"]
+enable_nat_gateway = false # Bedrock のみなら false（VPC エンドポイントで到達, ADR-0023/0031）
+
+# --- RDS（§5.3, 実装時に AWS 公式で pgvector 対応バージョンを確認）---
+rds_engine_version = "16.4"
+rds_instance_class = "db.t4g.micro"
+
+# --- イメージタグ（§5.2, latest 固定に頼らず明示推奨）---
+image_tag               = "latest"
+mcp_inspector_image_tag = "latest"
+
+# --- Service Connect ---
+service_namespace = "chatbot.internal"
+
+# --- Bedrock（ADR-0031, Open Issue #5: モデルIDは実装時に確定）---
+bedrock_chat_model_id      = "" # 例: anthropic.claude-3-5-sonnet-...（要モデルアクセス有効化）
+bedrock_embedding_model_id = "" # 例: amazon.titan-embed-text-v2:0 / cohere.embed-multilingual-v3
+embedding_vector_dim       = 1024 # 選定した埋め込みモデルの出力次元に合わせる（§6.2, ADR-0017）
+
+# --- db_hiroba_qa_init のデータ（既存 .env 引き継ぎ, §5.6）---
+# シード元データ（CSV/JSON）は ADR-0034 により db-hiroba-qa-init イメージに /data として
+# 同梱済み（EFS 等の共有ストレージは不要）。main.py が先頭に "/" を付けるため値は "data"。
+csv_data_dir          = "data"
+
+# --- Bedrock コスト予算アラート（任意）---
+# budget_alert_emails を1件以上指定すると AWS Budgets（無料）でメール通知を作成。空なら作成しない。
+bedrock_monthly_budget_usd = 50
+budget_alert_emails        = [] # 例: ["sawatani@systemrun.co.jp"]
+qa_original_file      = "exportjson_withguid_small.json"
+question_altered_file = "question_altered_small.csv"
+category_file         = "category.csv"

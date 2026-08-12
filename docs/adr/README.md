@@ -37,6 +37,8 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0031](./0031-aws-llm-provider-bedrock.md) | AWS環境におけるLLM接続先をAmazon Bedrockへ切り替える（チャット・エンベディング） | Accepted |
 | [0032](./0032-agent-invitro-flatten-src-layout.md) | agent_invitroのディレクトリ構成の平坦化（`src/agent_invitro/`→`src/`） | Accepted |
 | [0033](./0033-agent-invitro-settings-injection.md) | agent_invitroのllm.py・mcp_clients/client.pyをSettingsへ直接依存させず、main.pyから引数注入する構成へ変更 | Accepted |
+| [0034](./0034-db-hiroba-qa-init-seed-data-bundled-as-sql.md) | db_hiroba_qa_initのシード元データ（CSV/JSON）をイメージに同梱する（AWSデプロイ対応） | Accepted |
+| [0035](./0035-db-hiroba-qa-init-embedding-cache-reuse.md) | db_hiroba_qa_initにembeddingキャッシュ再利用オプションを追加する（destroy→再apply時のBedrock再計算回避） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

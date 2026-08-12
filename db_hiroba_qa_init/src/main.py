@@ -46,7 +46,9 @@ else:
     EMBEDDING_URL = os.environ["LMSTUDIO_EMBEDDING_URL"]
     EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
     BEDROCK_REGION = None
-CSV_DATA_DIR = "/" + os.environ["CSV_DATA_DIR"]
+# ADR-0034: シード元データはイメージに /data として同梱済み。CSV_DATA_DIR 未指定でも
+# 同梱パスを既定で参照する（先頭に "/" を付けるため既定値 "data" → /data）。
+CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
 CATEGORY_FILE = os.environ["CATEGORY_FILE"]
