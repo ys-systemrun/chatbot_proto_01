@@ -13,22 +13,42 @@ logger = logging.getLogger(__name__)
 class Settings:
     knowledge_mcp_url: str
     tag_selector_mcp_url: str
-    lmstudio_chat_url: str  # 例: http://host.docker.internal:1234/v1/chat/completions（既存形式）
-    lmstudio_chat_model: str
+    llm_provider: str  # "lmstudio"（既定）または "bedrock"（IMPL-202608101616 4.4 / ADR-0031）
+    lmstudio_chat_url: str | None = None  # lmstudio 時のみ必須（既存形式の完全URL）
+    lmstudio_chat_model: str | None = None  # lmstudio 時のみ必須
+    bedrock_chat_model_id: str | None = None  # bedrock 時のみ必須（BEDROCK_CHAT_MODEL_ID）
+    bedrock_region: str | None = None  # bedrock 時のみ必須（BEDROCK_REGION）
 
 
 def load_settings() -> Settings:
-    """os.environ から必須の環境変数を読み込む。
+    """os.environ から必須の環境変数を読み込む（IMPL-202608101616 4.4）。
 
-    KNOWLEDGE_MCP_URL / TAG_SELECTOR_MCP_URL / LMSTUDIO_CHAT_URL / LMSTUDIO_CHAT_MODEL
-    を読み込む。未設定の必須項目があれば起動時に例外を発生させる。
+    KNOWLEDGE_MCP_URL / TAG_SELECTOR_MCP_URL は常に必須。
+    LLM_PROVIDER（既定 "lmstudio"）に応じて追加の必須項目が決まる:
+      - "lmstudio": LMSTUDIO_CHAT_URL / LMSTUDIO_CHAT_MODEL
+      - "bedrock":  BEDROCK_CHAT_MODEL_ID / BEDROCK_REGION
+    未設定の必須項目があれば起動時に例外を発生させる。
     """
+    llm_provider = os.environ.get("LLM_PROVIDER", "lmstudio")
+
     required = {
         "knowledge_mcp_url": "KNOWLEDGE_MCP_URL",
         "tag_selector_mcp_url": "TAG_SELECTOR_MCP_URL",
-        "lmstudio_chat_url": "LMSTUDIO_CHAT_URL",
-        "lmstudio_chat_model": "LMSTUDIO_CHAT_MODEL",
     }
+    if llm_provider == "bedrock":
+        required.update(
+            {
+                "bedrock_chat_model_id": "BEDROCK_CHAT_MODEL_ID",
+                "bedrock_region": "BEDROCK_REGION",
+            }
+        )
+    else:
+        required.update(
+            {
+                "lmstudio_chat_url": "LMSTUDIO_CHAT_URL",
+                "lmstudio_chat_model": "LMSTUDIO_CHAT_MODEL",
+            }
+        )
 
     values: dict[str, str] = {}
     missing: list[str] = []
@@ -44,7 +64,7 @@ def load_settings() -> Settings:
             "必須の環境変数が未設定です: " + ", ".join(missing)
         )
 
-    return Settings(**values)
+    return Settings(llm_provider=llm_provider, **values)
 
 
 def to_openai_base_url(chat_completions_url: str) -> str:

@@ -36,8 +36,16 @@ from seed_helpers import (
 
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-EMBEDDING_URL = os.environ["LMSTUDIO_EMBEDDING_URL"]
-EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
+# 埋め込み接続先の切り替え（IMPL-202608101616 4.3 / ADR-0031）。既定はローカル開発の lmstudio。
+EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "lmstudio")
+if EMBEDDING_PROVIDER == "bedrock":
+    EMBEDDING_URL = None
+    EMBEDDING_MODEL = os.environ["BEDROCK_EMBEDDING_MODEL_ID"]
+    BEDROCK_REGION = os.environ.get("BEDROCK_REGION")
+else:
+    EMBEDDING_URL = os.environ["LMSTUDIO_EMBEDDING_URL"]
+    EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
+    BEDROCK_REGION = None
 CSV_DATA_DIR = "/" + os.environ["CSV_DATA_DIR"]
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
@@ -103,7 +111,13 @@ def seed_question_altered():
             return
         for row in rows:
             if row.embedding is None:
-                row.embedding = get_embedding(EMBEDDING_URL, EMBEDDING_MODEL, row.text)
+                row.embedding = get_embedding(
+                    EMBEDDING_PROVIDER,
+                    EMBEDDING_URL,
+                    EMBEDDING_MODEL,
+                    row.text,
+                    BEDROCK_REGION,
+                )
         if rows:
             db.insert_question_altered(rows)
     print(f"{_now()} Inserted {len(rows)} question_altered rows.")

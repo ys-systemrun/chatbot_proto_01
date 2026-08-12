@@ -35,8 +35,12 @@ class ServerComponents:
 def build_server() -> ServerComponents:
     database_url = os.environ["DATABASE_URL"]
     llm_provider = os.environ.get("LLM_PROVIDER", "lmstudio")
-    chat_url = os.environ["LMSTUDIO_CHAT_URL"]
-    chat_model = os.environ["LMSTUDIO_CHAT_MODEL"]
+    # lmstudio 用の設定（ローカル開発）。bedrock 時は不要なため get で取得する。
+    chat_url = os.environ.get("LMSTUDIO_CHAT_URL")
+    chat_model = os.environ.get("LMSTUDIO_CHAT_MODEL")
+    # bedrock 用の設定（AWS 環境、IMPL-202608101616 4.1 / ADR-0031）。
+    bedrock_model_id = os.environ.get("BEDROCK_CHAT_MODEL_ID")
+    bedrock_region = os.environ.get("BEDROCK_REGION")
     reload_interval_sec = int(os.environ.get("TAXONOMY_RELOAD_INTERVAL_SEC", "300"))
     default_max_tags = int(os.environ.get("TAG_SELECTOR_DEFAULT_MAX_TAGS", "3"))
     default_confidence_threshold = float(
@@ -47,7 +51,13 @@ def build_server() -> ServerComponents:
     db = Database(database_url)
     tag_repository = TagMetadataRepository(db, reload_interval_sec)
 
-    llm_client = create_llm_client(llm_provider, chat_url, chat_model)
+    llm_client = create_llm_client(
+        llm_provider,
+        chat_url,
+        chat_model,
+        bedrock_model_id=bedrock_model_id,
+        bedrock_region=bedrock_region,
+    )
     retrieval_engine = RetrievalEngine(tag_repository)
     inference_engine = InferenceEngine(llm_client)
     select_tags_use_case = SelectTagsUseCase(retrieval_engine, inference_engine)
