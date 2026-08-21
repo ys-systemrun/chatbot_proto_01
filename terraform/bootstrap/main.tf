@@ -12,8 +12,10 @@ terraform {
   required_version = ">= 1.5.0"
   required_providers {
     aws = {
-      source  = "hashicorp/aws"
-      version = ">= 5.0"
+      source = "hashicorp/aws"
+      # account-regional 名前空間（bucket_namespace = "account-regional"）は
+      # AWS プロバイダ 6.37.0 以降で対応（state_bucket_name の "-an" サフィックスに必須）。
+      version = ">= 6.37"
     }
   }
   # bootstrap 自体の state はローカル（このバケットを作るのが目的なので S3 は使えない）。
@@ -47,6 +49,10 @@ variable "lock_table_name" {
 
 resource "aws_s3_bucket" "state" {
   bucket = var.state_bucket_name
+  # account-regional 名前空間バケット。state_bucket_name が "-an" サフィックス
+  # （{prefix}-{account-id}-{region}-an）の場合、この宣言が必須（AWS プロバイダ >= 6.37）。
+  # 未指定だと "is an account-regional namespace bucket" 検証エラーになる。
+  bucket_namespace = "account-regional"
 }
 
 resource "aws_s3_bucket_versioning" "state" {

@@ -1,9 +1,9 @@
 output "vpc_id" {
-  value = aws_vpc.this.id
+  value = data.aws_vpc.this.id
 }
 
 output "private_subnet_ids" {
-  value = aws_subnet.private[*].id
+  value = var.private_subnet_ids
 }
 
 output "sg_agent_invitro_id" {

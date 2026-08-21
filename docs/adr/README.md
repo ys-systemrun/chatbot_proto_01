@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイに関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -39,6 +39,11 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0033](./0033-agent-invitro-settings-injection.md) | agent_invitroのllm.py・mcp_clients/client.pyをSettingsへ直接依存させず、main.pyから引数注入する構成へ変更 | Accepted |
 | [0034](./0034-db-hiroba-qa-init-seed-data-bundled-as-sql.md) | db_hiroba_qa_initのシード元データ（CSV/JSON）をイメージに同梱する（AWSデプロイ対応） | Accepted |
 | [0035](./0035-db-hiroba-qa-init-embedding-cache-reuse.md) | db_hiroba_qa_initにembeddingキャッシュ再利用オプションを追加する（destroy→再apply時のBedrock再計算回避） | Accepted |
+| [0036](./0036-network-existing-vpc-reference.md) | ネットワーク基盤（VPC・サブネット）の外部管理化（既存VPC・サブネットをdata sourceで参照） | Accepted |
+| [0037](./0037-terraform-state-database-separation.md) | Terraform state分割方針（DB実体を独立stateに分離し、destroy対象から除外） | Accepted |
+| [0038](./0038-shared-terraform-config-env-consolidation.md) | 複数state層にまたがる共通設定値の集約方式（`.env`からのTF_VAR_*環境変数エクスポート） | Accepted |
+| [0039](./0039-terraform-state-two-layer-consolidation.md) | Terraform state 3層構成から2層構成（database構成/app構成）への統合 | Accepted |
+| [0040](./0040-deploy-orchestration-containerized-python.md) | デプロイオーケストレーションのコンテナ内Python化と設定の単一.env集約（PS5.1脱却） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -47,3 +52,4 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202608061016.md`（db_hiroba_qa_init: DBマイグレーション・シード専用サービスの分離）
 - `docs/requirement/202608061621.md`（agent_invitro: Conversation Agent（LangGraph MCPホスト）実験）
 - `docs/requirement/202608100910.md`（MCPサーバー・クライアント AWS デプロイ）
+- `docs/requirement/202608180957.md`（Terraform構成再編: 3層→2層統合）

@@ -70,6 +70,12 @@ variable "deletion_protection" {
   default = false
 }
 
+# ADR-0037: DB を永続化運用する場合は false（最終スナップショット取得）にする余地を残す。
+variable "skip_final_snapshot" {
+  type    = bool
+  default = true
+}
+
 resource "aws_db_subnet_group" "this" {
   name       = "${var.name_prefix}-db-subnet"
   subnet_ids = var.subnet_ids
@@ -111,7 +117,7 @@ resource "aws_db_instance" "this" {
   multi_az            = var.multi_az
   publicly_accessible = false
   deletion_protection = var.deletion_protection
-  skip_final_snapshot = true # 検証用途
+  skip_final_snapshot = var.skip_final_snapshot
   apply_immediately   = true
 }
 

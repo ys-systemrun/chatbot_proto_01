@@ -11,9 +11,11 @@ terraform {
 }
 
 locals {
-  has_port  = var.container_port != null
-  sc_dns    = coalesce(var.service_connect_dns_name, var.service_name)
-  port_name = "${var.service_name}-${var.container_port}"
+  has_port = var.container_port != null
+  sc_dns   = coalesce(var.service_connect_dns_name, var.service_name)
+  # port_name は has_port が真のときだけ使う（portMappings / Service Connect service）。
+  # container_port が null（agent_invitro 等ポート無し）でも補間エラーにならないよう null 安全にする。
+  port_name = local.has_port ? "${var.service_name}-${var.container_port}" : null
   enable_sc = local.has_port && var.service_connect_namespace_arn != null
 
   container_def = merge(

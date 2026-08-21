@@ -3,14 +3,15 @@ variable "name_prefix" {
   description = "リソース名の接頭辞（例: chatbot-verify）"
 }
 
-variable "vpc_cidr" {
+# ADR-0036: VPC・プライベートサブネットは新規作成せず、既存リソースを ID で参照する。
+variable "vpc_id" {
   type        = string
-  description = "VPC の CIDR（例: 10.20.0.0/16）"
+  description = "既存 VPC の ID（基盤チーム/別プロジェクトが管理, ADR-0036）"
 }
 
-variable "availability_zones" {
+variable "private_subnet_ids" {
   type        = list(string)
-  description = "プライベートサブネットを配置する AZ（2つ以上、将来の RDS Multi-AZ 化に備える）"
+  description = "既存プライベートサブネットの ID 群（2つ以上, DBサブネットグループ要件 ADR-0026）"
 }
 
 variable "knowledge_mcp_port" {
@@ -23,8 +24,9 @@ variable "tag_selector_mcp_port" {
   default = 8200
 }
 
-variable "enable_nat_gateway" {
+# ADR-0036: 既存 VPC 側に同等のエンドポイントが既にある場合は false にして本構成での作成を抑止する。
+variable "create_vpc_endpoints" {
   type        = bool
-  default     = false
-  description = "外部 LLM API を使う場合のみ true。Bedrock のみなら VPC エンドポイントで代替（ADR-0023, 0031）。true にするとパブリックサブネット + IGW + NAT を作成する。"
+  default     = true
+  description = "S3 ゲートウェイ + Interface 型 VPC エンドポイントを本構成で作成するか"
 }

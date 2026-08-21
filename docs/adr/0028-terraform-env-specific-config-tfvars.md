@@ -1,8 +1,9 @@
 # ADR-0028: AWSアカウント・リージョン等の環境固有設定の管理方式（Git管理外のterraform.tfvars）
 
-- ステータス: Accepted
+- ステータス: Accepted（ADR-0040 により改訂: `terraform.tfvars` は廃止し単一 `.env` へ集約）
 - 日付: 2026-08-10
-- 関連: `docs/requirement/202608100910_MCPサーバークライアントAWSデプロイ要件定義書.md`, ADR-0027
+- 関連: `docs/requirement/202608100910_MCPサーバークライアントAWSデプロイ要件定義書.md`, ADR-0027, ADR-0040
+- **注記**: 本ADRの「環境固有設定を `terraform.tfvars` で管理する」方式は ADR-0040 により「単一 `terraform/.env`（`TF_VAR_*`）へ集約する」へ改訂された。「実値を Git 管理外にする」という中核方針は `.env` でも維持される。
 
 ## コンテキスト
 
@@ -31,3 +32,5 @@ AWSアカウントID・リージョン等の環境固有の値は、各実行者
 - 実装フェーズで`terraform.tfvars.example`を用意し、必要な変数（`aws_account_id`、`aws_region`等）のキー一覧とその説明を示す。
 - 将来CI/CDを導入する場合、`terraform.tfvars`方式からCI側のシークレット管理・環境変数注入方式への切り替えが必要になる可能性がある点を留意事項として残す。
 - AWSアカウントID・リージョンの具体的な値そのものは、本ADR（管理方式の決定）の対象外であり、実装フェーズで各実行者が`terraform.tfvars`に設定する。
+
+**（追記, 2026-08-17）** ADR-0036・ADR-0037によりTerraform構成が複数のstate層（ネットワーク・DB・アプリケーション）に分割された結果、`aws_region`・`name_prefix`等の値が層ごとの`terraform.tfvars`に重複して記述される状態になった。この重複を解消するため、ADR-0038により「層をまたいで共有される値は`scripts/.env`に一本化し、`TF_VAR_*`環境変数として各層に供給する。層固有の値のみを各層の`terraform.tfvars`に書く」という役割分担を決定した。本ADRが決定した「`terraform.tfvars`はGit管理外とする」という方式自体（層固有の値の管理方法）に変更はない。

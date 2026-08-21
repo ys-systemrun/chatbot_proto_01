@@ -8,12 +8,13 @@ data/original_qa_frac/
 web_backend/chatbot_invitro.egg-info/
 
 # Terraform（IMPL-202608101542 §4.2 / ADR-0028）
-# terraform.tfvars は実値（アカウントID・リージョン等）を含むため Git 管理外。
-# terraform.tfvars.example はサンプルなので追跡する。
+# ADR-0040: 設定は terraform/.env に一元化（terraform.tfvars は廃止）。
+# 旧 terraform.tfvars は *.migrated にリネームして退避（実値を含むため Git 管理外）。
 **/*.tfvars
 !**/*.tfvars.example
+**/*.tfvars.migrated
 **/*.tfstate
 **/*.tfstate.*
 **/.terraform/
-# デプロイスクリプトの環境固有設定（terraform/scripts/.env）は上記グローバルの ".env" 無視で対象。
+# デプロイの環境固有設定（terraform/.env）は上記グローバルの ".env" 無視で対象。
 # .env.example は名前が異なるため追跡される。
