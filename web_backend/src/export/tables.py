@@ -1,0 +1,192 @@
+"""エクスポート対象テーブルの定義（IMPL-202608241600 T15、5.4 節）。
+
+対象は chatbot データベース6テーブル・conversation データベース2テーブルの計8テーブル。
+カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0005）および
+db_conversation/init.sql に基づく。各テーブルについて次を保持する:
+
+  - db          : データベース種別（"chatbot" / "conversation"）
+  - name        : テーブル名
+  - columns     : 全カラム（定義順。SQL 出力の INSERT に使う）
+  - csv_exclude : CSV 出力から除外するカラム（question_altered.embedding のみ）
+  - order_by    : 決定的な出力順のための ORDER BY 列（主キー）
+  - _create_ddl : CREATE TABLE IF NOT EXISTS 文（既存マイグレーションと同一定義）
+
+SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の CHATBOT_TABLES /
+CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
+  - chatbot     : category → qa_original → tag → question_altered → tag_alias → qa_tag
+  - conversation: conversation → message
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+
+# question_altered.embedding の VECTOR 次元はモデル依存（AWS/Bedrock: 1024, ローカル:
+# db_nomic 768 / db_multilingual 384）のため、CREATE TABLE の VECTOR(N) は固定できない。
+# DDL 中の下記プレースホルダを、エクスポート時に実データベースから検出した次元で置換する
+# （dump.detect_vector_dim）。検出できない場合の保険として EMBEDDING_DIM_PLACEHOLDER の既定値を使う。
+EMBEDDING_DIM_PLACEHOLDER = "{embedding_dim}"
+DEFAULT_EMBEDDING_DIM = 1024
+
+# chatbot データベースの SQL ダンプ先頭に付ける拡張の宣言（question_altered.embedding 用）。
+CHATBOT_SQL_HEADER = "CREATE EXTENSION IF NOT EXISTS vector;\n"
+
+
+@dataclass(frozen=True)
+class TableSpec:
+    db: str
+    name: str
+    columns: list[str]
+    order_by: list[str]
+    _create_ddl: str
+    csv_exclude: set[str] = field(default_factory=set)
+
+    @property
+    def csv_columns(self) -> list[str]:
+        """CSV 出力に含めるカラム（csv_exclude を除いた columns）。"""
+        return [c for c in self.columns if c not in self.csv_exclude]
+
+    def create_ddl(self, embedding_dim: int | None = None) -> str:
+        """CREATE TABLE IF NOT EXISTS 文を返す。VECTOR 次元プレースホルダを解決する。"""
+        dim = embedding_dim if embedding_dim else DEFAULT_EMBEDDING_DIM
+        return self._create_ddl.replace(EMBEDDING_DIM_PLACEHOLDER, str(dim))
+
+
+# --------------------------------------------------------------------------- #
+# chatbot データベース（migrations 0001〜0005 の最終形）
+# --------------------------------------------------------------------------- #
+CHATBOT_TABLES: list[TableSpec] = [
+    TableSpec(
+        db="chatbot",
+        name="category",
+        columns=["id", "name"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS category (\n"
+            "    id INTEGER PRIMARY KEY,\n"
+            "    name TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="qa_original",
+        columns=["uuid", "question_text", "answer_text", "category_id", "title"],
+        order_by=["uuid"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS qa_original (\n"
+            "    uuid TEXT PRIMARY KEY,\n"
+            "    question_text TEXT,\n"
+            "    answer_text TEXT,\n"
+            "    category_id INTEGER,\n"
+            "    title TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="tag",
+        columns=["id", "name", "parent_tag_id", "description"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS tag (\n"
+            "    id SERIAL PRIMARY KEY,\n"
+            "    name TEXT NOT NULL UNIQUE,\n"
+            "    parent_tag_id INTEGER REFERENCES tag(id),\n"
+            "    description TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="question_altered",
+        columns=["id", "qa_id", "text", "embedding", "is_primary"],
+        order_by=["id"],
+        csv_exclude={"embedding"},
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS question_altered (\n"
+            "    id SERIAL PRIMARY KEY,\n"
+            "    qa_id TEXT,\n"
+            "    text TEXT,\n"
+            f"    embedding VECTOR({EMBEDDING_DIM_PLACEHOLDER}),\n"
+            "    is_primary BOOLEAN NOT NULL DEFAULT false\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="tag_alias",
+        columns=["id", "tag_id", "alias"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS tag_alias (\n"
+            "    id SERIAL PRIMARY KEY,\n"
+            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
+            "    alias TEXT NOT NULL UNIQUE\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="qa_tag",
+        columns=["qa_id", "tag_id"],
+        order_by=["qa_id", "tag_id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS qa_tag (\n"
+            "    qa_id TEXT NOT NULL REFERENCES qa_original(uuid),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
+            "    PRIMARY KEY (qa_id, tag_id)\n"
+            ");"
+        ),
+    ),
+]
+
+
+# --------------------------------------------------------------------------- #
+# conversation データベース（db_conversation/init.sql）
+# --------------------------------------------------------------------------- #
+CONVERSATION_TABLES: list[TableSpec] = [
+    TableSpec(
+        db="conversation",
+        name="conversation",
+        columns=["id", "created_at"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS conversation (\n"
+            "    id          VARCHAR PRIMARY KEY,\n"
+            "    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="conversation",
+        name="message",
+        columns=[
+            "id",
+            "conversation_id",
+            "order",
+            "role",
+            "evaluation",
+            "input",
+            "model",
+            "content",
+            "created_at",
+        ],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS message (\n"
+            "    id              VARCHAR PRIMARY KEY,\n"
+            "    conversation_id VARCHAR NOT NULL REFERENCES conversation(id),\n"
+            '    "order"         INTEGER NOT NULL,\n'
+            "    role            SMALLINT NOT NULL,\n"
+            "    evaluation      SMALLINT,\n"
+            "    input           TEXT,\n"
+            "    model           VARCHAR,\n"
+            "    content         TEXT,\n"
+            "    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
+            '    UNIQUE(conversation_id, "order")\n'
+            ");"
+        ),
+    ),
+]

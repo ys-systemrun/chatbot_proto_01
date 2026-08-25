@@ -14,6 +14,8 @@ dependencies = [
     "boto3",
     # MCPクライアント（Knowledge MCP 接続）に使用。2.0 系はパッケージ構成が変わるため 1.x 系に固定する。
     "mcp>=1.8.0,<2",
+    # AWS 環境で /ask-sl を agent_invitro へ中継するため（IMPL-202608241104 T10, ADR-0045）。
+    "httpx",
 ]
 
 [build-system]
@@ -24,10 +26,12 @@ build-backend = "setuptools.build_meta"
 where = ["."]
 
 [tool.fastapi]
-entrypoint = "main.main_stateless:app" 
+# ルート定義を集約した stateless app（旧 main.main_stateless:app）。
+entrypoint = "src.main.app:app"
 
 [project.scripts]
 # シード機能は db_hiroba_qa_init サービスへ移管した（IMPL-202608061016）。
-debug = "main.debug:main"
-debug_question = "main.debug_question:main"
-evaluate = "main.evaluate:main"
+# CLI スクリプトは main/ 配下から src/main/ 配下へ移設（モジュールパスを src.main.* へ変更）。
+debug = "src.main.debug:main"
+debug_question = "src.main.debug_question:main"
+evaluate = "src.main.evaluate:main"

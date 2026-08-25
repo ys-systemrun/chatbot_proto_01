@@ -47,7 +47,7 @@ export async function deleteSession(sessionId: string): Promise<void> {
 }
 
 export async function askStateless(req: Request): Promise<Response> {
-  const res = await fetch("/ask-sl", {
+  const res = await fetch("/api/ask-sl", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
@@ -65,7 +65,7 @@ export async function evaluateResponse(req: {
   conversation_id: string;
   messages: Message[];
 }): Promise<void> {
-  const res = await fetch("/evaluate_response", {
+  const res = await fetch("/api/evaluate_response", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
@@ -77,7 +77,7 @@ export async function evaluateResponse(req: {
 }
 
 export async function getEvaluatedMessages(): Promise<EvaluatedConversation[]> {
-  const res = await fetch("/evaluated_messages", {
+  const res = await fetch("/api/evaluated_messages", {
     headers: { "Accept": "application/json" },
   });
   if (!res.ok) {
@@ -176,4 +176,44 @@ export async function updateTag(
 
 export async function deleteTag(id: number): Promise<void> {
   await jsonFetch<void>(`/api/tags/${id}`, { method: "DELETE" });
+}
+
+// --------------------------------------------------------------------------- //
+// 全データエクスポート（IMPL-202608241600 T22）
+// JSON ではなく ZIP（Blob）を扱うため、jsonFetch とは別の専用関数として実装する。
+// GET /api/export?format=... のレスポンス Blob を、一時的な <a download> でブラウザの保存
+// ダイアログに渡す。ファイル名はサーバの Content-Disposition を優先し、無ければ既定名を使う。
+// --------------------------------------------------------------------------- //
+export async function downloadExport(format: "sql" | "csv"): Promise<void> {
+  const res = await fetch(`/api/export?format=${format}`, {
+    headers: { Accept: "application/zip" },
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "(no body)");
+    throw new Error(`HTTP ${res.status} ${res.statusText}: ${body}`);
+  }
+
+  const blob = await res.blob();
+  const filename =
+    parseFilename(res.headers.get("Content-Disposition")) ??
+    `chatbot_invitro_export_${format}.zip`;
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+/** Content-Disposition ヘッダから filename="..." を取り出す（無ければ null）。 */
+function parseFilename(disposition: string | null): string | null {
+  if (!disposition) return null;
+  const match = /filename="?([^"]+)"?/.exec(disposition);
+  return match ? match[1] : null;
 }

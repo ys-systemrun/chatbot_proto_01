@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -44,6 +44,13 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0038](./0038-shared-terraform-config-env-consolidation.md) | 複数state層にまたがる共通設定値の集約方式（`.env`からのTF_VAR_*環境変数エクスポート） | Accepted |
 | [0039](./0039-terraform-state-two-layer-consolidation.md) | Terraform state 3層構成から2層構成（database構成/app構成）への統合 | Accepted |
 | [0040](./0040-deploy-orchestration-containerized-python.md) | デプロイオーケストレーションのコンテナ内Python化と設定の単一.env集約（PS5.1脱却） | Accepted |
+| [0041](./0041-admin-ui-aws-network-exposure.md) | 管理UI（admin_uiサービス）のAWSネットワーク配置とブラウザアクセス経路（ADR-0023の限定的な見直し） | Accepted |
+| [0042](./0042-admin-ui-static-asset-serving.md) | front_dev本番ビルド資産の配信方式（web_backendコンテナからの単一サービス配信） | Accepted |
+| [0043](./0043-agent-invitro-http-service-ask-sl.md) | agent_invitroの常駐HTTPサービス化とチャット生成（/ask-sl）機能の実装移管（AWS環境限定） | Accepted |
+| [0044](./0044-conversation-db-aws-placement.md) | 会話履歴・評価データ（conversationデータベース）のAWS上の配置とスキーマ管理方式 | Accepted |
+| [0045](./0045-admin-ui-agent-invitro-integration-and-conversation-db-access.md) | admin_ui⇄agent_invitro間のチャット生成連携、およびconversationデータベースへの直接アクセス（ADR-0041の限定的な見直し） | Accepted |
+| [0046](./0046-chatbot-db-export-readonly-access.md) | chatbotデータベースのエクスポート専用読み取り経路の新設（ADR-0013・ADR-0041の限定的な見直し） | Accepted |
+| [0047](./0047-data-export-dump-generation-and-delivery.md) | 全データエクスポート機能のダンプ生成方式・配信方式（SQL/CSV、同期ストリーミングダウンロード） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -53,3 +60,6 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202608061621.md`（agent_invitro: Conversation Agent（LangGraph MCPホスト）実験）
 - `docs/requirement/202608100910.md`（MCPサーバー・クライアント AWS デプロイ）
 - `docs/requirement/202608180957.md`（Terraform構成再編: 3層→2層統合）
+- `docs/requirement/202608211014.md`（AWS環境向けQA・タグ管理UI: ブラウザアクセスの実現）
+- `docs/requirement/202608240949_AWS環境向けChatbotUI・会話評価機能有効化要件定義書.md`（AWS環境向けChatbotUI・会話評価機能有効化: チャット生成のagent_invitroへの移管と会話評価データベースの配置）
+- `docs/requirement/202608241530_全データエクスポート機能要件定義書.md`（全データエクスポート機能: ブラウザボタンからのSQL/CSVエクスポート）

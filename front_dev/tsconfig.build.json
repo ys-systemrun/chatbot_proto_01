@@ -1,0 +1,7 @@
+{
+  "//": "AWS admin_ui 本番ビルド専用（IMPL-202608211050 / ADR-0042）。Storybook の *.stories.* は",
+  "//2": "storybook 側の vite が別途コンパイルする dev 専用成果物のため、本番 tsc 型チェックからは除外する。",
+  "//3": "ローカルの npm run build / dev / storybook は tsconfig.json（本ファイル未使用）のまま影響しない。",
+  "extends": "./tsconfig.json",
+  "exclude": ["src/**/*.stories.tsx", "src/**/*.stories.ts"]
+}

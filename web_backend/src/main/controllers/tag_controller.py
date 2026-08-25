@@ -1,24 +1,20 @@
-"""管理UI向け /api/tags エンドポイント（実装指示書 IMPL-202608060837 4.6 / T11, T13）。
+"""管理UI向け /api/tags のレスポンス生成ロジック（IMPL-202608060837）。
 
-Knowledge MCP のタグ管理ツール（list_tags / create_tag / rename_tag / set_tag_description /
-move_tag / delete_tag）経由で処理する。PUT は 1 リクエストを複数のツール呼び出しへ変換する。
+旧 main/admin_tags.py のハンドラ本体・スキーマを移設したもの。Knowledge MCP のタグ管理ツール
+（list_tags / create_tag / rename_tag / set_tag_description / move_tag / delete_tag）経由で処理し、
+PUT は 1 リクエストを複数のツール呼び出しへ変換する。
 """
 
 from __future__ import annotations
 
-import os
-
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from src.log import log_admin_operation
 from src.mcp_client import KnowledgeMcpClient
+from src.main import config
 
-router = APIRouter(prefix="/api")
-
-_client = KnowledgeMcpClient(
-    os.environ.get("KNOWLEDGE_MCP_URL", "http://knowledge_mcp:8100/mcp")
-)
+_client = KnowledgeMcpClient(config.KNOWLEDGE_MCP_URL)
 
 
 class TagCreateRequest(BaseModel):
@@ -39,21 +35,18 @@ class TagListResponse(BaseModel):
     tags: list[dict]
 
 
-@router.get("/tags", response_model=TagListResponse)
-async def list_tags(parent_tag_id: int | None = None) -> TagListResponse:
+async def list_tags(parent_tag_id: int | None) -> TagListResponse:
     args = {} if parent_tag_id is None else {"parent_tag_id": parent_tag_id}
     result = await _client.call_tool("list_tags", args)
     return TagListResponse(**result)
 
 
-@router.post("/tags", status_code=201)
 async def create_tag(body: TagCreateRequest) -> dict:
     node = await _client.call_tool("create_tag", body.model_dump(exclude_none=True))
     log_admin_operation("create", "tag", node.get("id"), body.model_dump())
     return node
 
 
-@router.put("/tags/{tag_id}")
 async def update_tag(tag_id: int, body: TagUpdateRequest) -> dict:
     """name/description/parent_tag_id の指定に応じて必要なツールを順に呼び出す。
 
@@ -86,8 +79,6 @@ async def update_tag(tag_id: int, body: TagUpdateRequest) -> dict:
     return node or {}
 
 
-@router.delete("/tags/{tag_id}", status_code=204)
-async def delete_tag(tag_id: int) -> Response:
+async def delete_tag(tag_id: int) -> None:
     await _client.call_tool("delete_tag", {"tag_id": tag_id})
     log_admin_operation("delete", "tag", tag_id, {})
-    return Response(status_code=204)

@@ -28,6 +28,39 @@ body {
   box-shadow: 0 0 24px rgba(0, 0, 0, 0.12);
 }
 
+/* ── Global nav（チャット / 管理 / 評価 の画面横断リンク） ───────── */
+.global-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  background: #101020;
+  padding: 8px 16px;
+  border-bottom: 1px solid #2d2d4e;
+}
+
+.global-nav-link {
+  text-decoration: none;
+  color: #c4ccd8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  transition: background 0.15s, color 0.15s;
+}
+
+.global-nav-link:hover {
+  background: #2d2d4e;
+  color: #fff;
+}
+
+.global-nav-link.active {
+  background: #2980b9;
+  color: #fff;
+}
+
+/* 評価画面は #app が height:auto のため、ナビを上部に固定表示にはしない（自然な流れで先頭に配置） */
+
 /* ── Stateless layout fill ──────────────────────────────────── */
 .app-layout {
   display: flex;
@@ -709,4 +742,30 @@ body.page-admin {
   font-size: 0.8rem;
   padding: 4px 6px;
   max-width: 140px;
+}
+
+/* 全データエクスポート（IMPL-202608241600） */
+.admin-export-formats {
+  border: 1px solid #e1e6ea;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fff;
+}
+
+.admin-export-formats legend {
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0 4px;
+}
+
+.admin-export-radio {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
 }

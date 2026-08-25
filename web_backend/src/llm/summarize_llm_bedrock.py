@@ -1,7 +1,6 @@
 """Bedrock (boto3) を使って会話履歴を要約するクラス。SummarizeLLM と同一インタフェース。"""
 from __future__ import annotations
 
-import json
 import boto3
 
 from src.models.stateless.message import Message
@@ -26,19 +25,15 @@ class SummarizeLLMBedrock:
         self._client = boto3.client("bedrock-runtime", region_name=region_name)
 
     def _invoke(self, system: str, user_content: str) -> str:
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self._max_tokens,
-            "system": system,
-            "messages": [{"role": "user", "content": user_content}],
-        }
-        response = self._client.invoke_model(
+        # Bedrock Converse API を使う（モデル非依存の統一フォーマット, gen_answer_llm_bedrock.py と同一方針）。
+        response = self._client.converse(
             modelId=self._model_id,
-            body=json.dumps(body, ensure_ascii=False),
-            contentType="application/json",
-            accept="application/json",
+            system=[{"text": system}],
+            messages=[{"role": "user", "content": [{"text": user_content}]}],
+            inferenceConfig={"maxTokens": self._max_tokens},
         )
-        return json.loads(response["body"].read())["content"][0]["text"]
+        blocks = response["output"]["message"]["content"]
+        return "".join(b.get("text", "") for b in blocks)
 
     def summarize(self, messages: list[Message], summary: str = "") -> str:
         """Message のリストを受け取り、会話全体を3文程度に要約して返す。

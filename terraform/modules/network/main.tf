@@ -86,6 +86,25 @@ resource "aws_security_group" "verification_task" {
   tags        = { Name = "${var.name_prefix}-sg-verification-task" }
 }
 
+# admin_ui（管理UI, ADR-0041）: インターネット向け ALB 用 SG。
+# 社内IP（CIDR）からの 80 番インバウンド許可ルールは app 構成の admin-ui-alb モジュールで付与する
+# （許可 CIDR は app 構成の変数, IMPL-202608211050 T15/5.4）。ここでは SG 本体と
+# 「ALB → admin_ui タスク（コンテナポート）」のegressのみを定義する。
+resource "aws_security_group" "admin_ui_alb" {
+  name        = "${var.name_prefix}-sg-admin-ui-alb"
+  description = "admin_ui ALB: inbound 80 from office CIDR (rule added in app), outbound to admin_ui task only"
+  vpc_id      = data.aws_vpc.this.id
+  tags        = { Name = "${var.name_prefix}-sg-admin-ui-alb" }
+}
+
+# admin_ui タスク用 SG。インバウンドは ALB SG からのコンテナポートのみ許可（ADR-0041）。
+resource "aws_security_group" "admin_ui_task" {
+  name        = "${var.name_prefix}-sg-admin-ui-task"
+  description = "admin_ui task: inbound from ALB SG (container port) only"
+  vpc_id      = data.aws_vpc.this.id
+  tags        = { Name = "${var.name_prefix}-sg-admin-ui-task" }
+}
+
 # VPC エンドポイント用（443 を VPC 内タスクから受ける）
 resource "aws_security_group" "vpc_endpoints" {
   name        = "${var.name_prefix}-sg-vpce"
@@ -136,6 +155,49 @@ resource "aws_vpc_security_group_ingress_rule" "knowledge_from_verification" {
   description                  = "MCP Inspector to knowledge_mcp"
 }
 
+# admin_ui ALB -> admin_ui task (container port) : ADR-0041（ALB 配下のタスクは ALB からのみ受ける）
+resource "aws_vpc_security_group_ingress_rule" "admin_ui_task_from_alb" {
+  security_group_id            = aws_security_group.admin_ui_task.id
+  referenced_security_group_id = aws_security_group.admin_ui_alb.id
+  from_port                    = var.admin_ui_port
+  to_port                      = var.admin_ui_port
+  ip_protocol                  = "tcp"
+  description                  = "ALB to admin_ui container"
+}
+
+# admin_ui task -> knowledge_mcp (8100) : agent_invitro→knowledge_mcp と同一形式（IMPL-202608211050 T10）
+resource "aws_vpc_security_group_ingress_rule" "knowledge_from_admin_ui" {
+  security_group_id            = aws_security_group.knowledge_mcp.id
+  referenced_security_group_id = aws_security_group.admin_ui_task.id
+  from_port                    = var.knowledge_mcp_port
+  to_port                      = var.knowledge_mcp_port
+  ip_protocol                  = "tcp"
+  description                  = "admin_ui to knowledge_mcp (QA/tag management via MCP)"
+}
+
+# admin_ui task -> agent_invitro (8300) : /ask-sl 中継（ADR-0045 / IMPL-202608241104 T23）。
+# knowledge_from_admin_ui と同一形式。agent_invitro は ALB からは到達不可のまま（ADR-0023）。
+resource "aws_vpc_security_group_ingress_rule" "agent_invitro_from_admin_ui" {
+  security_group_id            = aws_security_group.agent_invitro.id
+  referenced_security_group_id = aws_security_group.admin_ui_task.id
+  from_port                    = var.agent_invitro_port
+  to_port                      = var.agent_invitro_port
+  ip_protocol                  = "tcp"
+  description                  = "admin_ui to agent_invitro (/ask-sl relay)"
+}
+
+# admin_ui task -> rds (5432) : 会話評価（conversation データベース）用（ADR-0045 / IMPL-202608241104 T24）。
+# rds_from_knowledge 等と同一形式。到達は許可するが、注入される資格情報は conversation データベース用
+# のみに限定することで chatbot データベースへのアクセスを防ぐ（ADR-0045 の資格情報スコープ）。
+resource "aws_vpc_security_group_ingress_rule" "rds_from_admin_ui" {
+  security_group_id            = aws_security_group.rds.id
+  referenced_security_group_id = aws_security_group.admin_ui_task.id
+  from_port                    = 5432
+  to_port                      = 5432
+  ip_protocol                  = "tcp"
+  description                  = "admin_ui conversation evaluation (conversation database)"
+}
+
 # knowledge_mcp -> rds (5432)
 resource "aws_vpc_security_group_ingress_rule" "rds_from_knowledge" {
   security_group_id            = aws_security_group.rds.id
@@ -184,6 +246,8 @@ locals {
     knowledge_mcp     = aws_security_group.knowledge_mcp.id
     verification_task = aws_security_group.verification_task.id
     vpc_endpoints     = aws_security_group.vpc_endpoints.id
+    # admin_ui タスクは knowledge_mcp / VPCエンドポイント等へ出る（到達可否は相手側 ingress で制御）。
+    admin_ui_task = aws_security_group.admin_ui_task.id
   }
 }
 
@@ -193,6 +257,16 @@ resource "aws_vpc_security_group_egress_rule" "all" {
   cidr_ipv4         = "0.0.0.0/0"
   ip_protocol       = "-1"
   description       = "allow all outbound"
+}
+
+# ALB SG のアウトバウンドは admin_ui タスク宛のコンテナポートのみに限定する（ADR-0041, 5.1節）。
+resource "aws_vpc_security_group_egress_rule" "admin_ui_alb_to_task" {
+  security_group_id            = aws_security_group.admin_ui_alb.id
+  referenced_security_group_id = aws_security_group.admin_ui_task.id
+  from_port                    = var.admin_ui_port
+  to_port                      = var.admin_ui_port
+  ip_protocol                  = "tcp"
+  description                  = "ALB to admin_ui container only"
 }
 
 # ===========================================================================

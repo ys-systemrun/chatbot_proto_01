@@ -154,6 +154,8 @@ src/agent_invitro/graph/               → src/graph/
 src/agent_invitro/mcp_clients/         → src/mcp_clients/
 ```
 
+> 注: 本書の移動先 `src/main.py` は、その後エントリポイントを用途別に整理した際に `src/main/ipython/main.py`（import名 `agent_invitro.main.ipython.main`）へ再移設した。HTTP APIエントリは `src/main/api/server.py`（`agent_invitro.main.api.server`）。
+
 移動後、空になった `src/agent_invitro/` ディレクトリ（および `__pycache__` 等のビルド副産物）を削除する。移動前に `__pycache__` を一括削除しておくと、移動後の混同を避けられる。
 
 ### 4.3 `mcp_clients/client.py`（T5）
@@ -298,7 +300,7 @@ async def run(agent, query: str) -> str:
 - [ ] `tests/test_graph_smoke.py`: `build_agent()` のみを対象としており `Settings`/`build_llm`/`build_mcp_client` に依存していない想定だが、実装時に内容を確認し、依存があれば追従する。
 - [ ] `import agent_invitro` および `import agent_invitro.graph.agent`、`import agent_invitro.mcp_clients.client` が新しいパッケージング設定のもとで問題なく解決できることを確認する（T3）。
 - [ ] `docker compose exec agent_invitro pytest` が全件成功することを確認する。
-- [ ] `docker compose exec agent_invitro ipython` で接続し、`from agent_invitro.main import build, run` → `agent, mcp_client = await build()` → 既存の手動テストクエリ（要件定義書6.4節、IMPL-202608061725 9.1節と同一の3問）を再実行し、リグレッションがないことを確認する。
+- [ ] `docker compose exec agent_invitro ipython` で接続し、`from agent_invitro.main.ipython.main import build, run` → `agent, mcp_client = await build()` → 既存の手動テストクエリ（要件定義書6.4節、IMPL-202608061725 9.1節と同一の3問）を再実行し、リグレッションがないことを確認する。
 - [ ] ローカル環境（`LLM_PROVIDER=lmstudio`）・Bedrock環境（`LLM_PROVIDER=bedrock`、確認可能な場合）の双方で `build_llm` の分岐が従来通り動作することを確認する（IMPL-202608101616 9章の回帰確認に相当）。
 
 ## 8. Open Issues（実装時に確定・確認が必要な事項）

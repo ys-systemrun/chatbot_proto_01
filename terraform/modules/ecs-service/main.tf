@@ -81,10 +81,24 @@ resource "aws_ecs_service" "this" {
   launch_type            = "FARGATE"
   enable_execute_command = var.enable_execute_command
 
+  # ALB 配下（target_group_arn 指定時）はコンテナ起動直後の /health 失敗で切られないよう猶予を置く。
+  health_check_grace_period_seconds = var.target_group_arn != null ? 60 : null
+
   network_configuration {
     subnets          = var.subnet_ids
     security_groups  = var.security_group_ids
-    assign_public_ip = false
+    assign_public_ip = false # ADR-0041: admin_ui タスク自体は非公開（ALB のみ公開）
+  }
+
+  # ALB ターゲットグループへの接続（IMPL-202608211050 T12, admin_ui のみ）。
+  # target_group_arn が null の既存3サービスにはブロックが付かない（差分なし, 5.3節）。
+  dynamic "load_balancer" {
+    for_each = var.target_group_arn != null ? [1] : []
+    content {
+      target_group_arn = var.target_group_arn
+      container_name   = var.service_name
+      container_port   = var.container_port
+    }
   }
 
   dynamic "service_connect_configuration" {

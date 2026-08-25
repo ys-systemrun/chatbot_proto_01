@@ -2,17 +2,17 @@
 
 使用例（IPython の top-level await を利用）:
 
-    from agent_invitro.main import build, run
+    from agent_invitro.main.ipython.main import build, run
     agent, mcp_client = await build()
     await run(agent, "積算システムの操作方法を教えてください")
 """
 
 from __future__ import annotations
 
-from .config import load_settings
-from .graph.agent import build_agent
-from .llm import build_llm
-from .mcp_clients.client import build_mcp_client, load_tools
+from ...config import load_settings
+from ...graph.agent import build_agent
+from ...llm import build_llm
+from ...mcp_clients.client import build_mcp_client, load_tools
 
 
 async def build():

@@ -172,7 +172,7 @@ def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1
     log.step("app 構成 init（S3 バックエンド）")
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_app)
 
-    log.step("ECR リポジトリ作成（knowledge-mcp / tag-selector-mcp / agent-invitro / mcp-inspector）")
+    log.step("ECR リポジトリ作成（knowledge-mcp / tag-selector-mcp / agent-invitro / mcp-inspector / admin-ui）")
     tf.apply(d, targets=["module.ecr"], what="ECR apply")
     repos = tf.output_json(d, "ecr_repository_urls")
     registry = repos["knowledge-mcp"].split("/")[0]
@@ -180,7 +180,7 @@ def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1
     log.step("Docker イメージ build / push")
     log.info(f"ECR ログイン: {registry}")
     dockercli.login(registry, cfg.aws_region)
-    # mcp-inspector（4本目）は検証専用で Phase 6 に手動 build/push（§5.7）。
+    # mcp-inspector（検証専用）は Phase 6 に手動 build/push（§5.7）。
     components = [
         ("knowledge_mcp", "knowledge-mcp"),
         ("tag_selector_mcp", "tag-selector-mcp"),
@@ -189,7 +189,18 @@ def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1
     for src_dir, repo in components:
         image = f"{repos[repo]}:{image_tag}"
         dockercli.build_and_push(paths.repo_root() / src_dir, image, src_dir, repo)
-    log.ok("3イメージの push 完了（mcp-inspector は検証時に手動 build/push, §5.7）")
+
+    # admin_ui（管理UI, IMPL-202608211050 T16）: 例外的にビルドコンテキスト＝リポジトリルート、
+    # Dockerfile＝web_backend/Dockerfile.admin_ui（front_dev のビルド＋web_backend のマルチステージ）。
+    admin_ui_image = f"{repos['admin-ui']}:{image_tag}"
+    dockercli.build_and_push(
+        paths.repo_root(),
+        admin_ui_image,
+        "admin_ui",
+        "admin-ui",
+        dockerfile="web_backend/Dockerfile.admin_ui",
+    )
+    log.ok("4イメージの push 完了（mcp-inspector は検証時に手動 build/push, §5.7）")
 
     log.step(f"app 構成 apply（knowledge_mcp_desired_count={knowledge_mcp_desired_count}）")
     tf.apply(d, variables={"knowledge_mcp_desired_count": knowledge_mcp_desired_count}, what="app apply")

@@ -1,0 +1,40 @@
+# AWS admin_ui サービス用マルチステージ Dockerfile（IMPL-202608211050 T5, ADR-0042）
+#
+# ローカル docker-compose 用の web_backend/Dockerfile・front_dev/Dockerfile は変更しない。
+# 本ファイルは AWS デプロイ専用（front_dev の本番ビルド + web_backend を 1 イメージに同梱）。
+#
+# 重要: 既存 4 コンポーネントはコンポーネントディレクトリ単体がビルドコンテキストだが、本イメージは
+# front_dev/ と web_backend/ の両方を COPY するため、ビルドコンテキストをリポジトリルートにする
+# （IMPL-202608211050 T6 / 5.5 / 10章）。deploy CLI（commands.py）が
+#   docker build -f web_backend/Dockerfile.admin_ui <repo_root>
+# の形で呼び出す。
+
+# --- ステージ1: front_dev の本番ビルド（dist/ を生成）---
+FROM node:20-alpine AS front-build
+WORKDIR /front
+# 依存インストールはロックファイルのみ先に COPY してキャッシュを効かせる。
+# node_modules を COPY しないよう、必要なソースだけを明示 COPY する。
+COPY front_dev/package.json front_dev/package-lock.json ./
+RUN npm ci --legacy-peer-deps
+COPY front_dev/tsconfig.json front_dev/tsconfig.build.json front_dev/vite.config.ts front_dev/index.html ./
+COPY front_dev/src ./src
+# 本番ビルド: 型チェックは Storybook stories を除外した tsconfig.build.json で行う（ADR-0042）。
+# package.json の "build"（tsc && vite build）は stories も型検査しローカルと二重管理になるため使わない。
+RUN npx tsc -p tsconfig.build.json && npx vite build
+
+# --- ステージ2: web_backend（FastAPI）+ ステージ1の dist/ を静的配信 ---
+FROM python:3.11
+WORKDIR /app
+
+COPY web_backend/ .
+RUN pip install --upgrade pip
+RUN pip install -e .
+
+# front_dev のビルド出力を STATIC_DIR（src/main/config.py の既定 "static" = /app/static）へ配置。
+COPY --from=front-build /front/dist ./static
+
+EXPOSE 8000
+
+# 本番実行（開発サーバー fastapi dev ではなく fastapi run）。
+# エントリポイントは pyproject の [tool.fastapi] src.main.app:app と一致させる。
+CMD ["fastapi", "run", "src/main/app.py", "--host", "0.0.0.0", "--port", "8000"]

@@ -20,7 +20,20 @@ def login(registry: str, region: str) -> None:
     )
 
 
-def build_and_push(context: Path, image: str, dir_label: str, repo_label: str) -> None:
+def build_and_push(
+    context: Path,
+    image: str,
+    dir_label: str,
+    repo_label: str,
+    dockerfile: str | None = None,
+) -> None:
     log.info(f"build: {dir_label} -> {image}")
-    proc.run(["docker", "build", "-t", image, str(context)], what=f"docker build ({dir_label})")
+    build_cmd = ["docker", "build", "-t", image]
+    # admin_ui はビルドコンテキストをリポジトリルートにし、Dockerfile を明示指定する
+    # （front_dev/ と web_backend/ の両方を COPY するため, IMPL-202608211050 T6/5.5）。
+    # dockerfile はコンテキスト（context）からの相対パスで渡す。
+    if dockerfile is not None:
+        build_cmd += ["-f", str(context / dockerfile)]
+    build_cmd.append(str(context))
+    proc.run(build_cmd, what=f"docker build ({dir_label})")
     proc.run(["docker", "push", image], what=f"docker push ({repo_label})")

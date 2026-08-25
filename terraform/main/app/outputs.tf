@@ -20,3 +20,9 @@ output "bedrock_budget_name" {
   description = "Bedrock 予算アラート名（budget_alert_emails 指定時のみ）"
   value       = length(module.cost_alert) > 0 ? module.cost_alert[0].budget_name : null
 }
+
+# IMPL-202608211050 T15 / ADR-0041: ブラウザからのアクセス先（http://<dns_name>/, 8.1節）。
+output "admin_ui_alb_dns_name" {
+  description = "admin_ui ALB の DNS 名。社内IPから http://<dns_name>/ で管理UIにアクセスする"
+  value       = module.admin_ui_alb.dns_name
+}

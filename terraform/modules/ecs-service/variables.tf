@@ -95,3 +95,12 @@ variable "log_retention_days" {
   type    = number
   default = 14
 }
+
+# IMPL-202608211050 T12 / ADR-0041: ALB 配下サービス（admin_ui）向け。
+# 非 null のときのみ load_balancer ブロックを追加する。既存3サービス（Service Connect のみ）は
+# 既定 null のままで差分が出ない（5.3節）。
+variable "target_group_arn" {
+  type        = string
+  default     = null
+  description = "ALB ターゲットグループ ARN。指定時のみ ECS サービスへ load_balancer ブロックを付与"
+}

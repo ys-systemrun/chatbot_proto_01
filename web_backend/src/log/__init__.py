@@ -74,3 +74,17 @@ def log_admin_operation(
         "target_id": target_id,
         "changes": changes or {},
     })
+
+
+def log_export(format_: str, filename: str) -> None:
+    """全データエクスポートの実行事実を記録する（IMPL-202608241600 T20）。
+
+    log_admin_operation と同様、認証方式未確定のため操作者は記録せず、実行日時・形式・
+    生成ファイル名のみを記録する（要件定義書8章）。
+    """
+    _write({
+        "timestamp": datetime.now().isoformat(),
+        "type": "export",
+        "format": format_,        # "sql" | "csv"
+        "filename": filename,
+    })

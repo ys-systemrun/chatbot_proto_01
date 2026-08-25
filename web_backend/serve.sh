@@ -1,1 +1,1 @@
-fastapi dev --host 0.0.0.0
+fastapi dev src/main/app.py --host 0.0.0.0

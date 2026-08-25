@@ -1,7 +1,6 @@
 """Bedrock (boto3) を使って回答を生成するクラス。GenerateAnswerLLM と同一インタフェース。"""
 from __future__ import annotations
 
-import json
 import boto3
 
 from .gen_answer_llm import _SYSTEM_PROMPT, _ROLE_LABEL
@@ -54,19 +53,27 @@ class GenerateAnswerLLMBedrock:
         self._client = boto3.client("bedrock-runtime", region_name=region_name)
 
     def _invoke(self, system: str, messages: list[dict]) -> str:
-        body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": self._max_tokens,
-            "system": system,
-            "messages": messages,
-        }
-        response = self._client.invoke_model(
+        # Bedrock Converse API を使う（モデル非依存の統一フォーマット、content=[{"text": ...}]）。
+        # agent_invitro/src/generate.py と同一方針（Phase 6 の知見, IMPL-202608241104）。
+        converse_messages = [
+            {
+                "role": m["role"],
+                "content": (
+                    m["content"]
+                    if isinstance(m["content"], list)
+                    else [{"text": m["content"]}]
+                ),
+            }
+            for m in messages
+        ]
+        response = self._client.converse(
             modelId=self._model_id,
-            body=json.dumps(body, ensure_ascii=False),
-            contentType="application/json",
-            accept="application/json",
+            system=[{"text": system}],
+            messages=converse_messages,
+            inferenceConfig={"maxTokens": self._max_tokens},
         )
-        return json.loads(response["body"].read())["content"][0]["text"]
+        blocks = response["output"]["message"]["content"]
+        return "".join(b.get("text", "") for b in blocks)
 
     def generate_stateful(self, messages: list[dict]) -> str:
         """メッセージ履歴を渡して回答を生成する（ステートフル版）。

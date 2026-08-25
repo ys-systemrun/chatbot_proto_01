@@ -77,6 +77,15 @@ variable "embedding_vector_dim" {
   description = "埋め込みモデルの出力次元（§6.2, ADR-0017。app 構成では未使用）"
 }
 
+# --- admin_ui（管理UI, ADR-0041）---
+# ALB（sg-admin-ui-alb）への 80 番インバウンドを許可する社内IP（CIDR形式のリスト）。
+# 0章の残 Open Issue（発注者から受領）が解消するまで値未確定。既定 [] のときは誰も到達できない。
+variable "admin_ui_allowed_cidrs" {
+  type        = list(string)
+  default     = []
+  description = "admin_ui ALB へのインバウンドを許可する社内IP（CIDR リスト, ADR-0041, 6.1節）"
+}
+
 # --- Bedrock コスト予算アラート（cost-alert モジュール）---
 variable "bedrock_monthly_budget_usd" {
   type        = number

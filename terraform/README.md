@@ -210,6 +210,23 @@ aws ecs execute-command --cluster $CLUSTER --task <agent-task-arn> --container a
 #   → 会話エージェント実験要件定義書 §6.4 の手動テストクエリ3件を実行
 ```
 
+### admin_ui（QA・タグ管理UI, ADR-0041/0042 / IMPL-202608211050）
+`app` 構成に含まれる（`apply-app` / `apply-all` で同時に作成される）。`web_backend`（FastAPI）に
+`front_dev` の本番ビルドを同梱した単一イメージ（`web_backend/Dockerfile.admin_ui`, ビルドコンテキストは
+リポジトリルート）を、internet-facing ALB 経由で社内IP限定公開する。
+
+事前に `.env` で以下を設定すること（未設定だと ALB に誰も到達できない / 配置できない）:
+- `TF_VAR_admin_ui_allowed_cidrs` … 到達を許可する社内IP（CIDR リスト）。発注者から受領（0章 Open Issue #1）。
+- `TF_VAR_public_subnet_ids` … ALB を置く既存パブリックサブネット。基盤チームに確認（0章 Open Issue #2）。
+
+ブラウザからのアクセス先（ALB DNS 名）は apply 後に output で確認する:
+```bash
+cd terraform/main/app
+terraform output -raw admin_ui_alb_dns_name
+# → http://<dns_name>/ を社内ネットワークのブラウザで開く（QA一覧 / タグ階層 / 登録編集）
+```
+本フェーズは HTTP(80) のみ（HTTPS は次フェーズ, 0章暫定方針 / 11章 Open Issue #1）。
+
 ### 破棄（コスト管理 / ADR-0039）
 DB を残したまま常時課金リソース（ECS 等）だけ止めるのが通常運用。
 **destroy 順序は app → database（逆順は依存関係違反で失敗する, §10）。**
@@ -240,4 +257,7 @@ terraform destroy -var="deletion_protection=false" -var="skip_final_snapshot=tru
 - **pgvector 対応バージョン**: `rds_engine_version` は実装着手時に AWS 公式で要確認。
 - **Service Connect タイムアウト**: Streamable HTTP(SSE) の長時間コネクションは Envoy 既定タイムアウトが短い可能性。Phase 6 で併せて確認。
 - **DATABASE_URL**: アプリが1本の URL を要求するため、`database` モジュールが random_password から完全な接続 URL を組み立てた独自シークレットを作り、ECS に secrets 注入する（RDS マネージドマスターパスワードは JSON のため URL 注入に使えない）。
+- **admin_ui の ALB コスト（ADR-0041）**: ALB は時間課金＋LCU で常時発生する。`admin_ui`・ALB は `app` 構成に含まれるため `destroy-app` で ECS 等と一緒に破棄される（RDS は残る）。検証終了後にコストを止めたい場合は `destroy-app` を実行する。
+- **admin_ui タスクは非公開（ADR-0041 T13）**: ALB はパブリックサブネットだが、`admin_ui` の ECS タスク自体はプライベートサブネット・`assign_public_ip=false`（既存3サービスと同じ）。ALB SG からのコンテナポートのみ受ける。
+- **ローカル docker-compose は不変（ADR-0042）**: `Dockerfile.admin_ui` は AWS 専用の追加ファイル。既存 `web_backend/Dockerfile`・`front_dev/Dockerfile`・`docker-compose.yml` は変更しないため、ローカル開発フローに影響しない。
 - **CSV/JSON データ（ADR-0034）**: ECS にホストマウントは無いが、シード元データは db-hiroba-qa-init イメージに `/data` として同梱済み（`Dockerfile` の `COPY data /data`）。EFS 等の追加ストレージは不要。`CSV_DATA_DIR` は `data`（main.py が先頭に `/` を付与 → `/data`）。

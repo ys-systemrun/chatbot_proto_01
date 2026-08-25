@@ -43,6 +43,29 @@ variable "private_subnet_ids" {
   description = "既存プライベートサブネットの ID 群（2つ以上, ADR-0026）"
 }
 
+# IMPL-202608211050 T9 / ADR-0041: admin_ui の ALB（internet-facing）を配置する既存
+# パブリックサブネット。SG（sg-admin-ui-alb/task）は network モジュールで作成し、app 構成が
+# local.db 経由で参照する。0章 Open Issue #2 が解消するまで値未確定（既定 [] で apply 阻害しない）。
+variable "public_subnet_ids" {
+  type        = list(string)
+  default     = []
+  description = "既存 VPC のパブリックサブネット ID 群（admin_ui の ALB 配置用, ADR-0041）"
+}
+
+variable "admin_ui_port" {
+  type        = number
+  default     = 8000
+  description = "admin_ui（web_backend）のコンテナポート"
+}
+
+# 会話評価用データベース名（ADR-0044 / IMPL-202608241104 T20, T29）。db_hiroba_qa_init の
+# CONVERSATION_DB_NAME・database モジュールの接続 URL シークレット両方で使う。
+variable "conversation_db_name" {
+  type        = string
+  default     = "conversation"
+  description = "会話評価用データベース名（同一 RDS 上に別データベースとして作成）"
+}
+
 variable "create_vpc_endpoints" {
   type        = bool
   default     = true

@@ -44,7 +44,11 @@ agent_invitro/
 │   │   └── client.py                 … MultiServerMCPClient のセットアップ・ツール取得
 │   ├── graph/
 │   │   └── agent.py                  … ReActエージェント構築・システムプロンプト
-│   └── main.py                       … IPython から呼び出す build() / run()（コンポジションルート）
+│   └── main/                         … エントリポイント群
+│       ├── api/
+│       │   └── server.py             … AWS環境の常駐HTTPサーバ（FastAPI /ask-sl・/health）
+│       └── ipython/
+│           └── main.py               … IPython から呼び出す build() / run()（コンポジションルート）
 ├── scripts/
 │   └── check_tool_calling.py          … Phase 1 スモークテスト（Tool Calling 対応可否の確認）
 └── tests/
@@ -59,7 +63,8 @@ agent_invitro/
 | `llm.py` | `llm_provider` に応じた Chat モデル（LM Studio の `ChatOpenAI` / Bedrock の `ChatBedrockConverse`）を構築する。LM Studio の URL 形式を ChatOpenAI 用に変換する。 | `build_llm(llm_provider, ...)`、`to_openai_base_url()` |
 | `mcp_clients/client.py` | 2つの MCP サーバーへの接続設定を持つ `MultiServerMCPClient` を構築し、ツール一覧を取得する。 | `build_mcp_client(tag_selector_mcp_url, knowledge_mcp_url)`、`load_tools(client)`（async） |
 | `graph/agent.py` | `create_react_agent` で ReAct エージェントを組む。呼び出し順序を誘導するシステムプロンプトを持つ。 | `SYSTEM_PROMPT`、`build_agent(llm, tools)` |
-| `main.py` | IPython から使うエントリポイント。構築一式と1クエリ実行を提供。ツール呼び出し・応答・最終回答をログ出力する。 | `build()`（async）、`run(agent, query)`（async） |
+| `main/ipython/main.py` | IPython から使うエントリポイント。構築一式と1クエリ実行を提供。ツール呼び出し・応答・最終回答をログ出力する。 | `build()`（async）、`run(agent, query)`（async） |
+| `main/api/server.py` | AWS環境で常駐する FastAPI アプリ。`/ask-sl`（会話生成）・`/health` を提供する（ADR-0043/0045）。ローカルの `sleep infinity` 運用では未使用。 | `app`（FastAPI）、`ask()`、`health()` |
 | `scripts/check_tool_calling.py` | ロード済みモデルが構造化 `tool_calls` を返せるかを実機確認する（Phase 1）。 | `main()` |
 | `tests/test_graph_smoke.py` | モックの LLM・tools でエージェントが構築できることを確認（MCP/LM Studio 不要）。 | pytest |
 
@@ -118,7 +123,7 @@ docker compose exec agent_invitro ipython
 IPython 内で（top-level await を利用）:
 
 ```python
-from agent_invitro.main import build, run
+from agent_invitro.main.ipython.main import build, run
 
 # 一度だけ構築（エージェントは再利用できる）
 agent, mcp_client = await build()

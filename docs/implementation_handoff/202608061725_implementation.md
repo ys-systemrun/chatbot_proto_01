@@ -214,8 +214,9 @@ def build_agent(llm, tools):
 async def build():
     """settings, mcp_client, tools, llm, agent を構築し、(agent, mcp_client) を返す。
     IPythonの対話シェルから次のように呼び出す想定（ADR-0019、IPythonのtop-level await機能を利用）。
+    ※現在のimportパスは `from agent_invitro.main.ipython.main import build, run`（後日 main/ipython/ 下へ移設）。
 
-        from agent_invitro.main import build, run
+        from agent_invitro.main.ipython.main import build, run
         agent, mcp_client = await build()
         await run(agent, "積算システムの操作方法を教えてください")
     """

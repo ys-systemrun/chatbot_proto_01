@@ -29,6 +29,8 @@ agent_invitro/
 
 この変更にあたっては、物理ディレクトリ名が変わっても、コード中で使用しているPythonの import 名（`agent_invitro.xxx`、例: `from agent_invitro.main import build, run`）を変えずに済ませられるかどうかが技術的な論点になる。
 
+> 注（後日）: エントリポイントはその後、用途別に `src/main/` 配下へ整理された（IPython用: `src/main/ipython/main.py` → `agent_invitro.main.ipython.main`、HTTP API用: `src/main/api/server.py` → `agent_invitro.main.api.server`）。これは本ADRの「平坦化」（`config.py`・`llm.py`等を`src/`直下に置く）を覆すものではなく、`src/`配下へサブパッケージを追加した変更であり、本ADR「結果・影響」で予見していた `packages` リストへの追記（後述）が実際に発生したケースにあたる。
+
 ## 決定
 
 **ディレクトリ構成を次のように平坦化する。**
