@@ -95,6 +95,49 @@ class TagRepository:
         cur.execute("SELECT 1 FROM tag WHERE id = %s", (tag_id,))
         return cur.fetchone() is not None
 
+    def find_by_name(self, name: str) -> Optional[TagNode]:
+        """タグ名で1件検索する（存在しなければ None）。
+
+        create_tag の重複チェック（WHERE name = %s）と同一条件。QA一括インポート
+        （IMPL-202608261022 T9 / ADR-0053）が、未知タグを自動作成する前の存在確認に使う。
+        """
+        with self.db.cursor() as cur:
+            cur.execute("SELECT id FROM tag WHERE name = %s", (name,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            return self._get_node(cur, row[0])
+
+    # ------------------------------------------------------------------ #
+    # CSV エクスポート（IMPL-202608281500 T1 / ADR-0065）
+    # ------------------------------------------------------------------ #
+    def export_tags(self) -> List[dict]:
+        """全タグを {id, name, parent_name, description} のフラットな配列で返す。
+
+        既存 list_tags() が構築するツリーをそのまま深さ優先で走査し、各ノードの
+        親ノードの name を parent_name として持ち回る（ルート直下は parent_name=None）。
+        親タグが子タグより先に出現する階層順で返す（ADR-0065 決定5）。
+        エイリアス（tag_alias）・children は含めない。CSV 組み立ては web_backend 側で行う。
+        新規 SQL は発行せず、list_tags() の1クエリのみを再利用する。
+        """
+        result: List[dict] = []
+
+        def walk(node: TagNode, parent_name: Optional[str]) -> None:
+            result.append(
+                {
+                    "id": node.id,
+                    "name": node.name,
+                    "parent_name": parent_name,
+                    "description": node.description,
+                }
+            )
+            for child in node.children:
+                walk(child, node.name)
+
+        for root in self.list_tags():
+            walk(root, None)
+        return result
+
     # ------------------------------------------------------------------ #
     # 更新系
     # ------------------------------------------------------------------ #
@@ -216,6 +259,80 @@ class TagRepository:
             # （IMPL-202608060837 0節の決定）。
             cur.execute("DELETE FROM tag_alias WHERE tag_id = %s", (tag_id,))
             cur.execute("DELETE FROM tag WHERE id = %s", (tag_id,))
+
+    # ------------------------------------------------------------------ #
+    # 一括インポート（IMPL-202608261630 T1 / ADR-0061）
+    # ------------------------------------------------------------------ #
+    def import_tag_batch(self, rows: List[dict]) -> List[dict]:
+        """CSVの各行（dict: name, parent_name, description）をまとめて登録・更新する。
+
+        - `name`が既存タグと一致すれば更新（0節: parent_name/descriptionが空欄なら変更なし）、
+          一致しなければ新規作成する（0節: parent_name空欄はルート直下）。
+        - `parent_name`は、既存タグまたは同一CSV内の他行のnameで解決する。CSV内の行の並び順には
+          依存しない（複数パスによる反復解決、ADR-0061）。
+        - 循環参照は既存のcreate_tag/move_tagのバリデーションで検出する。
+        - 戻り値: [{"row": <行番号>, "status": "success"|"error", "tag_id": ..., "error": ...}, ...]
+        """
+        results: List[Optional[dict]] = [None] * len(rows)
+
+        with self.db.cursor() as cur:
+            cur.execute("SELECT name, id FROM tag")
+            resolved_names: Dict[str, int] = {name: tid for name, tid in cur.fetchall()}
+
+        remaining = list(range(len(rows)))
+        progress = True
+        while remaining and progress:
+            progress = False
+            still_remaining = []
+            for i in remaining:
+                row = rows[i]
+                name = (row.get("name") or "").strip()
+                parent_name = (row.get("parent_name") or "").strip()
+                description = (row.get("description") or "").strip() or None
+
+                if not name:
+                    results[i] = {"row": i, "status": "error", "error": "name is required"}
+                    progress = True
+                    continue
+
+                # parent_name が指定されていて、まだ解決できていない場合は次パスへ繰り越す
+                if parent_name and parent_name not in resolved_names:
+                    still_remaining.append(i)
+                    continue
+
+                parent_tag_id = resolved_names.get(parent_name) if parent_name else None
+
+                try:
+                    if name in resolved_names:
+                        # 既存（またはこのバッチ内で作成済み）タグの更新
+                        tag_id = resolved_names[name]
+                        if parent_name:  # 空欄=変更なし（0節）
+                            self.move_tag(tag_id, parent_tag_id)
+                        if description is not None:  # 空欄=変更なし
+                            self.set_tag_description(tag_id, description)
+                    else:
+                        node = self.create_tag(
+                            name=name, parent_tag_id=parent_tag_id, description=description
+                        )
+                        tag_id = node.id
+                        resolved_names[name] = tag_id
+                    results[i] = {"row": i, "status": "success", "tag_id": tag_id}
+                except TagError as e:
+                    results[i] = {"row": i, "status": "error", "error": str(e)}
+                progress = True
+
+            remaining = still_remaining
+
+        # 反復終了後も残っている行 = parent_name が既存タグにもCSV内の他行にも見つからない
+        for i in remaining:
+            parent_name = (rows[i].get("parent_name") or "").strip()
+            results[i] = {
+                "row": i,
+                "status": "error",
+                "error": f"parent tag '{parent_name}' not found (neither in existing tags nor in this CSV)",
+            }
+
+        return results
 
     # ------------------------------------------------------------------ #
     # 循環参照防止（実装指示書 T18 / 5.6）

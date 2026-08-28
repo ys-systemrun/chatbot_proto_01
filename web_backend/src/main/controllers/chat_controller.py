@@ -32,17 +32,26 @@ class Summary(BaseModel):
     summarized_upto: int
 
 
+class ConversationTag(BaseModel):
+    id: int
+    name: str
+    score: float
+    missed_turns: int
+
+
 class Request(BaseModel):
     conversation_id: str | None = None  # None の場合はサーバー側で新規発行
     text: str
     messages: list[Message]
     summary: Summary
+    tags: list[ConversationTag] | None = None   # 会話タグ（IMPL-202608261345 T4 / ADR-0056）
 
 
 class Response(BaseModel):
     conversation_id: str
     messages: list[Message]
     summary: Summary
+    tags: list[ConversationTag] | None = None   # 会話タグ（IMPL-202608261345 T4 / ADR-0056）
 
 
 _summarizer = SummarizeLLM(config.LMSTUDIO_CHAT_URL, config.MODEL_CHAT)

@@ -73,12 +73,20 @@ module "db_init_task" {
   }
   secrets = {
     DATABASE_URL = module.database.db_url_secret_arn
-    # ensure_conversation_database()（DATABASE_URL 使用）と apply_conversation_schema()
-    # （CONVERSATION_DB_URL 使用）で参照する（T16/T17/T29）。
+    # ensure_conversation_database()（DATABASE_URL 使用, CREATE DATABASE）と migrate_conversation()
+    # （CONVERSATION_DB_URL のホスト・DB名を元に conversation_migrator 接続を組み立て）で参照する
+    # （ADR-0051 / IMPL-202608261022 T4）。マスター接続文字列のまま維持する。
     CONVERSATION_DB_URL = module.database.conversation_db_url_secret_arn
     # ensure_export_reader_role() が CREATE ROLE / ALTER ROLE ... PASSWORD に使う生パスワード
     # （ADR-0046 / IMPL-202608241600 T9）。
     EXPORT_READER_PASSWORD = module.database.export_reader_password_secret_arn
+    # ロール分離（ADR-0052 / IMPL-202608261022 T18〜T20）: db_hiroba_qa_init が
+    # ensure_chatbot_roles() / ensure_conversation_roles() の CREATE/ALTER ROLE ... PASSWORD と、
+    # migrator/app 接続文字列の組み立てに使う生パスワード。EXPORT_READER_PASSWORD と同一パターン。
+    CHATBOT_MIGRATOR_PASSWORD      = module.database.chatbot_migrator_password_secret_arn
+    CHATBOT_APP_PASSWORD           = module.database.chatbot_app_password_secret_arn
+    CONVERSATION_MIGRATOR_PASSWORD = module.database.conversation_migrator_password_secret_arn
+    CONVERSATION_APP_PASSWORD      = module.database.conversation_app_password_secret_arn
   }
   enable_bedrock = true
 }

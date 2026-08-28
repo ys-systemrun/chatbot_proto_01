@@ -9,10 +9,14 @@ qa_original / question_altered / qa_tag への CRUD と、question_text の embe
 from __future__ import annotations
 
 import uuid
-from typing import Callable, List, Optional, Tuple
+from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from ..db.connection import Database, to_vector_str
 from ..models.qa import QaDetail, QaError, QaSummary
+from .tag_repository import TagError
+
+if TYPE_CHECKING:
+    from .tag_repository import TagRepository
 
 
 class QaManagementRepository:
@@ -269,6 +273,77 @@ class QaManagementRepository:
 
             detail = self._load_detail(cur, qa_id)
         return detail
+
+    # ------------------------------------------------------------------ #
+    # CSV 一括インポート（IMPL-202608261022 T9 / ADR-0053）
+    # ------------------------------------------------------------------ #
+    def import_qa_batch(
+        self,
+        rows: List[dict],
+        tag_repository: "TagRepository",
+    ) -> List[dict]:
+        """CSVの各行をまとめて登録・更新する。行ごとに独立してコミットし、1行のエラーが
+        他行に波及しないようにする（ADR-0053）。
+
+        - `uuid` が空: create_qa 相当（新規作成、qa_id は自動採番）。
+        - `uuid` が既存: update_qa 相当（部分更新。CSVの列が空の項目は変更しない, #12）。
+        - `tags`: タグ名のカンマ区切り。既存タグは名前で解決、未存在は自動作成する（#7）。
+        - 戻り値: [{"row", "status", "qa_id"?, "error"?}, ...]
+        """
+        results: List[dict] = []
+        for i, row in enumerate(rows):
+            try:
+                tag_ids = self._resolve_tag_names(row.get("tags"), tag_repository)
+                category_id = self._parse_category_id(row.get("category_id"))
+                if row.get("uuid"):
+                    detail = self.update_qa(
+                        row["uuid"],
+                        title=row.get("title") or None,
+                        question_text=row.get("question_text") or None,
+                        answer_text=row.get("answer_text") or None,
+                        category_id=category_id,
+                        # tags 列が空欄なら「変更なし」（None）。値があるときのみ置換する。
+                        tag_ids=tag_ids if row.get("tags") else None,
+                    )
+                else:
+                    detail = self.create_qa(
+                        title=row.get("title") or "",
+                        question_text=row.get("question_text") or "",
+                        answer_text=row.get("answer_text") or "",
+                        category_id=category_id,
+                        tag_ids=tag_ids,
+                    )
+                results.append({"row": i, "status": "success", "qa_id": detail.id})
+            except (QaError, TagError) as e:
+                results.append({"row": i, "status": "error", "error": str(e)})
+        return results
+
+    def _resolve_tag_names(
+        self, tags_field, tag_repository: "TagRepository"
+    ) -> Optional[List[int]]:
+        """タグ名のカンマ区切り文字列を tag_id のリストへ解決する。未存在タグは自動作成する（#7）。
+
+        空・未指定の場合は None（＝タグ紐付けを変更しない）を返す。
+        """
+        if not tags_field:
+            return None
+        names = [t.strip() for t in tags_field.split(",") if t.strip()]
+        ids: List[int] = []
+        for name in names:
+            tag = tag_repository.find_by_name(name)
+            if tag is None:
+                tag = tag_repository.create_tag(name=name)  # 自動作成（#7）
+            ids.append(tag.id)
+        return ids
+
+    @staticmethod
+    def _parse_category_id(value) -> Optional[int]:
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise QaError(f"category_id must be an integer: {value!r}")
 
     # ------------------------------------------------------------------ #
     # 内部ヘルパ

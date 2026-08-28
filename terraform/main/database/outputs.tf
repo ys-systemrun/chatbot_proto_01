@@ -62,6 +62,22 @@ output "chatbot_export_db_url_secret_arn" {
   value       = module.database.chatbot_export_db_url_secret_arn
 }
 
+# ADR-0052 / IMPL-202608261022 T19: アプリ用ロール（_app）の接続文字列シークレットを app 構成へ渡す。
+# chatbot_app は knowledge_mcp / tag_selector_mcp / admin_ui の DATABASE_URL、conversation_app は
+# admin_ui の CONVERSATION_DB_URL に注入する。app 構成が terraform_remote_state 経由で
+# local.db.chatbot_app_db_url_secret_arn / local.db.conversation_app_db_url_secret_arn として参照する。
+# migrator/app の生パスワードシークレットは db_init_task が同一 root 内で直接参照するため再エクスポートしない
+# （export_reader_password_secret_arn と同じ扱い）。
+output "chatbot_app_db_url_secret_arn" {
+  description = "chatbot_app ロールでの DATABASE_URL を持つシークレット ARN（app 構成が参照, ADR-0052）"
+  value       = module.database.chatbot_app_db_url_secret_arn
+}
+
+output "conversation_app_db_url_secret_arn" {
+  description = "conversation_app ロールでの CONVERSATION_DB_URL を持つシークレット ARN（app 構成が参照, ADR-0052）"
+  value       = module.database.conversation_app_db_url_secret_arn
+}
+
 output "rds_endpoint" {
   value = module.database.endpoint
 }

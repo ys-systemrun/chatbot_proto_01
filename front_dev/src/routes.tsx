@@ -11,8 +11,13 @@ import { StateContainer } from "./feature/stateless/StateContainer";
 import EvaluatedMessagesPage from "./feature/evaluated_messages/EvaluatedMessagesPage";
 import QaListPage from "./feature/qa_admin/QaListPage";
 import QaFormPage from "./feature/qa_admin/QaFormPage";
+import QuestionAlteredListPage from "./feature/question_altered/QuestionAlteredListPage";
+import QuestionAlteredFormPage from "./feature/question_altered/QuestionAlteredFormPage";
 import TagTreePage from "./feature/tag_admin/TagTreePage";
 import ExportPage from "./feature/export/ExportPage";
+import VerificationListPage from "./feature/verification/VerificationListPage";
+import VerificationFormPage from "./feature/verification/VerificationFormPage";
+import VerificationDetailPage from "./feature/verification/VerificationDetailPage";
 
 // front_dev/src のルート定義を集約する唯一のファイル（旧: main.tsx の window.location.pathname 分岐 +
 // AppAdmin / AppStateless / AppEvaluatedMessages の 3 エントリを本ファイルへ統合）。
@@ -79,8 +84,14 @@ function AdminLayout() {
         <NavLink to="/admin/qa" className="admin-nav-link">
           QA
         </NavLink>
+        <NavLink to="/admin/question_altered" className="admin-nav-link">
+          言い換え
+        </NavLink>
         <NavLink to="/admin/tags" className="admin-nav-link">
           タグ
+        </NavLink>
+        <NavLink to="/admin/verification" className="admin-nav-link">
+          検証
         </NavLink>
         <NavLink to="/admin/export" className="admin-nav-link">
           エクスポート
@@ -109,7 +120,32 @@ export default function AppRoutes() {
             <Route path="qa" element={<QaListPage />} />
             <Route path="qa/new" element={<QaFormPage mode="create" />} />
             <Route path="qa/:id" element={<QaFormPage mode="edit" />} />
+            <Route
+              path="question_altered"
+              element={<QuestionAlteredListPage />}
+            />
+            <Route
+              path="question_altered/new"
+              element={<QuestionAlteredFormPage mode="create" />}
+            />
+            <Route
+              path="question_altered/:id"
+              element={<QuestionAlteredFormPage mode="edit" />}
+            />
             <Route path="tags" element={<TagTreePage />} />
+            <Route path="verification" element={<VerificationListPage />} />
+            <Route
+              path="verification/new"
+              element={<VerificationFormPage mode="create" />}
+            />
+            <Route
+              path="verification/:id"
+              element={<VerificationDetailPage />}
+            />
+            <Route
+              path="verification/:id/edit"
+              element={<VerificationFormPage mode="edit" />}
+            />
             <Route path="export" element={<ExportPage />} />
           </Route>
         </Route>

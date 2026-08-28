@@ -2,12 +2,14 @@ import { useCallback, useState } from "react";
 import { LayoutContainer } from "./LayoutContainer";
 import { Message } from "../../domain/stateless/message";
 import { Summary } from "../../domain/stateless/summary";
+import { ConversationTag } from "../../domain/stateless/tag";
 import { askStateless, evaluateResponse } from "../../api";
 
 export const StateContainer: React.FC<{}> = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [summary, setSummary] = useState<Summary | undefined>(undefined);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [tags, setTags] = useState<ConversationTag[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = useCallback(
@@ -25,6 +27,7 @@ export const StateContainer: React.FC<{}> = () => {
           text,
           messages: messages.filter((m) => m.order > currentSummary.summarized_upto),
           summary: currentSummary,
+          tags,
         });
 
         const displayMessages = res.messages.map((m) =>
@@ -33,6 +36,9 @@ export const StateContainer: React.FC<{}> = () => {
         setMessages(displayMessages);
         setSummary(res.summary);
         setConversationId(res.conversation_id);
+        if (res.tags) {
+          setTags(res.tags); // ローカル環境等 res.tags が無い場合は何もしない
+        }
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -46,7 +52,7 @@ export const StateContainer: React.FC<{}> = () => {
         setIsLoading(false);
       }
     },
-    [messages, summary, conversationId],
+    [messages, summary, conversationId, tags],
   );
 
   const handleEvaluate = useCallback(

@@ -26,3 +26,17 @@ export interface TagUpdateRequest {
   description?: string | null;
   parent_tag_id?: number | null;
 }
+
+// タグ一括インポートの結果（IMPL-202608261630 T4 / ADR-0061）
+export interface TagImportRowResult {
+  row: number;
+  status: "success" | "error";
+  tag_id?: number;
+  error?: string;
+}
+
+export interface TagImportResponse {
+  total: number;
+  success_count: number;
+  results: TagImportRowResult[];
+}

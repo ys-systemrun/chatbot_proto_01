@@ -303,6 +303,45 @@ def test_list_tags_reflects_direct_db_change(repo):
 
 
 # --------------------------------------------------------------------------- #
+# export_tags（IMPL-202608281500 / ADR-0065）
+# --------------------------------------------------------------------------- #
+def test_export_tags_flattens_tree_in_hierarchy_order(repo):
+    """ツリーを親→子の階層順でフラット化し、parent_name を持ち回る。"""
+    root = repo.create_tag("サポート", description="最上位")
+    child = repo.create_tag("ログイン", parent_tag_id=root.id)
+    grand = repo.create_tag("パスワード再設定", parent_tag_id=child.id)
+
+    items = repo.export_tags()
+
+    # 親が子より先に出現する階層順
+    assert [i["name"] for i in items] == [
+        "サポート",
+        "ログイン",
+        "パスワード再設定",
+    ]
+    by_name = {i["name"]: i for i in items}
+    # ルート直下は parent_name=None、以下は親の name を持つ
+    assert by_name["サポート"]["parent_name"] is None
+    assert by_name["ログイン"]["parent_name"] == "サポート"
+    assert by_name["パスワード再設定"]["parent_name"] == "ログイン"
+    assert by_name["サポート"]["description"] == "最上位"
+    # CSV は id を出力しないが、ツールの戻り値には含む（web_backend が参照しない）
+    assert set(items[0].keys()) == {"id", "name", "parent_name", "description"}
+
+
+def test_export_tags_excludes_aliases(repo):
+    """エイリアスはエクスポート対象に含めない（ADR-0065 決定3）。"""
+    a = repo.create_tag("認証")
+    repo.add_tag_alias(a.id, "ログイン認証")
+
+    items = repo.export_tags()
+
+    assert len(items) == 1
+    assert "aliases" not in items[0]
+    assert "children" not in items[0]
+
+
+# --------------------------------------------------------------------------- #
 # search_knowledge（FastMCP が利用可能な場合のみ）
 # --------------------------------------------------------------------------- #
 def test_search_knowledge_min_score_filter():

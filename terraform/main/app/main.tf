@@ -65,8 +65,10 @@ module "tag_selector_mcp" {
     TAG_SELECTOR_DEFAULT_MAX_TAGS             = "3"
     TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD = "0.0"
   }
+  # ロール分離（ADR-0052 / IMPL-202608261022 T19）: マスター権限の db_url ではなく DML 専用の
+  # chatbot_app ロール接続文字列を使う。tag_selector_mcp はタグ台帳の読み取りのみ。
   secrets = {
-    DATABASE_URL = local.db.db_url_secret_arn
+    DATABASE_URL = local.db.chatbot_app_db_url_secret_arn
   }
 
   security_group_ids            = [local.db.sg_tag_selector_mcp_id]
@@ -92,9 +94,15 @@ module "knowledge_mcp" {
     BEDROCK_EMBEDDING_MODEL_ID  = var.bedrock_embedding_model_id
     BEDROCK_REGION              = var.aws_region
     KNOWLEDGE_MCP_DEFAULT_TOP_K = "5"
+    # IMPL-202608261450: タグ階層展開・タグ構成類似度スコアリング（ADR-0058・ADR-0059）
+    TAG_SIMILARITY_WEIGHT       = "0.5"
+    # SEARCH_CANDIDATE_POOL_SIZE は未設定のままとし、アプリケーション側の既定計算式に委ねる
+    # （5.1節、max(top_k * 10, 50)）。値を固定したくなった場合のみ追加する。
   }
+  # ロール分離（ADR-0052 / IMPL-202608261022 T19）: マスター権限の db_url ではなく DML 専用の
+  # chatbot_app ロール接続文字列を使う（QA/タグの参照・更新は DDL を伴わない）。
   secrets = {
-    DATABASE_URL = local.db.db_url_secret_arn
+    DATABASE_URL = local.db.chatbot_app_db_url_secret_arn
   }
 
   security_group_ids            = [local.db.sg_knowledge_mcp_id]
@@ -127,6 +135,12 @@ module "agent_invitro" {
     LLM_PROVIDER          = "bedrock"
     BEDROCK_CHAT_MODEL_ID = var.bedrock_chat_model_id
     BEDROCK_REGION        = var.aws_region
+    # --- 会話タグ管理機能で追加（IMPL-202608261345 T10 / ADR-0057）---
+    # TAG_SEARCH_FALLBACK_ENABLED は ADR-0062 により廃止（単一呼び出し方式へ単純化）。
+    TAG_SELECTOR_MAX_TAGS             = "3"
+    TAG_SELECTOR_CONFIDENCE_THRESHOLD = "0.0"
+    TAG_CONTEXT_MAX_TAGS              = "5"
+    TAG_CONTEXT_MAX_MISSED_TURNS      = "2"
   }
 
   security_group_ids            = [local.db.sg_agent_invitro_id]
@@ -176,13 +190,24 @@ module "admin_ui" {
     # chat 系（/api/ask-sl）は agent_invitro へ中継する（中継先は agent_invitro 側の /ask-sl,
     # ADR-0045 / IMPL-202608241104 T28）。
     AGENT_INVITRO_URL = "http://agent_invitro:${local.agent_invitro_port}"
+    # 検証機能（質問→タグ→情報源の検索精度検証, ADR-0049 / IMPL-202608260909 T17）。
+    # select_tags を tag_selector_mcp へ直接呼び出す。VERIFICATION_* は検証実行時に
+    # select_tags / search_knowledge へ都度渡すパラメータ（機密ではないため平文 environment）。
+    TAG_SELECTOR_MCP_URL              = "http://tag_selector_mcp:${local.tag_selector_port}/mcp"
+    VERIFICATION_MAX_TAGS             = "3"
+    VERIFICATION_CONFIDENCE_THRESHOLD = "0.0"
+    VERIFICATION_TOP_K                = "5"
+    VERIFICATION_MIN_SCORE            = "0.0"
   }
   # 会話評価（/api/evaluate_response, /api/evaluated_messages）用（ADR-0045 / T28）。
   # 資格情報スコープの徹底（10章）: ここには conversation データベース用の CONVERSATION_DB_URL のみを
   # 注入し、chatbot データベース用の DATABASE_URL は注入しない（ネットワークは到達可能でも
   # 資格情報で chatbot データベースへのアクセスを防ぐ、ADR-0045）。
   secrets = {
-    CONVERSATION_DB_URL = local.db.conversation_db_url_secret_arn
+    # ロール分離（ADR-0052 / IMPL-202608261022 T19）: マスター権限の conversation_db_url ではなく
+    # DML 専用の conversation_app ロール接続文字列を使う。会話評価・検証機能（verification_* テーブル）
+    # の読み書きは DDL を伴わない。
+    CONVERSATION_DB_URL = local.db.conversation_app_db_url_secret_arn
     # 全データエクスポート機能（/api/export）が chatbot データベースを読むための、読み取り専用
     # ロール chatbot_export_reader での接続文字列（ADR-0046 / IMPL-202608241600 T12）。マスター権限の
     # DATABASE_URL は依然として注入しない（資格情報スコープの徹底, ADR-0045/ADR-0046）。ネットワークは

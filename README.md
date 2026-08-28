@@ -17,6 +17,33 @@ docker compose run --rm db_hiroba_qa_init \
   yoyo mark --batch --database "postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot" ./migrations
 ```
 
+#### DBロール分離に伴う接続情報の変更点（IMPL-202608261022 / ADR-0052）
+
+`chatbot` / `conversation` の両データベースは、用途別ロール（`migrator` / `app`）に分離されました。開発者は今後、単一の `postgres` マスターユーザーではなく、`chatbot_app` / `chatbot_migrator`（および `conversation_app` / `conversation_migrator`）の資格情報を意識する必要があります。
+
+- アプリケーション（`web_backend` / `knowledge_mcp` / `tag_selector_mcp`）は `chatbot_app` ロールで `chatbot` DB に接続します。`web_backend` の会話DBは `conversation_app` ロールで接続します。`app` ロールは DML（SELECT/INSERT/UPDATE/DELETE）権限のみを持ち、DDL 権限を持ちません。
+- ロールの作成・スキーマのマイグレーションを行うのは `db_hiroba_qa_init` サービスのみです（`migrator` ／マスター権限で実行）。
+
+ローカルの `docker compose` 環境では、各ロールのパスワードを `.env` で固定値指定できます（未指定時は下表の既定値が使われます）。AWS 環境では Terraform / Secrets Manager から注入されます。
+
+| 環境変数 | 対象ロール | 既定値 |
+|---|---|---|
+| `CHATBOT_MIGRATOR_PASSWORD` | `chatbot_migrator` | `chatbot_migrator_pw` |
+| `CHATBOT_APP_PASSWORD` | `chatbot_app` | `chatbot_app_pw` |
+| `CONVERSATION_MIGRATOR_PASSWORD` | `conversation_migrator` | `conversation_migrator_pw` |
+| `CONVERSATION_APP_PASSWORD` | `conversation_app` | `conversation_app_pw` |
+
+#### conversation データベースのベースライン化（IMPL-202608261022 / ADR-0051）
+
+本実装で、`conversation` データベースのスキーマ適用が `init.sql` の直書きから yoyo マイグレーション（`db_hiroba_qa_init/migrations_conversation/`）へ移行しました。既存ボリューム（`conversation` / `message` の2テーブル、検証機能実装後は `verification_*` 系4テーブルも含む計6テーブルが既に存在する環境）を使う場合は、上の `chatbot` 向け `yoyo mark` と同様に、`conversation` データベース側も既存テーブルを「適用済み」として yoyo の追跡テーブルに登録します。
+
+```bash
+# conversation データベースの既存テーブルを適用済みとしてyoyoの追跡テーブルに登録する
+yoyo mark --batch --database "postgresql://conversation_migrator:<password>@localhost:5433/conversation" ./db_hiroba_qa_init/migrations_conversation
+```
+
+> ローカルの `conversation_db` は既定でホスト `5433` ポート（`.env` の `CONVERSATION_DB_PORT` で変更可）。コンテナ間で実行する場合はホスト名・ポートを `conversation_db:5432` に読み替えてください。`<password>` は `CONVERSATION_MIGRATOR_PASSWORD`（既定 `conversation_migrator_pw`）を指定します。
+
 #### .env 設定項目
 
 | 項目 | 値の例 | 説明 | 
@@ -35,6 +62,42 @@ docker compose run --rm db_hiroba_qa_init \
 | MODEL_CHAT | google/gemma-4-e4b | チャット作成用のモデル名 |
 | LMSTUDIO_CHAT_URL | http://host.docker.internal:1234/v1/chat/completions | LM Studio 上の チャット作成用のモデルのエンドポイント |
 | EVAL_QUERIES_CSV | eval_queries.csv | 評価用のクエリ:正解の qa_id の組 |
+
+## 全データインポート（別環境への投入）
+
+全データエクスポート機能で取得した `chatbot.sql` / `conversation.sql` を、まっさらな（空の）別環境へ投入する運用手順です（IMPL-202608261022 / ADR-0055）。
+
+> **前提**:
+> - 常に空のDBへの投入のみに対応します（既存データがある状態への投入は非対応、発注者確認#5）。
+> - 投入時はメンテナンス時間帯を設け、対象サービスを停止してから実施します（発注者確認#10）。
+> - ブラウザUIは提供しません。運用者による CLI ／一時タスク実行のみです（発注者確認#6）。
+
+### ローカル環境（docker compose）
+
+```bash
+# 1. メンテナンス時間帯を設け、対象サービスを停止する
+docker compose stop web_backend knowledge_mcp tag_selector_mcp agent_invitro
+
+# 2. 新規（空の）DBへSQLダンプを投入する（既存データがある状態は非対応）
+docker compose exec -T db_hiroba_qa psql -U chatbot_migrator -d chatbot < chatbot.sql
+docker compose exec -T conversation_db psql -U conversation_migrator -d conversation < conversation.sql
+
+# 3. サービスを再開する
+docker compose start web_backend knowledge_mcp tag_selector_mcp agent_invitro
+```
+
+> **PowerShell（Windows）での注意**: PowerShell では `<`（入力リダイレクト）が使えません。手順2は `Get-Content` からのパイプに置き換えてください。CP932 環境での文字化けを避けるため、SQLダンプが UTF-8 の場合は `-Encoding utf8` を明示するのが安全です。
+>
+> ```powershell
+> Get-Content -Encoding utf8 chatbot.sql | docker compose exec -T db_hiroba_qa psql -U chatbot_migrator -d chatbot
+> Get-Content -Encoding utf8 conversation.sql | docker compose exec -T conversation_db psql -U conversation_migrator -d conversation
+> ```
+
+### AWS 環境（ECS Exec）
+
+AWS 環境では、ECS Exec（`aws ecs execute-command`、ADR-0029 と同様の実行形態）で `db_hiroba_qa_init` 相当のタスク／コンテナに接続し、`psql` でダンプを投入します。SQLファイルの受け渡しは S3 経由の一時アップロードを推奨します（実装フェーズで確定）。ブラウザUIは作らず、運用者による CLI ／一時タスク実行のみとします（発注者確認#6）。
+
+具体的なコマンド例（一時タスクの起動形態、S3 からの取得手順など）は、実装フェーズで確定し、運用手順として別途整備します。
 
 ## デバッグ UI による動作確認
 

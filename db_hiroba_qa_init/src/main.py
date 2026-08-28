@@ -1,12 +1,19 @@
-"""db_hiroba_qa_init エントリポイント（IMPL-202608061016）。
+"""db_hiroba_qa_init エントリポイント（IMPL-202608061016、IMPL-202608261022 で拡張）。
 
 処理順序:
-  1. マイグレーション適用（yoyo-migrations, ADR-0017）。
-  2. category の存在チェック→未投入なら投入。
-  3. qa_original の存在チェック→未投入なら投入。
-  4. question_altered の存在チェック→未投入なら、行ごとに embedding 計算のうえ投入。
-  5. title 補完バックフィル（既存レコードの未設定行のみ対象。冪等）。
-  6. tag.description / tag_alias の暫定シード（冪等）。
+  1. chatbot ロール分離: migrator / app ロールを作成（マスター接続, ADR-0052）。
+  2. chatbot マイグレーション適用（yoyo, migrator 接続, ADR-0017）。
+  3. chatbot シード（category / qa_original / question_altered / backfill / tag 説明, migrator 接続）。
+  4. chatbot app ロールへ DML 権限を付与（全テーブル作成後, マスター接続）。
+  5. conversation データベースの作成（AWS のみ）→ ロール作成 → yoyo マイグレーション → app 権限付与。
+  6. エクスポート専用読み取りロールの作成（AWS のみ, ADR-0046）。
+
+用途別ロール分離（ADR-0052）:
+  - migrator ロール: マイグレーション・シード（DDL/DML）を実行する。
+  - app ロール: アプリケーション（web_backend / knowledge_mcp / tag_selector_mcp）が接続する。
+    DML のみ、DDL 権限は持たない。
+ロール作成・権限付与は常にマスター接続（DATABASE_URL / CONVERSATION_DB_URL）で行い、
+マイグレーション・シードは migrator 接続で行う（10章の順序制約）。
 
 いずれかの手順で例外が発生した場合、ログに出力の上、非0の終了コードで終了する（ADR-0018）。
 全手順が成功した場合は終了コード0で終了する。テーブル単位の存在チェックによる冪等性で、
@@ -19,6 +26,7 @@ import os
 import sys
 import traceback
 from datetime import datetime
+from urllib.parse import quote, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import psycopg2
@@ -37,20 +45,30 @@ from seed_helpers import (
 
 
 DATABASE_URL = os.environ["DATABASE_URL"]
-# conversation データベース（会話評価用, ADR-0044 / IMPL-202608241104 T15）。
+# conversation データベース（会話評価 + 検証機能, ADR-0044/0048/0051）。
 # CONVERSATION_DB_NAME は存在チェック・CREATE DATABASE に使う（既定 "conversation"）。
-# CONVERSATION_DB_URL は AWS 環境でのみ Terraform secrets 経由で注入される。ローカル
-# docker-compose 環境では未設定のままとし、作成・スキーマ適用処理はスキップする（T19、10章）。
+# CONVERSATION_DB_URL は IMPL-202608261022 以降ローカル・AWS 双方で常に設定される（マスター接続）。
 CONVERSATION_DB_NAME = os.environ.get("CONVERSATION_DB_NAME", "conversation")
 CONVERSATION_DB_URL = os.environ.get("CONVERSATION_DB_URL", "")
 # エクスポート専用読み取りロール（ADR-0046 / IMPL-202608241600 T1）。
-# CHATBOT_DB_NAME は GRANT CONNECT ON DATABASE の対象名（既定 "chatbot"）。
-# EXPORT_READER_ROLE_NAME は新設するロール名（既定 "chatbot_export_reader"）。
-# EXPORT_READER_PASSWORD は AWS 環境でのみ Terraform secrets 経由で注入される。ローカル
-# docker-compose 環境では未設定のままとし、ロール作成処理自体をスキップする（T3、10章）。
 CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "chatbot")
 EXPORT_READER_ROLE_NAME = os.environ.get("EXPORT_READER_ROLE_NAME", "chatbot_export_reader")
 EXPORT_READER_PASSWORD = os.environ.get("EXPORT_READER_PASSWORD", "")
+
+# 用途別ロール（ADR-0052 / IMPL-202608261022 T1・T5）。ローカルは docker-compose の .env、
+# AWS は Terraform Secrets Manager からパスワードを注入する。パスワード未設定時はロール分離を
+# 行わず、従来どおりマスター接続でマイグレーション・シードを実行する（後方互換）。
+CHATBOT_MIGRATOR_ROLE_NAME = os.environ.get("CHATBOT_MIGRATOR_ROLE_NAME", "chatbot_migrator")
+CHATBOT_MIGRATOR_PASSWORD = os.environ.get("CHATBOT_MIGRATOR_PASSWORD", "")
+CHATBOT_APP_ROLE_NAME = os.environ.get("CHATBOT_APP_ROLE_NAME", "chatbot_app")
+CHATBOT_APP_PASSWORD = os.environ.get("CHATBOT_APP_PASSWORD", "")
+CONVERSATION_MIGRATOR_ROLE_NAME = os.environ.get(
+    "CONVERSATION_MIGRATOR_ROLE_NAME", "conversation_migrator"
+)
+CONVERSATION_MIGRATOR_PASSWORD = os.environ.get("CONVERSATION_MIGRATOR_PASSWORD", "")
+CONVERSATION_APP_ROLE_NAME = os.environ.get("CONVERSATION_APP_ROLE_NAME", "conversation_app")
+CONVERSATION_APP_PASSWORD = os.environ.get("CONVERSATION_APP_PASSWORD", "")
+
 # 埋め込み接続先の切り替え（IMPL-202608101616 4.3 / ADR-0031）。既定はローカル開発の lmstudio。
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "lmstudio")
 if EMBEDDING_PROVIDER == "bedrock":
@@ -61,8 +79,7 @@ else:
     EMBEDDING_URL = os.environ["LMSTUDIO_EMBEDDING_URL"]
     EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
     BEDROCK_REGION = None
-# ADR-0034: シード元データはイメージに /data として同梱済み。CSV_DATA_DIR 未指定でも
-# 同梱パスを既定で参照する（先頭に "/" を付けるため既定値 "data" → /data）。
+# ADR-0034: シード元データはイメージに /data として同梱済み。
 CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
@@ -71,6 +88,10 @@ CATEGORY_FILE = os.environ["CATEGORY_FILE"]
 MIGRATIONS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations"
 )
+# conversation データベース向け yoyo マイグレーション（ADR-0051 / IMPL-202608261022 T3・T4）。
+CONVERSATION_MIGRATIONS_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations_conversation"
+)
 
 
 def _now():
@@ -78,11 +99,176 @@ def _now():
 
 
 # ---------------------------------------------------------------------------
-# 1. マイグレーション
+# 接続文字列ユーティリティ（ロール差し替え・同一サーバ判定, ADR-0052）
 # ---------------------------------------------------------------------------
-def migrate():
+def _swap_userinfo(url: str, user: str, password: str) -> str:
+    """URL のホスト・ポート・DB名はそのままに、user/password のみ差し替えて返す。"""
+    parts = urlsplit(url)
+    netloc = f"{user}:{quote(password, safe='')}@{parts.hostname}"
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
+
+
+def _same_server(url_a: str, url_b: str) -> bool:
+    """2つの接続文字列が同一の PostgreSQL サーバ（host:port）を指すか。"""
+    pa, pb = urlsplit(url_a), urlsplit(url_b)
+    return (pa.hostname, pa.port or 5432) == (pb.hostname, pb.port or 5432)
+
+
+def migrator_database_url() -> str:
+    """chatbot データベースへの migrator 接続文字列（T2）。"""
+    return _swap_userinfo(DATABASE_URL, CHATBOT_MIGRATOR_ROLE_NAME, CHATBOT_MIGRATOR_PASSWORD)
+
+
+def conversation_migrator_database_url() -> str:
+    """conversation データベースへの migrator 接続文字列（T4）。"""
+    return _swap_userinfo(
+        CONVERSATION_DB_URL,
+        CONVERSATION_MIGRATOR_ROLE_NAME,
+        CONVERSATION_MIGRATOR_PASSWORD,
+    )
+
+
+# ---------------------------------------------------------------------------
+# ロール分離（T1, T2, T5、ADR-0052）
+# ---------------------------------------------------------------------------
+def _create_or_update_login_role(cur, role_name: str, password: str) -> None:
+    """LOGIN ロールを冪等に作成（既存ならパスワード更新）する（ensure_export_reader_role と同一パターン）。"""
+    role = sql.Identifier(role_name)
+    cur.execute("SELECT 1 FROM pg_roles WHERE rolname = %s", (role_name,))
+    if cur.fetchone():
+        cur.execute(sql.SQL("ALTER ROLE {} WITH LOGIN PASSWORD %s").format(role), (password,))
+        print(f"{_now()} Role '{role_name}' already exists; password updated.")
+    else:
+        cur.execute(sql.SQL("CREATE ROLE {} WITH LOGIN PASSWORD %s").format(role), (password,))
+        print(f"{_now()} Role '{role_name}' created.")
+
+
+def _ensure_roles(
+    master_url: str,
+    db_name: str,
+    migrator_role: str,
+    migrator_password: str,
+    app_role: str,
+    app_password: str,
+    create_vector_extension: bool = False,
+) -> None:
+    """migrator / app ロールを作成し、migrator に DDL 権限を付与する（マスター接続, autocommit）。
+
+    app へのテーブル・シーケンス権限は、全テーブル作成後に _grant_app_privileges で付与する
+    （GRANT ON ALL TABLES は実行時点で存在するテーブルにのみ効くため, 10章）。
+
+    create_vector_extension=True のとき、CREATE EXTENSION vector をマスターで先に実行する。
+    pgvector はトラステッド拡張ではなく非 superuser（migrator）では作成できないため、migrate() が
+    migrator 接続で走る前に、マスター権限で冪等に用意しておく（migration 0001 の CREATE EXTENSION
+    IF NOT EXISTS を no-op 化する）。
+    """
+    conn = psycopg2.connect(master_url)
+    conn.autocommit = True  # 既存 ensure_export_reader_role() との一貫性（10章）
+    try:
+        m = sql.Identifier(migrator_role)
+        a = sql.Identifier(app_role)
+        dbn = sql.Identifier(db_name)
+        with conn.cursor() as cur:
+            if create_vector_extension:
+                cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+            _create_or_update_login_role(cur, migrator_role, migrator_password)
+            _create_or_update_login_role(cur, app_role, app_password)
+            # マスター（接続中のロール。AWS RDS では rds_superuser で真の superuser ではない）を
+            # migrator のメンバーにする。これにより、migrate が migrator 所有で作成したテーブルに対し、
+            # 後段 _grant_app_privileges（マスター接続）が所有権を継承して GRANT できる（10章）。
+            cur.execute("SELECT current_user")
+            master_role = cur.fetchone()[0]
+            cur.execute(
+                sql.SQL("GRANT {} TO {}").format(m, sql.Identifier(master_role))
+            )
+            # migrator: マイグレーション・シードのための DDL/DML 権限。
+            cur.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(dbn, m))
+            cur.execute(sql.SQL("GRANT ALL ON SCHEMA public TO {}").format(m))
+            cur.execute(
+                sql.SQL("GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO {}").format(m)
+            )
+            cur.execute(
+                sql.SQL("GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO {}").format(m)
+            )
+            # app: 接続・スキーマ利用のみ先に付与（テーブル権限は後段, 10章）。
+            cur.execute(sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(dbn, a))
+            cur.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(a))
+    finally:
+        conn.close()
+
+
+def _grant_app_privileges(master_url: str, app_role: str) -> None:
+    """app ロールへ全テーブル・シーケンスの DML 権限を付与する（全テーブル作成後, マスター接続）。
+
+    DDL 権限（CREATE/ALTER/DROP TABLE）は付与しない＝app は DDL 不可（DoD 8.1, ADR-0052）。
+    """
+    conn = psycopg2.connect(master_url)
+    conn.autocommit = True
+    try:
+        a = sql.Identifier(app_role)
+        with conn.cursor() as cur:
+            cur.execute(
+                sql.SQL(
+                    "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {}"
+                ).format(a)
+            )
+            # SERIAL 列（tag.id / verification_* 等）への INSERT にシーケンス権限が要る。
+            cur.execute(
+                sql.SQL("GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {}").format(a)
+            )
+    finally:
+        conn.close()
+
+
+def ensure_chatbot_roles() -> None:
+    """chatbot データベースに migrator / app ロールを冪等に作成する（T1, ADR-0052）。"""
+    print(f"{_now()} ====== Ensuring chatbot roles (migrator / app) ...")
+    _ensure_roles(
+        DATABASE_URL,
+        CHATBOT_DB_NAME,
+        CHATBOT_MIGRATOR_ROLE_NAME,
+        CHATBOT_MIGRATOR_PASSWORD,
+        CHATBOT_APP_ROLE_NAME,
+        CHATBOT_APP_PASSWORD,
+        create_vector_extension=True,  # chatbot は question_altered.embedding で pgvector を使う
+    )
+    print(f"{_now()} Chatbot roles ensured.")
+
+
+def grant_chatbot_app_privileges() -> None:
+    print(f"{_now()} ====== Granting chatbot app privileges (DML only) ...")
+    _grant_app_privileges(DATABASE_URL, CHATBOT_APP_ROLE_NAME)
+    print(f"{_now()} Chatbot app privileges granted.")
+
+
+def ensure_conversation_roles() -> None:
+    """conversation データベースに migrator / app ロールを冪等に作成する（T5, ADR-0052）。"""
+    print(f"{_now()} ====== Ensuring conversation roles (migrator / app) ...")
+    _ensure_roles(
+        CONVERSATION_DB_URL,
+        CONVERSATION_DB_NAME,
+        CONVERSATION_MIGRATOR_ROLE_NAME,
+        CONVERSATION_MIGRATOR_PASSWORD,
+        CONVERSATION_APP_ROLE_NAME,
+        CONVERSATION_APP_PASSWORD,
+    )
+    print(f"{_now()} Conversation roles ensured.")
+
+
+def grant_conversation_app_privileges() -> None:
+    print(f"{_now()} ====== Granting conversation app privileges (DML only) ...")
+    _grant_app_privileges(CONVERSATION_DB_URL, CONVERSATION_APP_ROLE_NAME)
+    print(f"{_now()} Conversation app privileges granted.")
+
+
+# ---------------------------------------------------------------------------
+# 1. マイグレーション（chatbot / conversation）
+# ---------------------------------------------------------------------------
+def migrate(url: str):
     print(f"{_now()} ====== Applying migrations from {MIGRATIONS_DIR} ...")
-    backend = get_backend(DATABASE_URL)
+    backend = get_backend(url)
     migrations = read_migrations(MIGRATIONS_DIR)
     with backend.lock():
         to_apply = backend.to_apply(migrations)
@@ -90,47 +276,40 @@ def migrate():
     print(f"{_now()} Migrations applied ({len(to_apply)} pending step(s)).")
 
 
-# ---------------------------------------------------------------------------
-# 1.5 conversation データベースの作成・スキーマ適用（ADR-0044 / IMPL-202608241104 T16, T17）
-# ---------------------------------------------------------------------------
-# db_conversation/init.sql と同一内容の冪等 DDL。yoyo の migrations/ には追加せず、
-# chatbot データベースとは独立した conversation データベースへ直接適用する（0章 / T17）。
-_CONVERSATION_SCHEMA_DDL = """
-CREATE TABLE IF NOT EXISTS conversation (
-    id          VARCHAR PRIMARY KEY,
-    created_at  TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
-CREATE TABLE IF NOT EXISTS message (
-    id              VARCHAR PRIMARY KEY,
-    conversation_id VARCHAR NOT NULL REFERENCES conversation(id),
-    "order"         INTEGER NOT NULL,
-    role            SMALLINT NOT NULL,
-    evaluation      SMALLINT,
-    input           TEXT,
-    model           VARCHAR,
-    content         TEXT,
-    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(conversation_id, "order")
-);
-"""
+def migrate_conversation(url: str):
+    """conversation データベースへ yoyo マイグレーションを適用する（T4, ADR-0051）。"""
+    print(
+        f"{_now()} ====== Applying conversation migrations from "
+        f"{CONVERSATION_MIGRATIONS_DIR} ..."
+    )
+    backend = get_backend(url)
+    migrations = read_migrations(CONVERSATION_MIGRATIONS_DIR)
+    with backend.lock():
+        to_apply = backend.to_apply(migrations)
+        backend.apply_migrations(to_apply)
+    print(f"{_now()} Conversation migrations applied ({len(to_apply)} pending step(s)).")
 
 
 def ensure_conversation_database():
-    """conversation データベースが無ければ作成する（T16, ADR-0044）。
+    """conversation データベースが無ければ作成する（AWS の同一 RDS 上のみ, ADR-0044/0051）。
 
-    CREATE DATABASE は PostgreSQL のトランザクションブロック内で実行できないため、
-    既存の migrate()（yoyo が内部でトランザクションを張る）とは独立した接続・関数として、
-    DATABASE_URL（chatbot データベース, マスター権限）に autocommit=True で接続して実行する（0章）。
+    ローカル docker-compose では conversation_db が別サーバ（別コンテナ）として自身で
+    データベースを保持するため、CREATE DATABASE は行わず早期リターンする（5.2節）。
+    CREATE DATABASE はトランザクション不可のため autocommit=True のマスター接続で実行する。
     """
+    if not _same_server(DATABASE_URL, CONVERSATION_DB_URL):
+        print(
+            f"{_now()} conversation database is on a separate server "
+            "(local docker-compose); skipping CREATE DATABASE."
+        )
+        return
     print(f"{_now()} ====== Ensuring conversation database '{CONVERSATION_DB_NAME}' ...")
     conn = psycopg2.connect(DATABASE_URL)
-    conn.autocommit = True  # CREATE DATABASE はトランザクション不可（0章 / 10章）
+    conn.autocommit = True  # CREATE DATABASE はトランザクション不可（10章）
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM pg_database WHERE datname = %s",
-                (CONVERSATION_DB_NAME,),
+                "SELECT 1 FROM pg_database WHERE datname = %s", (CONVERSATION_DB_NAME,)
             )
             if cur.fetchone():
                 print(
@@ -139,50 +318,21 @@ def ensure_conversation_database():
                 )
                 return
             cur.execute(
-                sql.SQL("CREATE DATABASE {}").format(
-                    sql.Identifier(CONVERSATION_DB_NAME)
-                )
+                sql.SQL("CREATE DATABASE {}").format(sql.Identifier(CONVERSATION_DB_NAME))
             )
         print(f"{_now()} Database '{CONVERSATION_DB_NAME}' created.")
     finally:
         conn.close()
 
 
-def apply_conversation_schema():
-    """conversation データベースへ conversation/message テーブルの冪等 DDL を適用する（T17）。
-
-    CONVERSATION_DB_URL に接続し、CREATE TABLE IF NOT EXISTS を実行する。
-    """
-    print(f"{_now()} ====== Applying conversation schema (conversation/message) ...")
-    conn = psycopg2.connect(CONVERSATION_DB_URL)
-    try:
-        with conn.cursor() as cur:
-            cur.execute(_CONVERSATION_SCHEMA_DDL)
-        conn.commit()
-    finally:
-        conn.close()
-    print(f"{_now()} Conversation schema applied.")
-
-
 # ---------------------------------------------------------------------------
-# 1.6 エクスポート専用読み取りロールの作成（ADR-0046 / IMPL-202608241600 T2）
+# エクスポート専用読み取りロールの作成（ADR-0046 / IMPL-202608241600 T2）
 # ---------------------------------------------------------------------------
 def ensure_export_reader_role():
     """chatbot データベース向けの読み取り専用ロールを冪等に作成・権限付与する（T2, ADR-0046）。
 
-    admin_ui のエクスポート機能が使う専用ロール。DATABASE_URL（chatbot データベース,
-    マスター権限）に接続し、次を冪等に行う:
-      - ロールが無ければ CREATE ROLE ... WITH LOGIN PASSWORD、あれば ALTER ROLE ... PASSWORD
-        （Terraform でパスワードを再生成した場合に追従する）
-      - GRANT CONNECT / USAGE / SELECT（対象は既存テーブルのみ。呼び出しは migrate()・
-        seed_if_empty() の後、全テーブル作成済みを保証してから行う, 0章 / 10章）
-      - ALTER DEFAULT PRIVILEGES で将来追加テーブルにも SELECT を既定付与
-      - REVOKE CONNECT ON DATABASE conversation（会話データベースへの接続は禁止）
-    INSERT/UPDATE/DELETE・DDL 権限は一切付与しない（GRANT を追加しないだけでよい）。
-
-    ロール名・データベース名は SQL インジェクション対策として sql.Identifier で組み立てる
-    （既存 ensure_conversation_database() と同一パターン）。CREATE ROLE / GRANT は
-    トランザクション内でも実行可能だが、既存パターンとの一貫性のため autocommit=True で処理する（10章）。
+    admin_ui のエクスポート機能が使う専用ロール。SELECT 権限のみを付与し、
+    conversation データベースへの接続は禁止する（詳細は ADR-0046）。
     """
     print(f"{_now()} ====== Ensuring export reader role '{EXPORT_READER_ROLE_NAME}' ...")
     conn = psycopg2.connect(DATABASE_URL)
@@ -191,8 +341,7 @@ def ensure_export_reader_role():
         role = sql.Identifier(EXPORT_READER_ROLE_NAME)
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT 1 FROM pg_roles WHERE rolname = %s",
-                (EXPORT_READER_ROLE_NAME,),
+                "SELECT 1 FROM pg_roles WHERE rolname = %s", (EXPORT_READER_ROLE_NAME,)
             )
             if cur.fetchone():
                 cur.execute(
@@ -206,7 +355,6 @@ def ensure_export_reader_role():
                     (EXPORT_READER_PASSWORD,),
                 )
                 print(f"{_now()} Role '{EXPORT_READER_ROLE_NAME}' created.")
-            # 読み取り権限のみを付与する。
             cur.execute(
                 sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
                     sql.Identifier(CHATBOT_DB_NAME), role
@@ -218,16 +366,9 @@ def ensure_export_reader_role():
             )
             cur.execute(
                 sql.SQL(
-                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
-                    "GRANT SELECT ON TABLES TO {}"
+                    "ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT ON TABLES TO {}"
                 ).format(role)
             )
-            # conversation データベースへの接続を禁止する（5.1 節手順6）。GRANT/REVOKE ... ON DATABASE
-            # はクラスタ共通カタログ（pg_database）への操作であり、chatbot 接続のまま発行してよい（10章）。
-            # 注意: PostgreSQL は既定で PUBLIC に CONNECT を付与するため、ロール宛の REVOKE のみでは
-            # PUBLIC 経由の接続は残る。DoD 8.1（conversation への接続自体を拒否）を厳密に満たすには
-            # PUBLIC からの REVOKE も要る。ここでは指示書 5.1 の記載どおりロール宛 REVOKE のみを行う
-            # （SELECT 権限は付与しないため、接続できてもテーブルは読めない）。
             cur.execute(
                 sql.SQL("REVOKE CONNECT ON DATABASE {} FROM {}").format(
                     sql.Identifier(CONVERSATION_DB_NAME), role
@@ -241,10 +382,10 @@ def ensure_export_reader_role():
 # ---------------------------------------------------------------------------
 # 2-4. シード（テーブル単位の存在チェックによる冪等投入, ADR-0018）
 # ---------------------------------------------------------------------------
-def seed_category():
+def seed_category(url: str):
     print(f"{_now()} ====== Start seeding category...")
     rows = load_category_csv(CSV_DATA_DIR, CATEGORY_FILE)
-    with DB(DATABASE_URL) as db:
+    with DB(url) as db:
         if db.exists_category():
             print(f"{_now()} category table already has data. Skipping insertion.")
             return
@@ -253,10 +394,10 @@ def seed_category():
     print(f"{_now()} Inserted {len(rows)} categories.")
 
 
-def seed_qa_original():
+def seed_qa_original(url: str):
     print(f"{_now()} ====== Start seeding qa_original...")
     rows = load_qa_original_json(CSV_DATA_DIR, QA_ORIGINAL_FILE, CATEGORY_FILE)
-    with DB(DATABASE_URL) as db:
+    with DB(url) as db:
         if db.exists_qa_original():
             print(f"{_now()} qa_original table already has data. Skipping insertion.")
             return
@@ -265,10 +406,10 @@ def seed_qa_original():
     print(f"{_now()} Inserted {len(rows)} qa_original rows.")
 
 
-def seed_question_altered():
+def seed_question_altered(url: str):
     print(f"{_now()} ====== Start seeding question_altered...")
     rows = load_question_altered_csv(CSV_DATA_DIR, QUESTION_ALTERED_FILE)
-    with DB(DATABASE_URL) as db:
+    with DB(url) as db:
         if db.exists_question_altered():
             print(
                 f"{_now()} question_altered table already has data. Skipping insertion."
@@ -291,11 +432,11 @@ def seed_question_altered():
 # ---------------------------------------------------------------------------
 # 5-6. バックフィル / 暫定シード（既存レコードへの冪等な補完）
 # ---------------------------------------------------------------------------
-def backfill_titles_and_tags():
+def backfill_titles_and_tags(url: str):
     print(f"{_now()} ====== Start backfilling title / tags...")
     json_path = os.path.join(CSV_DATA_DIR, QA_ORIGINAL_FILE)
     items = backfill_title_and_tags.load_records(json_path)
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(url)
     try:
         stats = backfill_title_and_tags.backfill(conn, items)
     finally:
@@ -308,9 +449,9 @@ def backfill_titles_and_tags():
     )
 
 
-def seed_tag_descriptions_and_aliases():
+def seed_tag_descriptions_and_aliases(url: str):
     print(f"{_now()} ====== Start seeding tag description / aliases (provisional)...")
-    conn = psycopg2.connect(DATABASE_URL)
+    conn = psycopg2.connect(url)
     try:
         stats = seed_description_and_aliases.seed(conn)
     finally:
@@ -323,35 +464,58 @@ def seed_tag_descriptions_and_aliases():
     )
 
 
-def seed_if_empty():
-    seed_category()
-    seed_qa_original()
-    seed_question_altered()
-    backfill_titles_and_tags()
-    seed_tag_descriptions_and_aliases()
+def seed_if_empty(url: str):
+    seed_category(url)
+    seed_qa_original(url)
+    seed_question_altered(url)
+    backfill_titles_and_tags(url)
+    seed_tag_descriptions_and_aliases(url)
 
 
 def main():
     print(f"{_now()} ====== db_hiroba_qa_init start.")
     try:
-        migrate()
-        # conversation データベースの作成・スキーマ適用（AWS 環境のみ, T18/T19）。
-        # ローカル docker-compose では別コンテナ（conversation_db）が既に conversation
-        # データベースを保持しているため、CONVERSATION_DB_URL 未設定時は本ステップをスキップする。
-        if CONVERSATION_DB_URL:
-            ensure_conversation_database()
-            apply_conversation_schema()
+        # --- chatbot: ロール分離 → migrate → seed → app 権限付与 -----------------
+        chatbot_roles_enabled = bool(CHATBOT_MIGRATOR_PASSWORD and CHATBOT_APP_PASSWORD)
+        if chatbot_roles_enabled:
+            ensure_chatbot_roles()
+            chatbot_work_url = migrator_database_url()
         else:
             print(
-                f"{_now()} CONVERSATION_DB_URL is not set; "
-                "skipping conversation database setup (local docker-compose)."
+                f"{_now()} chatbot role passwords not set; "
+                "using master connection for migrate/seed (role separation disabled)."
             )
-        seed_if_empty()
-        # エクスポート専用読み取りロールの作成（AWS 環境のみ, T3 / ADR-0046）。
-        # GRANT SELECT ON ALL TABLES は実行時点で存在するテーブルにのみ効くため、必ず
-        # migrate()・seed_if_empty() の後に呼ぶ（0章 / 10章）。ローカル docker-compose では
-        # EXPORT_READER_PASSWORD 未設定のためスキップし、config.py が既存 DATABASE_URL に
-        # フォールバックする。
+            chatbot_work_url = DATABASE_URL
+
+        migrate(chatbot_work_url)
+        seed_if_empty(chatbot_work_url)
+        if chatbot_roles_enabled:
+            grant_chatbot_app_privileges()
+
+        # --- conversation: DB作成 → ロール分離 → migrate → app 権限付与 ----------
+        if CONVERSATION_DB_URL:
+            ensure_conversation_database()
+            conversation_roles_enabled = bool(
+                CONVERSATION_MIGRATOR_PASSWORD and CONVERSATION_APP_PASSWORD
+            )
+            if conversation_roles_enabled:
+                ensure_conversation_roles()
+                conversation_work_url = conversation_migrator_database_url()
+            else:
+                print(
+                    f"{_now()} conversation role passwords not set; "
+                    "using master connection for conversation migrate."
+                )
+                conversation_work_url = CONVERSATION_DB_URL
+            migrate_conversation(conversation_work_url)
+            if conversation_roles_enabled:
+                grant_conversation_app_privileges()
+        else:
+            print(
+                f"{_now()} CONVERSATION_DB_URL is not set; skipping conversation setup."
+            )
+
+        # --- エクスポート専用読み取りロール（AWS のみ, ADR-0046） ----------------
         if EXPORT_READER_PASSWORD:
             ensure_export_reader_role()
         else:

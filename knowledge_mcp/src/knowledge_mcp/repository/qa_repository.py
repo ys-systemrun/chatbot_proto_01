@@ -1,8 +1,13 @@
-"""QARepository（実装指示書 5.3 / 要件6.3）。
+"""QARepository（実装指示書 5.3 / 要件6.3、IMPL-202608261450 T1 で祖先タグ展開・
+タグ構成類似度スコアリングに対応）。
 
 既存 app/src/db.py の search_similar を移植・拡張し、title / category / tags を併せて取得する。
 既存 search_similar 同様、question_altered 単位（1 altered question = 1 行）でベクトル近傍を取り、
 qa_original / category / tag を結合して Document へ変換する。
+
+IMPL-202608261450 により、tags 引数は「AND完全一致のハードフィルタ」から「タグ構成類似度
+（祖先タグを含めたJaccard係数）と埋め込み類似度を重み付き合成した総合スコアへ反映するソフトな
+シグナル」へ変更された（ADR-0058・ADR-0059）。
 """
 
 from __future__ import annotations
@@ -23,19 +28,35 @@ def distance_to_score(distance: float) -> float:
     return 1.0 / (1.0 + distance)
 
 
+def _jaccard(a: set, b: set) -> float:
+    """空集合同士は 0.0（要件定義書6.2節: 両方空でも重なりなし扱い。呼び出し元で
+    「タグ未指定」自体は別途分岐しており、ここに来るのは常に入力側が非空のケースのみ）。"""
+    union = a | b
+    if not union:
+        return 0.0
+    return len(a & b) / len(union)
+
+
 class QARepository:
     def __init__(
         self,
         db: Database,
         embed_fn: Callable[[str], List[float]],
+        tag_similarity_weight: float = 0.5,
+        candidate_pool_size: Optional[int] = None,
     ):
         """
         db: DB接続ファクトリ（都度コネクションを生成する）。
         embed_fn: クエリ文字列を受け取りembeddingベクトルを返す関数（DI）。
-                  既存 app/src/embedding.get_embedding と同等のものを想定。
+        tag_similarity_weight: 総合スコアにおけるタグ類似度の重み w（0.0〜1.0）。
+            環境変数 TAG_SIMILARITY_WEIGHT（既定 0.5）。ADR-0059。
+        candidate_pool_size: 候補プールの固定件数。None の場合は呼び出しごとに
+            max(top_k * 10, 50) を用いる（環境変数 SEARCH_CANDIDATE_POOL_SIZE 未設定時の既定挙動）。
         """
         self.db = db
         self.embed_fn = embed_fn
+        self.tag_similarity_weight = tag_similarity_weight
+        self.candidate_pool_size = candidate_pool_size
 
     def search(
         self,
@@ -44,100 +65,108 @@ class QARepository:
         category: Optional[str] = None,
         top_k: int = 5,
     ) -> List[Document]:
-        # 1. クエリをベクトル化
         embedding = self.embed_fn(query)
         vec_str = to_vector_str(embedding)
+        pool_size = self.candidate_pool_size or max(top_k * 10, 50)
 
-        # 2. SQL 組み立て（search_similar 相当 + tag/category 結合・フィルタ）
-        params: list = [vec_str]  # SELECT 内の <=> 用
         conditions: list[str] = []
+        params: dict = {"query_vec": vec_str, "pool_size": pool_size}
 
         if category:
             conditions.append(
-                "qa_original.category_id = (SELECT id FROM category WHERE name = %s)"
+                "qa_original.category_id = (SELECT id FROM category WHERE name = %(category)s)"
             )
-            params.append(category)
+            params["category"] = category
 
-        if tags:
-            # 指定タグをすべて持つQAのみに絞り込む（完全一致・AND条件）。
-            # タグ階層(parent_tag_id)を辿った展開はMVPでは行わない（ADR-0005）。
-            conditions.append(
-                """(
-                    SELECT COUNT(DISTINCT t.name)
-                    FROM qa_tag qt
-                    JOIN tag t ON t.id = qt.tag_id
-                    WHERE qt.qa_id = qa_original.uuid
-                      AND t.name = ANY(%s)
-                ) = %s"""
+        where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        # tags が空/未指定の場合、入力タグ閉包は計算しない（後段で combined_score = embedding_score
+        # とする分岐に使う。要件定義書6.2節）。
+        tag_names = list(dict.fromkeys(tags)) if tags else []
+        params["tag_names"] = tag_names or [None]  # ANY(%(tag_names)s) が空配列と None を区別しないよう [None] を渡す
+
+        sql = """
+            WITH RECURSIVE tag_closure(tag_id, closure_id) AS (
+                SELECT id, id FROM tag
+                UNION ALL
+                SELECT tc.tag_id, t.parent_tag_id
+                FROM tag_closure tc
+                JOIN tag t ON t.id = tc.closure_id
+                WHERE t.parent_tag_id IS NOT NULL
+            ),
+            input_closure AS (
+                SELECT COALESCE(array_agg(DISTINCT tc.closure_id), ARRAY[]::integer[]) AS closure
+                FROM tag_closure tc
+                WHERE tc.tag_id IN (SELECT id FROM tag WHERE name = ANY(%(tag_names)s))
             )
-            params.append(list(tags))
-            params.append(len(set(tags)))
-
-        where_clause = ""
-        if conditions:
-            where_clause = "WHERE " + " AND ".join(conditions)
-
-        # ORDER BY / LIMIT 用パラメータ
-        params.append(vec_str)  # ORDER BY <=> 用
-        params.append(top_k)
-
-        sql = f"""
             SELECT
                 qa_original.uuid AS qa_id,
                 qa_original.title AS title,
                 qa_original.answer_text AS answer,
-                qa_original.question_text AS question_original,
-                question_altered.text AS question,
                 category.name AS category_name,
                 COALESCE(
-                    (
-                        SELECT array_agg(tag.name)
-                        FROM qa_tag
-                        JOIN tag ON tag.id = qa_tag.tag_id
-                        WHERE qa_tag.qa_id = qa_original.uuid
-                    ),
+                    (SELECT array_agg(tag.name) FROM qa_tag JOIN tag ON tag.id = qa_tag.tag_id
+                     WHERE qa_tag.qa_id = qa_original.uuid),
                     ARRAY[]::text[]
-                ) AS tags,
-                question_altered.embedding <=> %s AS distance
+                ) AS tag_names,
+                COALESCE(
+                    (SELECT array_agg(DISTINCT tc.closure_id)
+                     FROM qa_tag qt JOIN tag_closure tc ON tc.tag_id = qt.tag_id
+                     WHERE qt.qa_id = qa_original.uuid),
+                    ARRAY[]::integer[]
+                ) AS qa_closure,
+                (SELECT closure FROM input_closure) AS input_closure,
+                question_altered.embedding <=> %(query_vec)s::vector AS distance
             FROM question_altered
             LEFT JOIN qa_original ON question_altered.qa_id = qa_original.uuid
             LEFT JOIN category ON qa_original.category_id = category.id
             {where_clause}
-            ORDER BY question_altered.embedding <=> %s
-            LIMIT %s
-        """
+            ORDER BY question_altered.embedding <=> %(query_vec)s::vector
+            LIMIT %(pool_size)s
+        """.format(where_clause=where_clause)
 
         with self.db.cursor() as cur:
             cur.execute(sql, params)
             rows = cur.fetchall()
 
-        # 3-4. Document へ変換 + スコア化
-        documents: List[Document] = []
+        input_closure_set: set = set(rows[0][6]) if rows and rows[0][6] else set()
+        has_tags = bool(tag_names)
+
+        scored: List[tuple[float, Document]] = []
         for row in rows:
             (
-                qa_id,
-                title,
-                answer,
-                _question_original,
-                _question,
-                category_name,
-                tag_names,
-                distance,
+                qa_id, title, answer, category_name,
+                tag_names_row, qa_closure, _input_closure, distance,
             ) = row
 
-            documents.append(
+            embedding_score = distance_to_score(float(distance))
+            metadata = {
+                "tags": list(tag_names_row) if tag_names_row else [],
+                "category": category_name,
+                "guid": qa_id,
+            }
+
+            if has_tags:
+                tag_similarity = _jaccard(input_closure_set, set(qa_closure or []))
+                w = self.tag_similarity_weight
+                combined_score = (1 - w) * embedding_score + w * tag_similarity
+                metadata["embedding_score"] = embedding_score
+                metadata["tag_similarity"] = tag_similarity
+                metadata["tag_similarity_weight"] = w
+            else:
+                combined_score = embedding_score
+
+            scored.append((
+                combined_score,
                 Document(
                     id=qa_id,
                     source_type=SOURCE_TYPE,
                     title=title or "",
                     content=answer or "",
-                    score=distance_to_score(float(distance)),
-                    metadata={
-                        "tags": list(tag_names) if tag_names else [],
-                        "category": category_name,
-                        "guid": qa_id,
-                    },
-                )
-            )
+                    score=combined_score,
+                    metadata=metadata,
+                ),
+            ))
 
-        return documents
+        scored.sort(key=lambda pair: pair[0], reverse=True)
+        return [doc for _, doc in scored[:top_k]]

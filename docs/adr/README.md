@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -51,6 +51,24 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0045](./0045-admin-ui-agent-invitro-integration-and-conversation-db-access.md) | admin_ui⇄agent_invitro間のチャット生成連携、およびconversationデータベースへの直接アクセス（ADR-0041の限定的な見直し） | Accepted |
 | [0046](./0046-chatbot-db-export-readonly-access.md) | chatbotデータベースのエクスポート専用読み取り経路の新設（ADR-0013・ADR-0041の限定的な見直し） | Accepted |
 | [0047](./0047-data-export-dump-generation-and-delivery.md) | 全データエクスポート機能のダンプ生成方式・配信方式（SQL/CSV、同期ストリーミングダウンロード） | Accepted |
+| [0048](./0048-verification-data-placement-and-access-path.md) | 検証機能のデータ配置・アクセス経路（conversationデータベースに新設、web_backendが直接読み書き） | Accepted |
+| [0049](./0049-verification-pipeline-scope-and-tag-selector-mcp-client.md) | 検証実行パイプラインの範囲（tag_selector_mcp→knowledge_mcpの2段検索のみ）とTag Selector MCPクライアントの新設 | Accepted |
+| [0050](./0050-verification-question-management-and-run-history-retention.md) | 検証対象質問の管理方式（登録制・再実行可能）と実行履歴の保持方針（実行単位で履歴・評価を保持） | Accepted |
+| [0051](./0051-conversation-db-migration-tool-adoption.md) | conversationデータベースのマイグレーション方式をyoyo-migrationsへ統一する（ADR-0044の限定的な見直し） | Accepted |
+| [0052](./0052-chatbot-db-migration-role-separation.md) | chatbotデータベースのマイグレーション実行ロールの権限分離 | Accepted |
+| [0053](./0053-qa-tag-bulk-import-via-knowledge-mcp.md) | QA・タグデータの一括インポート機能の実装方式（Knowledge MCP経由のバッチツール新設） | Accepted |
+| [0054](./0054-verification-question-bulk-import.md) | 検証質問データの一括インポート機能の実装方式（verification_db直接書き込み） | Accepted |
+| [0055](./0055-full-data-import-execution-path.md) | 全データインポート機能の実装方式とアクセス経路 | Accepted |
+| [0056](./0056-conversation-tag-client-management-and-api-contract.md) | 会話タグの管理主体とAPI契約（クライアントエコー方式、DB非永続化） | Accepted |
+| [0057](./0057-agent-invitro-tag-merged-search-and-continuation-logic.md) | agent_invitroにおける会話タグの検索反映方式と継続タグ判定ロジック | Accepted |
+| [0058](./0058-knowledge-mcp-tag-ancestor-expansion.md) | search_knowledgeにおける祖先タグの動的展開方式（クエリ時再帰CTEによる閉包計算、qa_tagは変更しない） | Accepted |
+| [0059](./0059-knowledge-mcp-tag-similarity-scoring.md) | タグ構成類似度と埋め込み類似度を統合したスコアリング方式（AND完全一致を廃止しJaccard係数ベースのランキングへ） | Accepted |
+| [0060](./0060-verification-existing-tags-parameter-and-new-tag-recording.md) | 検証機能への既存タグ入力パラメータ追加と新規タグのみの記録方針 | Accepted |
+| [0061](./0061-tag-bulk-import-via-knowledge-mcp.md) | タグ単体の一括インポート機能の実装方式（Knowledge MCP経由の新規バッチツール、タグ名によるupsert） | Accepted |
+| [0062](./0062-agent-invitro-tag-search-single-call-simplification.md) | agent_invitroの情報源検索を単一search_knowledge呼び出しに単純化（ADR-0057の限定的な見直し） | Accepted |
+| [0063](./0063-agent-invitro-mcp-adapter-result-parsing-fix.md) | agent_invitroのMCPツール戻り値パース頑健化（会話タグが常に空になる不具合の修正、ADR-0062の診断見直し） | Accepted |
+| [0064](./0064-question-altered-management-via-knowledge-mcp.md) | 言い換え質問文（question_altered）管理機能の実装方式（Knowledge MCP経由、一覧・作成・編集・削除・CSVインポート/エクスポート、主質問文行を対象外とする設計） | Accepted |
+| [0065](./0065-tag-export-via-knowledge-mcp.md) | タグ階層データのCSVエクスポート機能の実装方式（Knowledge MCP新規ツールによるフラット化、既存インポート列構成との統一） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -63,3 +81,13 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202608211014.md`（AWS環境向けQA・タグ管理UI: ブラウザアクセスの実現）
 - `docs/requirement/202608240949_AWS環境向けChatbotUI・会話評価機能有効化要件定義書.md`（AWS環境向けChatbotUI・会話評価機能有効化: チャット生成のagent_invitroへの移管と会話評価データベースの配置）
 - `docs/requirement/202608241530_全データエクスポート機能要件定義書.md`（全データエクスポート機能: ブラウザボタンからのSQL/CSVエクスポート）
+- `docs/requirement/202608260909_質問タグ情報源検索精度検証機能要件定義書.md`（質問→タグ→情報源 検索精度検証機能: 登録した質問に対するタグ選択・情報源検索の実行結果一覧化とDB保存）
+- `docs/requirement/202608271040_agent_invitroタグマージ検索方式単純化要件定義書.md`（agent_invitroタグマージ検索方式単純化: ADR-0057のタグ別複数回呼び出しワークアラウンドを、検証機能（ADR-0060）と同じ単一search_knowledge呼び出し方式に統一）
+- `docs/requirement/202608271500_agent_invitroタグ選択結果取得不具合修正要件定義書.md`（agent_invitroタグ選択結果取得不具合修正: langchain-mcp-adaptersの戻り値パース欠陥で会話タグが常に空になる不具合の是正。select_tags/search_knowledge戻り値パースの頑健化と診断ログ追加）
+- `docs/requirement/202608261002_DBマイグレーション・データインポート機能要件定義書.md`（DBマイグレーション・データインポート機能: conversationデータベースのマイグレーション方式統一、QA・検証質問の一括インポート、全データインポート機能の整理）
+- `docs/requirement/202608261330_会話タグ管理機能要件定義書.md`（会話タグ管理機能: クライアント側でのタグ管理、agent_invitroでのselect_tagsとのマージ・継続タグ判定）
+- `docs/requirement/202608261450_タグ階層展開・タグ構成類似度スコアリング機能要件定義書.md`（knowledge_mcpのsearch_knowledge: 祖先タグの動的展開とタグ構成類似度・埋め込み類似度を統合したスコアリングへの変更）
+- `docs/requirement/202608261510_検証機能既存タグ入力・新規タグ記録機能要件定義書.md`（検証機能拡張: 検証質問への既存タグ入力、select_tags結果との差分による新規タグのみの記録）
+- `docs/requirement/202608261600_タグデータ一括インポート機能要件定義書.md`（タグデータ一括インポート機能: タグ単体の一括登録・更新、タグ名によるupsert、親タグ名による階層指定）
+- `docs/requirement/202608271750_言い換え質問文（question_altered）管理機能要件定義書.md`（言い換え質問文（question_altered）管理機能: 一覧・CSV一括インポート・新規作成・編集・削除ページ、および言い換え行単体のCSVエクスポート機能の追加）
+- `docs/requirement/202608281421_タグデータCSVエクスポート機能要件定義書.md`（タグデータCSVエクスポート機能: タグ階層ページに、タグ一括インポート（ADR-0061）とそのまま再インポートできる列構成でのCSVエクスポート機能を追加）

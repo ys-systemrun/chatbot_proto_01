@@ -5,8 +5,10 @@ services:
     ports:
       - "${BOT_PORT:-8000}:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
-      - CONVERSATION_DB_URL=postgresql://postgres:postgres@conversation_db:5432/conversation
+      # ADR-0052: アプリは用途別 app ロールで接続する（DDL 権限なし）。ロール・パスワードは
+      # db_hiroba_qa_init が冪等に作成する。
+      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_hiroba_qa:5432/chatbot
+      - CONVERSATION_DB_URL=postgresql://conversation_app:${CONVERSATION_APP_PASSWORD:-conversation_app_pw}@conversation_db:5432/conversation
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
@@ -19,6 +21,12 @@ services:
       - EVAL_NOISE_QUERIES_CSV=${EVAL_NOISE_QUERIES_CSV}
       # 管理UI（IMPL-202608060837）: Knowledge MCP へ MCPクライアントとして接続する
       - KNOWLEDGE_MCP_URL=${KNOWLEDGE_MCP_URL:-http://knowledge_mcp:8100/mcp}
+      # 検証機能（IMPL-202608260909）: Tag Selector MCP へ接続し、検証パラメータを都度渡す。
+      - TAG_SELECTOR_MCP_URL=${TAG_SELECTOR_MCP_URL:-http://tag_selector_mcp:8200/mcp}
+      - VERIFICATION_MAX_TAGS=${VERIFICATION_MAX_TAGS:-3}
+      - VERIFICATION_CONFIDENCE_THRESHOLD=${VERIFICATION_CONFIDENCE_THRESHOLD:-0.0}
+      - VERIFICATION_TOP_K=${VERIFICATION_TOP_K:-5}
+      - VERIFICATION_MIN_SCORE=${VERIFICATION_MIN_SCORE:-0.0}
     tty: true
     volumes:
       - ./web_backend:/app
@@ -31,6 +39,8 @@ services:
       conversation_db:
         condition: service_healthy
       knowledge_mcp:
+        condition: service_healthy
+      tag_selector_mcp:
         condition: service_healthy
 
   frontend:
@@ -72,7 +82,17 @@ services:
     build: ./db_hiroba_qa_init
     container_name: chatbot_db_init
     environment:
+      # マスター接続（ロール作成・CREATE DATABASE 用）。マイグレーション・シードは
+      # db_hiroba_qa_init が内部で migrator ロールへ差し替えて実行する（ADR-0052）。
       - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
+      # IMPL-202608261022 / ADR-0051: conversation もマスター接続で受け取り、内部で
+      # conversation_migrator へ差し替えて yoyo を適用する。ローカルでも常に設定する。
+      - CONVERSATION_DB_URL=postgresql://postgres:postgres@conversation_db:5432/conversation
+      # 用途別ロールのパスワード（ADR-0052）。ローカルは既定値、AWS は Secrets Manager。
+      - CHATBOT_MIGRATOR_PASSWORD=${CHATBOT_MIGRATOR_PASSWORD:-chatbot_migrator_pw}
+      - CHATBOT_APP_PASSWORD=${CHATBOT_APP_PASSWORD:-chatbot_app_pw}
+      - CONVERSATION_MIGRATOR_PASSWORD=${CONVERSATION_MIGRATOR_PASSWORD:-conversation_migrator_pw}
+      - CONVERSATION_APP_PASSWORD=${CONVERSATION_APP_PASSWORD:-conversation_app_pw}
       - EMBEDDING_VECTOR_DIM=${EMBEDDING_VECTOR_DIM}
       - CSV_DATA_DIR=${CSV_DATA_DIR}
       - QA_ORIGINAL_FILE=${QA_ORIGINAL_FILE}
@@ -92,6 +112,8 @@ services:
     depends_on:
       db_hiroba_qa:
         condition: service_healthy
+      conversation_db:
+        condition: service_healthy
     restart: "no"
 
   knowledge_mcp:
@@ -100,7 +122,8 @@ services:
     ports:
       - "${KNOWLEDGE_MCP_PORT:-8100}:8100"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
+      # ADR-0052: chatbot_app ロール（DML のみ）で接続する。
+      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_hiroba_qa:5432/chatbot
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       # Bedrock 切り替え（IMPL-202608101616）。ローカルは lmstudio 既定で無効。
@@ -108,6 +131,9 @@ services:
       - BEDROCK_EMBEDDING_MODEL_ID=${BEDROCK_EMBEDDING_MODEL_ID:-}
       - BEDROCK_REGION=${BEDROCK_REGION:-}
       - KNOWLEDGE_MCP_DEFAULT_TOP_K=${KNOWLEDGE_MCP_DEFAULT_TOP_K:-5}
+      # IMPL-202608261450: タグ階層展開・タグ構成類似度スコアリング（ADR-0058・ADR-0059）
+      - TAG_SIMILARITY_WEIGHT=${TAG_SIMILARITY_WEIGHT:-0.5}
+      - SEARCH_CANDIDATE_POOL_SIZE=${SEARCH_CANDIDATE_POOL_SIZE:-}
     depends_on:
       db_hiroba_qa:
         condition: service_healthy
@@ -125,7 +151,8 @@ services:
     ports:
       - "${TAG_SELECTOR_MCP_PORT:-8200}:8200"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db_hiroba_qa:5432/chatbot
+      # ADR-0052: chatbot_app ロール（DML のみ）で接続する。
+      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_hiroba_qa:5432/chatbot
       - LLM_PROVIDER=${LLM_PROVIDER:-lmstudio}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
       - LMSTUDIO_CHAT_MODEL=${LMSTUDIO_CHAT_MODEL:-${MODEL_CHAT}}
@@ -181,7 +208,8 @@ services:
     ports:
       - "${CONVERSATION_DB_PORT:-5433}:5432"
     volumes:
-      - ./db_conversation/init.sql:/docker-entrypoint-initdb.d/init.sql
+      # IMPL-202608261022 / ADR-0051: スキーマ作成は db_hiroba_qa_init の yoyo に集約したため
+      # init.sql のマウントは廃止。データ永続化ボリュームのみ残す。
       - ./db_conversation/data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d conversation"]

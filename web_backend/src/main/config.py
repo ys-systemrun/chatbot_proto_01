@@ -34,6 +34,19 @@ AGENT_INVITRO_TIMEOUT = float(os.environ.get("AGENT_INVITRO_TIMEOUT", "120"))
 # 管理UI（/api/qa*・/api/tags*）が接続する Knowledge MCP のエンドポイント（IMPL-202608060837）。
 KNOWLEDGE_MCP_URL = os.environ.get("KNOWLEDGE_MCP_URL", "http://knowledge_mcp:8100/mcp")
 
+# 検証機能（質問→タグ→情報源の検索精度検証, IMPL-202608260909 T8 / ADR-0049）。
+# 検証実行が select_tags を呼び出す tag_selector_mcp のエンドポイント。
+TAG_SELECTOR_MCP_URL = os.environ.get(
+    "TAG_SELECTOR_MCP_URL", "http://tag_selector_mcp:8200/mcp"
+)
+# 検証実行時に select_tags / search_knowledge へ都度渡すパラメータ（再現性のため明示的に渡す, 10章）。
+VERIFICATION_MAX_TAGS = int(os.environ.get("VERIFICATION_MAX_TAGS", "3"))
+VERIFICATION_CONFIDENCE_THRESHOLD = float(
+    os.environ.get("VERIFICATION_CONFIDENCE_THRESHOLD", "0.0")
+)
+VERIFICATION_TOP_K = int(os.environ.get("VERIFICATION_TOP_K", "5"))
+VERIFICATION_MIN_SCORE = float(os.environ.get("VERIFICATION_MIN_SCORE", "0.0"))
+
 # front_dev の本番ビルド出力（dist/）を配置する静的資産ディレクトリ（ADR-0042）。
 # プロセスの CWD 基準で解決する（既定 "static" = /app/static）。存在しない環境（ローカルの
 # web_backend。front は vite dev server が別コンテナで配信）では SPA 配信を登録しない。

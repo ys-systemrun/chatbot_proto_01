@@ -7,7 +7,7 @@ controllers/ 配下（chat/evaluation/qa/tag）に委譲する。
 エントリポイント: src.main.app:app（pyproject [tool.fastapi] / Dockerfile CMD と一致）。
 """
 
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi import Request as HttpRequest  # 下記スキーマの Request(BaseModel) と衝突するため別名
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -19,7 +19,9 @@ from src.main.controllers import (
     evaluation_controller,
     export_controller,
     qa_controller,
+    question_altered_controller,
     tag_controller,
+    verification_controller,
 )
 
 app = FastAPI()
@@ -87,9 +89,89 @@ async def update_qa(qa_id: str, body: qa_controller.QaUpdateRequest):
     return await qa_controller.update_qa(qa_id, body)
 
 
+# QA の CSV 一括インポート（IMPL-202608261022 T11 / ADR-0053）。存在しないタグ名は自動作成する。
+# multipart/form-data の file を受け取り、Knowledge MCP の import_qa_batch へ委ねる。
+@app.post("/api/qa/import", response_model=qa_controller.QaImportResponse)
+async def import_qa(file: UploadFile = File(...)):
+    return await qa_controller.import_qa_csv(await file.read())
+
+
 @app.get("/api/categories", response_model=qa_controller.CategoryListResponse)
 async def list_categories():
     return await qa_controller.list_categories()
+
+
+# ---------------------------------------------------------------------------
+# 管理UI: /api/question_altered*（言い換え行管理, ADR-0064）
+# ---------------------------------------------------------------------------
+# is_primary=false の言い換え行のみを対象とする。/export・/import は /{item_id}（int）より
+# 前に登録し、パスパラメータへ誤って一致しないようにする（T4 / 検証機能と同じ配慮）。
+@app.get(
+    "/api/question_altered",
+    response_model=question_altered_controller.QaAlteredListResponse,
+)
+async def list_question_altered(
+    qa_id: str | None = None,
+    keyword: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+):
+    return await question_altered_controller.list_items(qa_id, keyword, limit, offset)
+
+
+# CSVエクスポート（is_primary=false 全件）。text/csv + attachment で返す。
+@app.get("/api/question_altered/export")
+async def export_question_altered() -> Response:
+    csv_bytes, filename = await question_altered_controller.build_export_csv()
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# CSV一括インポート（id によるupsert、is_primary=true 行はエラー、行単位で部分成功）。
+@app.post(
+    "/api/question_altered/import",
+    response_model=question_altered_controller.QaAlteredImportResponse,
+)
+async def import_question_altered(file: UploadFile = File(...)):
+    return await question_altered_controller.import_csv(await file.read())
+
+
+@app.get(
+    "/api/question_altered/{item_id}",
+    response_model=question_altered_controller.QaAlteredDetail,
+)
+async def get_question_altered(item_id: int):
+    return await question_altered_controller.get_item(item_id)
+
+
+@app.post(
+    "/api/question_altered",
+    status_code=201,
+    response_model=question_altered_controller.QaAlteredDetail,
+)
+async def create_question_altered(
+    body: question_altered_controller.QaAlteredCreateRequest,
+):
+    return await question_altered_controller.create_item(body)
+
+
+@app.put(
+    "/api/question_altered/{item_id}",
+    response_model=question_altered_controller.QaAlteredDetail,
+)
+async def update_question_altered(
+    item_id: int, body: question_altered_controller.QaAlteredUpdateRequest
+):
+    return await question_altered_controller.update_item(item_id, body)
+
+
+@app.delete("/api/question_altered/{item_id}", status_code=204)
+async def delete_question_altered(item_id: int) -> Response:
+    await question_altered_controller.delete_item(item_id)
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +196,104 @@ async def update_tag(tag_id: int, body: tag_controller.TagUpdateRequest) -> dict
 async def delete_tag(tag_id: int) -> Response:
     await tag_controller.delete_tag(tag_id)
     return Response(status_code=204)
+
+
+# タグの CSV エクスポート（IMPL-202608281500 / ADR-0065）。全タグを name/parent_name/description の
+# 3列（import_tag_batch と完全一致、そのまま再インポート可能）で text/csv + attachment で返す。
+@app.get("/api/tags/export")
+async def export_tags() -> Response:
+    csv_bytes, filename = await tag_controller.build_export_csv()
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+# タグの CSV 一括インポート（IMPL-202608261630 T3 / ADR-0061）。name一致でupsert、parent_nameで階層指定。
+# multipart/form-data の file を受け取り、Knowledge MCP の import_tag_batch へ委ねる。
+@app.post("/api/tags/import", response_model=tag_controller.TagImportResponse)
+async def import_tags(file: UploadFile = File(...)):
+    return await tag_controller.import_tags_csv(await file.read())
+
+
+# ---------------------------------------------------------------------------
+# 検証機能: /api/verification/*（IMPL-202608260909 T10、質問→タグ→情報源の検索精度検証）
+# ---------------------------------------------------------------------------
+# 検証実行（run）は select_tags→search_knowledge を順に呼び、失敗時も 200 系で status="error" を
+# 返す（verification_controller 内で捕捉。409 グローバルハンドラは経由しない, 0章/10章）。
+@app.get(
+    "/api/verification/questions",
+    response_model=verification_controller.VerificationQuestionListResponse,
+)
+def list_verification_questions(
+    keyword: str | None = None, limit: int = 20, offset: int = 0
+):
+    return verification_controller.list_questions(keyword, limit, offset)
+
+
+@app.post(
+    "/api/verification/questions",
+    status_code=201,
+    response_model=verification_controller.VerificationQuestionSummary,
+)
+def create_verification_question(
+    body: verification_controller.VerificationQuestionCreateRequest,
+):
+    return verification_controller.create_question(body)
+
+
+# CSV 一括インポート（IMPL-202608261022 T14 / ADR-0054）。常に新規追加（重複判定なし）。
+# {question_id} を取る GET/PUT/DELETE より前に登録し、パスパラメータに誤って一致しないようにする。
+@app.post(
+    "/api/verification/questions/import",
+    response_model=verification_controller.VerificationImportResponse,
+)
+async def import_verification_questions(file: UploadFile = File(...)):
+    return verification_controller.import_questions_csv(await file.read())
+
+
+@app.get(
+    "/api/verification/questions/{question_id}",
+    response_model=verification_controller.VerificationQuestionDetail,
+)
+def get_verification_question(question_id: int):
+    return verification_controller.get_question_detail(question_id)
+
+
+@app.put(
+    "/api/verification/questions/{question_id}",
+    response_model=verification_controller.VerificationQuestionSummary,
+)
+def update_verification_question(
+    question_id: int,
+    body: verification_controller.VerificationQuestionUpdateRequest,
+):
+    return verification_controller.update_question(question_id, body)
+
+
+@app.delete("/api/verification/questions/{question_id}", status_code=204)
+def delete_verification_question(question_id: int) -> Response:
+    verification_controller.delete_question(question_id)
+    return Response(status_code=204)
+
+
+@app.post(
+    "/api/verification/questions/{question_id}/run",
+    response_model=verification_controller.VerificationRunOut,
+)
+async def run_verification_question(question_id: int):
+    return await verification_controller.run_question(question_id)
+
+
+@app.put(
+    "/api/verification/runs/{run_id}/evaluation",
+    response_model=verification_controller.VerificationRunOut,
+)
+def save_verification_evaluation(
+    run_id: int, body: verification_controller.VerificationEvaluationRequest
+):
+    return verification_controller.save_evaluation(run_id, body)
 
 
 # ---------------------------------------------------------------------------

@@ -175,6 +175,18 @@ resource "aws_vpc_security_group_ingress_rule" "knowledge_from_admin_ui" {
   description                  = "admin_ui to knowledge_mcp (QA/tag management via MCP)"
 }
 
+# admin_ui task -> tag_selector_mcp (8200) : 検証機能（select_tags 呼び出し, ADR-0049 / IMPL-202608260909 T18）。
+# knowledge_from_admin_ui と同一形式。既存の verification -> tag_selector_mcp（MCP Inspector, ADR-0029）
+# とは別概念のため、名称・コメントに verification を用いず tag_selector_from_admin_ui とする。
+resource "aws_vpc_security_group_ingress_rule" "tag_selector_from_admin_ui" {
+  security_group_id            = aws_security_group.tag_selector_mcp.id
+  referenced_security_group_id = aws_security_group.admin_ui_task.id
+  from_port                    = var.tag_selector_mcp_port
+  to_port                      = var.tag_selector_mcp_port
+  ip_protocol                  = "tcp"
+  description                  = "admin_ui to tag_selector_mcp (verification feature select_tags)"
+}
+
 # admin_ui task -> agent_invitro (8300) : /ask-sl 中継（ADR-0045 / IMPL-202608241104 T23）。
 # knowledge_from_admin_ui と同一形式。agent_invitro は ALB からは到達不可のまま（ADR-0023）。
 resource "aws_vpc_security_group_ingress_rule" "agent_invitro_from_admin_ui" {

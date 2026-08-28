@@ -7,6 +7,10 @@
 
 from __future__ import annotations
 
+import csv
+import io
+
+from fastapi import HTTPException
 from pydantic import BaseModel
 
 from src.log import log_admin_operation
@@ -14,6 +18,9 @@ from src.mcp_client import KnowledgeMcpClient
 from src.main import config
 
 _client = KnowledgeMcpClient(config.KNOWLEDGE_MCP_URL)
+
+# CSV 一括インポートで受け付ける列（IMPL-202608261022 T11 / ADR-0053）。
+_QA_IMPORT_COLUMNS = ["uuid", "title", "question_text", "answer_text", "category_id", "tags"]
 
 
 # --------------------------------------------------------------------------- #
@@ -68,6 +75,20 @@ class CategoryListResponse(BaseModel):
     categories: list[CategoryModel]
 
 
+# CSV 一括インポート（IMPL-202608261022 T11 / ADR-0053）。
+class QaImportRowResult(BaseModel):
+    row: int
+    status: str
+    qa_id: str | None = None
+    error: str | None = None
+
+
+class QaImportResponse(BaseModel):
+    total: int
+    success_count: int
+    results: list[QaImportRowResult]
+
+
 # --------------------------------------------------------------------------- #
 # レスポンス生成
 # --------------------------------------------------------------------------- #
@@ -112,3 +133,48 @@ async def update_qa(qa_id: str, body: QaUpdateRequest) -> QaDetailResponse:
 async def list_categories() -> CategoryListResponse:
     result = await _client.call_tool("list_categories", {})
     return CategoryListResponse(**result)
+
+
+# --------------------------------------------------------------------------- #
+# CSV 一括インポート（IMPL-202608261022 T11 / ADR-0053）
+# --------------------------------------------------------------------------- #
+def _parse_qa_import_csv(csv_bytes: bytes) -> list[dict]:
+    """CSV（UTF-8, BOM 付き可）をパースして import_qa_batch へ渡す行データに整形する。
+
+    列の機械的なバリデーション（必須列の存在チェック）のみをここで行い、
+    業務バリデーション（必須値・タグ解決・部分更新）は Knowledge MCP に委ねる（ADR-0053）。
+    列: uuid（空=新規, 既存=更新）, title, question_text, answer_text, category_id, tags（カンマ区切り）。
+    """
+    try:
+        text = csv_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise HTTPException(
+            status_code=422, detail="CSV は UTF-8（BOM 付き可）で保存してください。"
+        )
+    reader = csv.DictReader(io.StringIO(text))
+    if reader.fieldnames is None:
+        raise HTTPException(status_code=422, detail="CSV のヘッダー行がありません。")
+    fields = {f.strip() for f in reader.fieldnames if f}
+    # 新規・更新いずれの行も許容するため、必須ヘッダーは title/question_text/answer_text とする。
+    missing = [c for c in ("title", "question_text", "answer_text") if c not in fields]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail=f"CSV に必要な列がありません: {', '.join(missing)}",
+        )
+    rows: list[dict] = []
+    for raw in reader:
+        rows.append(
+            {col: (raw.get(col) or "").strip() for col in _QA_IMPORT_COLUMNS}
+        )
+    return rows
+
+
+async def import_qa_csv(csv_bytes: bytes) -> QaImportResponse:
+    """CSV をパースし、Knowledge MCP の import_qa_batch ツールを呼び出す。"""
+    rows = _parse_qa_import_csv(csv_bytes)
+    result = await _client.call_tool("import_qa_batch", {"rows": rows})
+    log_admin_operation(
+        "import", "qa", None, {"total": result.get("total", len(rows))}
+    )
+    return QaImportResponse(**result)

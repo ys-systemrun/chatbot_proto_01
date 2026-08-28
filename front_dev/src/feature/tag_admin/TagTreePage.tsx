@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
   createTag,
   deleteTag,
+  downloadTagsExport,
+  importTagsCsv,
   listTags,
   updateTag,
 } from "../../api";
-import type { TagNode } from "../../domain/admin/tag";
+import type { TagImportResponse, TagNode } from "../../domain/admin/tag";
 
 interface FlatTag {
   node: TagNode;
@@ -29,6 +31,15 @@ export default function TagTreePage() {
   const [newName, setNewName] = useState("");
   const [newParent, setNewParent] = useState<number | null>(null);
   const [newDesc, setNewDesc] = useState("");
+
+  // CSV インポート状態（IMPL-202608261630 T5）
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<TagImportResponse | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
+
+  // CSV エクスポート状態（IMPL-202608281500 / ADR-0065）
+  const [exporting, setExporting] = useState(false);
 
   function reload() {
     setLoading(true);
@@ -89,10 +100,51 @@ export default function TagTreePage() {
     run(() => deleteTag(node.id));
   }
 
+  async function onExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      await downloadTagsExport();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function onImport() {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setImportError("CSV ファイルを選択してください。");
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const result = await importTagsCsv(file);
+      setImportResult(result);
+      if (fileRef.current) fileRef.current.value = "";
+      reload(); // 一覧を再取得
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
   return (
     <div className="admin-page">
       <div className="admin-page-head">
         <h1 className="admin-title">タグ階層</h1>
+        <button
+          className="admin-btn"
+          type="button"
+          onClick={onExport}
+          disabled={exporting}
+        >
+          {exporting ? "エクスポート中..." : "CSVエクスポート"}
+        </button>
       </div>
 
       {error && <p className="admin-status admin-error">{error}</p>}
@@ -126,6 +178,49 @@ export default function TagTreePage() {
           追加
         </button>
       </form>
+
+      <details className="admin-tagfilter">
+        <summary>CSV 一括インポート</summary>
+        <div className="admin-import">
+          <p className="admin-hint">
+            列: <code>name</code>（必須）, <code>parent_name</code>（任意、空欄は
+            新規作成時＝ルート直下／更新時＝変更なし）, <code>description</code>
+            （任意、空欄は更新時＝変更なし）。name が既存タグに一致すれば更新、
+            一致しなければ新規作成します。UTF-8 で保存してください。
+          </p>
+          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
+          <button
+            className="admin-btn admin-btn-primary"
+            onClick={onImport}
+            disabled={importing}
+          >
+            {importing ? "インポート中..." : "インポート"}
+          </button>
+          {importError && (
+            <p className="admin-status admin-error">{importError}</p>
+          )}
+          {importResult && (
+            <div className="admin-status">
+              <p>
+                成功 {importResult.success_count} 件 / 失敗{" "}
+                {importResult.total - importResult.success_count} 件（全{" "}
+                {importResult.total} 件）
+              </p>
+              {importResult.results.some((r) => r.status === "error") && (
+                <ul className="admin-import-errors">
+                  {importResult.results
+                    .filter((r) => r.status === "error")
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
 
       {loading && <p className="admin-status">読み込み中...</p>}
 

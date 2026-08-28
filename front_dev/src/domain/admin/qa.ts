@@ -62,3 +62,17 @@ export interface Category {
   id: number;
   name: string;
 }
+
+// CSV 一括インポート結果（IMPL-202608261022 T11/T12）。
+export interface QaImportRowResult {
+  row: number;
+  status: "success" | "error";
+  qa_id?: string | null;
+  error?: string | null;
+}
+
+export interface QaImportResponse {
+  total: number;
+  success_count: number;
+  results: QaImportRowResult[];
+}

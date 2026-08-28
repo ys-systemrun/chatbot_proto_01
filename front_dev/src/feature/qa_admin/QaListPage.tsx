@@ -1,8 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link } from "react-router-dom";
-import { listCategories, listQa, listTags } from "../../api";
-import type { Category, QaSummary } from "../../domain/admin/qa";
+import { importQaCsv, listCategories, listQa, listTags } from "../../api";
+import type {
+  Category,
+  QaImportResponse,
+  QaSummary,
+} from "../../domain/admin/qa";
 import type { TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
 
@@ -22,6 +26,12 @@ export default function QaListPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // CSV インポート状態（IMPL-202608261022 T12）
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<QaImportResponse | null>(null);
+  const [importError, setImportError] = useState<string | null>(null);
 
   // フィルタ用のカテゴリ・タグを初回に取得する
   useEffect(() => {
@@ -56,6 +66,27 @@ export default function QaListPage() {
   function onSearch(e: FormEvent) {
     e.preventDefault();
     load(0);
+  }
+
+  async function onImport() {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setImportError("CSV ファイルを選択してください。");
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    setImportResult(null);
+    try {
+      const result = await importQaCsv(file);
+      setImportResult(result);
+      if (fileRef.current) fileRef.current.value = "";
+      load(0);
+    } catch (e) {
+      setImportError(String(e));
+    } finally {
+      setImporting(false);
+    }
   }
 
   const page = Math.floor(offset / PAGE_SIZE) + 1;
@@ -97,6 +128,49 @@ export default function QaListPage() {
       <details className="admin-tagfilter">
         <summary>タグで絞り込み{tagIds.length ? `（${tagIds.length}件選択中）` : ""}</summary>
         <TagPicker tags={tags} selectedIds={tagIds} onChange={setTagIds} />
+      </details>
+
+      <details className="admin-tagfilter">
+        <summary>CSV 一括インポート</summary>
+        <div className="admin-import">
+          <p className="admin-hint">
+            列: <code>uuid</code>（空=新規/既存=更新）, <code>title</code>,{" "}
+            <code>question_text</code>, <code>answer_text</code>,{" "}
+            <code>category_id</code>, <code>tags</code>（タグ名のカンマ区切り。
+            存在しないタグ名は自動作成）。UTF-8 で保存してください。
+          </p>
+          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
+          <button
+            className="admin-btn admin-btn-primary"
+            onClick={onImport}
+            disabled={importing}
+          >
+            {importing ? "インポート中..." : "インポート"}
+          </button>
+          {importError && (
+            <p className="admin-status admin-error">{importError}</p>
+          )}
+          {importResult && (
+            <div className="admin-status">
+              <p>
+                成功 {importResult.success_count} 件 / 失敗{" "}
+                {importResult.total - importResult.success_count} 件（全{" "}
+                {importResult.total} 件）
+              </p>
+              {importResult.results.some((r) => r.status === "error") && (
+                <ul className="admin-import-errors">
+                  {importResult.results
+                    .filter((r) => r.status === "error")
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
       </details>
 
       {loading && <p className="admin-status">読み込み中...</p>}

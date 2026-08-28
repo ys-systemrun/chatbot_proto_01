@@ -230,6 +230,161 @@ output "chatbot_export_db_url_secret_arn" {
   value       = aws_secretsmanager_secret.chatbot_export_db_url.arn
 }
 
+# ---------------------------------------------------------------------------
+# アプリ/マイグレーション用ロールの分離（ADR-0052 / IMPL-202608261022 T18）
+# ---------------------------------------------------------------------------
+# chatbot_export_reader（ADR-0046）と同一パターンで、4ロール分のパスワードを生成し
+# Secrets Manager に登録する。ロール自体は RDS のマスターパスワードではないため
+# aws_db_instance 経由では設定できず、db_hiroba_qa_init が SQL の CREATE ROLE ... PASSWORD で
+# 設定する（ensure_chatbot_roles() / ensure_conversation_roles()）。
+#   - migrator（chatbot_migrator / conversation_migrator）: 生パスワード専用シークレットのみ。
+#     db_hiroba_qa_init が CREATE/ALTER ROLE と migrate 接続文字列の組み立てに使う。
+#   - app（chatbot_app / conversation_app）: 生パスワード専用シークレット（db_hiroba_qa_init が
+#     CREATE/ALTER ROLE に使う）に加え、同じ値を埋め込んだ完全な接続文字列シークレット
+#     （admin_ui / knowledge_mcp / tag_selector_mcp が DATABASE_URL / CONVERSATION_DB_URL に使う）
+#     の2つを作成する。DB 名は chatbot_app → var.db_name、conversation_app → var.conversation_db_name。
+variable "chatbot_migrator_username" {
+  type    = string
+  default = "chatbot_migrator"
+}
+
+variable "chatbot_app_username" {
+  type    = string
+  default = "chatbot_app"
+}
+
+variable "conversation_migrator_username" {
+  type    = string
+  default = "conversation_migrator"
+}
+
+variable "conversation_app_username" {
+  type    = string
+  default = "conversation_app"
+}
+
+# --- chatbot_migrator: 生パスワード専用シークレット ---
+resource "random_password" "chatbot_migrator" {
+  length  = 24
+  special = false # 接続 URL に入れるため記号を避け、URL エンコード不要にする
+}
+
+resource "aws_secretsmanager_secret" "chatbot_migrator_password" {
+  name_prefix = "${var.name_prefix}-chatbot-migrator-password-"
+}
+
+resource "aws_secretsmanager_secret_version" "chatbot_migrator_password" {
+  secret_id     = aws_secretsmanager_secret.chatbot_migrator_password.id
+  secret_string = random_password.chatbot_migrator.result
+}
+
+output "chatbot_migrator_password_secret_arn" {
+  description = "chatbot_migrator ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.chatbot_migrator_password.arn
+}
+
+# --- chatbot_app: 生パスワード専用シークレット + 完全な接続文字列シークレット ---
+resource "random_password" "chatbot_app" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "chatbot_app_password" {
+  name_prefix = "${var.name_prefix}-chatbot-app-password-"
+}
+
+resource "aws_secretsmanager_secret_version" "chatbot_app_password" {
+  secret_id     = aws_secretsmanager_secret.chatbot_app_password.id
+  secret_string = random_password.chatbot_app.result
+}
+
+output "chatbot_app_password_secret_arn" {
+  description = "chatbot_app ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.chatbot_app_password.arn
+}
+
+resource "aws_secretsmanager_secret" "chatbot_app_db_url" {
+  name_prefix = "${var.name_prefix}-chatbot-app-db-url-"
+}
+
+resource "aws_secretsmanager_secret_version" "chatbot_app_db_url" {
+  secret_id = aws_secretsmanager_secret.chatbot_app_db_url.id
+  secret_string = format(
+    "postgresql://%s:%s@%s:%d/%s",
+    var.chatbot_app_username,
+    random_password.chatbot_app.result,
+    aws_db_instance.this.address,
+    aws_db_instance.this.port,
+    var.db_name,
+  )
+}
+
+output "chatbot_app_db_url_secret_arn" {
+  description = "chatbot_app ロールでの DATABASE_URL を持つシークレット ARN（admin_ui/knowledge_mcp/tag_selector_mcp が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.chatbot_app_db_url.arn
+}
+
+# --- conversation_migrator: 生パスワード専用シークレット ---
+resource "random_password" "conversation_migrator" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "conversation_migrator_password" {
+  name_prefix = "${var.name_prefix}-conversation-migrator-password-"
+}
+
+resource "aws_secretsmanager_secret_version" "conversation_migrator_password" {
+  secret_id     = aws_secretsmanager_secret.conversation_migrator_password.id
+  secret_string = random_password.conversation_migrator.result
+}
+
+output "conversation_migrator_password_secret_arn" {
+  description = "conversation_migrator ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.conversation_migrator_password.arn
+}
+
+# --- conversation_app: 生パスワード専用シークレット + 完全な接続文字列シークレット ---
+resource "random_password" "conversation_app" {
+  length  = 24
+  special = false
+}
+
+resource "aws_secretsmanager_secret" "conversation_app_password" {
+  name_prefix = "${var.name_prefix}-conversation-app-password-"
+}
+
+resource "aws_secretsmanager_secret_version" "conversation_app_password" {
+  secret_id     = aws_secretsmanager_secret.conversation_app_password.id
+  secret_string = random_password.conversation_app.result
+}
+
+output "conversation_app_password_secret_arn" {
+  description = "conversation_app ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.conversation_app_password.arn
+}
+
+resource "aws_secretsmanager_secret" "conversation_app_db_url" {
+  name_prefix = "${var.name_prefix}-conversation-app-db-url-"
+}
+
+resource "aws_secretsmanager_secret_version" "conversation_app_db_url" {
+  secret_id = aws_secretsmanager_secret.conversation_app_db_url.id
+  secret_string = format(
+    "postgresql://%s:%s@%s:%d/%s",
+    var.conversation_app_username,
+    random_password.conversation_app.result,
+    aws_db_instance.this.address,
+    aws_db_instance.this.port,
+    var.conversation_db_name,
+  )
+}
+
+output "conversation_app_db_url_secret_arn" {
+  description = "conversation_app ロールでの CONVERSATION_DB_URL を持つシークレット ARN（admin_ui が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.conversation_app_db_url.arn
+}
+
 output "endpoint" {
   value = aws_db_instance.this.address
 }

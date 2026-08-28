@@ -19,7 +19,6 @@ admin_ui 側の責務であり、ここでは会話生成のみを担う。既�
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import uuid
 
@@ -31,6 +30,12 @@ from ...config import load_settings
 from ...generate import GenerateAnswerLLMBedrock
 from ...mcp_clients.client import build_mcp_client, load_tools
 from ...summarize import SummarizeLLMBedrock
+from ...tags import (
+    _extract_selected_tags,
+    _mcp_result_to_dicts,
+    compute_conversation_tags,
+    search_with_merged_tags,
+)
 
 # INFO/ERROR ログを CloudWatch（stdout/stderr）へ確実に流す。uvicorn の既定設定は本モジュールの
 # ロガーを構成しないため、明示的に basicConfig する（未構成時のみ有効）。
@@ -57,17 +62,26 @@ class Summary(BaseModel):
     summarized_upto: int
 
 
+class ConversationTag(BaseModel):
+    id: int
+    name: str
+    score: float
+    missed_turns: int
+
+
 class Request(BaseModel):
     conversation_id: str | None = None  # None の場合はサーバー側で新規発行
     text: str
     messages: list[Message]
     summary: Summary
+    tags: list[ConversationTag] | None = None   # 会話タグ（IMPL-202608261345 T8 / ADR-0056）
 
 
 class Response(BaseModel):
     conversation_id: str
     messages: list[Message]
     summary: Summary
+    tags: list[ConversationTag] = []   # agent_invitro は必ず算出済みの値を返すためデフォルト[]でよい
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +125,15 @@ async def _get_components() -> dict:
                 "Knowledge MCP に search_knowledge ツールが見つかりません"
             )
 
+        tags_tool = next(
+            (t for t in tools if getattr(t, "name", None) == "select_tags"),
+            None,
+        )
+        if tags_tool is None:
+            raise RuntimeError(
+                "Tag Selector MCP に select_tags ツールが見つかりません"
+            )
+
         summarizer = SummarizeLLMBedrock(
             model_id=settings.bedrock_chat_model_id,
             region_name=settings.bedrock_region,
@@ -124,6 +147,7 @@ async def _get_components() -> dict:
             "settings": settings,
             "mcp_client": mcp_client,
             "search_tool": search_tool,
+            "tags_tool": tags_tool,
             "summarizer": summarizer,
             "generator": generator,
         }
@@ -135,41 +159,30 @@ async def _get_components() -> dict:
 # search_knowledge 呼び出しと結果パース（T4）
 # ---------------------------------------------------------------------------
 def _extract_results(raw) -> list[dict]:
-    """langchain MCP ツールの戻り値から results 配列を頑健に取り出す。
+    """search_knowledge の戻り値から results 配列を頑健に取り出す（ADR-0063）。
 
-    langchain_mcp_adapters のバージョン差で戻り値が「JSON 文字列」「(content, artifact)
-    タプル」「dict」「テキストブロックの list」のいずれにもなり得るため、すべてを吸収する。
+    langchain-mcp-adapters のバージョン差で戻り値が「JSON 文字列」「(content, artifact)
+    タプル」「dict」「テキストブロックの list」のいずれにもなり得るため、tags.py の
+    _mcp_result_to_dicts で全形式を吸収したうえで results を取り出す。旧実装はテキスト
+    ブロックの list を results として解釈できず、コンテンツブロックそのものを返して実質
+    空コンテキストを生んでいた（ADR-0063 コンテキスト 3.2 節）。
     """
-    data = raw
-    if isinstance(data, tuple):  # response_format=content_and_artifact の場合
-        data = data[0]
-    if isinstance(data, (bytes, bytearray)):
-        data = data.decode("utf-8")
-    if isinstance(data, str):
-        try:
-            data = json.loads(data)
-        except json.JSONDecodeError:
-            return []
-    if isinstance(data, dict):
-        results = data.get("results", [])
-        return results if isinstance(results, list) else []
-    if isinstance(data, list):
-        collected: list[dict] = []
-        for item in data:
-            if isinstance(item, dict):
-                if "results" in item and isinstance(item["results"], list):
-                    return item["results"]
-                collected.append(item)
-            elif isinstance(item, str):
-                try:
-                    parsed = json.loads(item)
-                except json.JSONDecodeError:
-                    continue
-                if isinstance(parsed, dict) and isinstance(
-                    parsed.get("results"), list
-                ):
-                    return parsed["results"]
-        return collected
+    payloads = _mcp_result_to_dicts(raw)
+    for payload in payloads:
+        results = payload.get("results")
+        if isinstance(results, list):
+            return results
+    # 「results」キーを持つ dict が無い場合でも、要素自体が結果 dict の list（id/title/
+    # content のいずれかを持つ）であればそれを結果とみなす（ラップなしで配列を返す版への保険）。
+    if payloads and any(
+        ("id" in d or "title" in d or "content" in d) for d in payloads
+    ):
+        return payloads
+    logger.warning(
+        "search_knowledge 応答から results を取り出せませんでした: type=%s head=%s",
+        type(raw).__name__,
+        repr(raw)[:300],
+    )
     return []
 
 
@@ -233,13 +246,16 @@ async def ask(req: Request) -> Response:
 async def _ask_impl(req: Request) -> Response:
     components = await _get_components()
     search_tool = components["search_tool"]
+    tags_tool = components["tags_tool"]
     summarizer: SummarizeLLMBedrock = components["summarizer"]
     generator: GenerateAnswerLLMBedrock = components["generator"]
-    model_id = components["settings"].bedrock_chat_model_id
+    settings = components["settings"]
+    model_id = settings.bedrock_chat_model_id
 
     conversation_id = req.conversation_id or str(uuid.uuid4())
     messages = list(req.messages)
     summary = req.summary
+    client_tags = req.tags or []
 
     # 15件以上のとき、order が若い順に 3 件を要約して messages から除外する（web_backend と同一）。
     if len(messages) >= 15:
@@ -254,9 +270,40 @@ async def _ask_impl(req: Request) -> Response:
         for m in sorted(messages, key=lambda m: m.order)
     ] or None
 
-    # QA 類似検索（Knowledge MCP, T4: クエリ整形なしで req.text をそのまま渡す）。
-    results = await _search_knowledge(search_tool, req.text, top_k=3)
-    logger.info("search_knowledge query=%r hits=%d", req.text, len(results))
+    ### ↓この辺をもう少しAgenticに？
+
+    # --- select_tags 呼び出し（IMPL-202608261345 T9 / ADR-0057）---
+    try:
+        raw_tags = await tags_tool.ainvoke({
+            "query": req.text,
+            "max_tags": settings.tag_selector_max_tags,
+            "confidence_threshold": settings.tag_selector_confidence_threshold,
+        })
+        new_tags = _extract_selected_tags(raw_tags)
+    except Exception:
+        logger.exception("select_tags failed")
+        new_tags = []   # 失敗時は空集合として継続する（要件定義書6.4.1節）
+
+    # --- 継続タグ判定（マージ）---
+    conversation_tags = compute_conversation_tags(
+        new_tags,
+        client_tags,
+        max_missed_turns=settings.tag_context_max_missed_turns,
+        max_tags=settings.tag_context_max_tags,
+    )
+
+    # --- QA 類似検索（tags.py 経由、マージタグ全件を1回で渡す単一呼び出し, ADR-0062）---
+    results = await search_with_merged_tags(
+        search_tool,
+        _extract_results,
+        req.text,
+        conversation_tags,
+        top_k=3,
+    )
+    logger.info(
+        "search_with_merged_tags query=%r merged_tags=%d hits=%d",
+        req.text, len(conversation_tags), len(results),
+    )
     context = _build_context(results)
 
     # ユーザーメッセージ追加（コンテキスト込み。web_backend の content 形式と同一）。
@@ -277,6 +324,8 @@ async def _ask_impl(req: Request) -> Response:
     )
     logger.info("bedrock generate model=%s answer_len=%d", model_id, len(answer))
 
+    ### ↑この辺をもう少しAgenticに？
+
     assistant_msg = Message(
         order=next_order + 1,
         role="assistant",
@@ -291,6 +340,10 @@ async def _ask_impl(req: Request) -> Response:
         conversation_id=conversation_id,
         messages=messages,
         summary=summary,
+        tags=[
+            ConversationTag(id=t.id, name=t.name, score=t.score, missed_turns=t.missed_turns)
+            for t in conversation_tags
+        ],
     )
 
 

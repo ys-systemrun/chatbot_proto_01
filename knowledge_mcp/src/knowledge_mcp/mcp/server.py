@@ -18,6 +18,7 @@ from starlette.responses import JSONResponse
 from ..db.connection import Database
 from ..repository.qa_management_repository import QaManagementRepository
 from ..repository.qa_repository import QARepository
+from ..repository.question_altered_repository import QuestionAlteredRepository
 from ..repository.tag_repository import TagRepository
 from ..services.search_service import SearchService
 from .tools import register_tools
@@ -80,6 +81,10 @@ def create_server() -> FastMCP:
     embedding_provider = os.environ.get("EMBEDDING_PROVIDER", "lmstudio")
     default_top_k = int(os.environ.get("KNOWLEDGE_MCP_DEFAULT_TOP_K", "5"))
     port = int(os.environ.get("KNOWLEDGE_MCP_PORT", "8100"))
+    # IMPL-202608261450 T2: タグ構成類似度スコアリング（ADR-0058・ADR-0059）
+    tag_similarity_weight = float(os.environ.get("TAG_SIMILARITY_WEIGHT", "0.5"))
+    _pool_size_env = os.environ.get("SEARCH_CANDIDATE_POOL_SIZE")
+    candidate_pool_size = int(_pool_size_env) if _pool_size_env else None
 
     if embedding_provider == "bedrock":
         embedding_url = None
@@ -95,9 +100,15 @@ def create_server() -> FastMCP:
         embedding_provider, embedding_url, embedding_model, bedrock_region
     )
 
-    qa_repository = QARepository(db, embed_fn)
+    qa_repository = QARepository(
+        db,
+        embed_fn,
+        tag_similarity_weight=tag_similarity_weight,
+        candidate_pool_size=candidate_pool_size,
+    )
     tag_repository = TagRepository(db)
     qa_management_repository = QaManagementRepository(db, embed_fn)
+    question_altered_repository = QuestionAlteredRepository(db, embed_fn)
     # MVP では QARepository のみ。将来 PDF/Manual Repository を append すれば拡張可能。
     search_service = SearchService([qa_repository])
 
@@ -112,6 +123,7 @@ def create_server() -> FastMCP:
         search_service=search_service,
         tag_repository=tag_repository,
         qa_management_repository=qa_management_repository,
+        question_altered_repository=question_altered_repository,
         default_top_k=default_top_k,
     )
 
