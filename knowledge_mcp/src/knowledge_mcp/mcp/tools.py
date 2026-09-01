@@ -262,6 +262,18 @@ def register_tools(
         }
 
     @mcp.tool(
+        name="delete_qa",
+        description="QAを削除する。紐づくqa_tag・question_altered（主質問文行・言い換え行の両方）を"
+                    "同一トランザクションでカスケード削除したうえでqa_originalを削除する。存在しない場合はエラー。",
+    )
+    def delete_qa(qa_id: str) -> dict:
+        try:
+            qa_management_repository.delete_qa(qa_id)
+        except QaError as e:
+            raise ToolError(str(e))
+        return {"deleted": qa_id}
+
+    @mcp.tool(
         name="list_categories",
         description="カテゴリ一覧を返す（参照のみ、登録編集は本フェーズ対象外）。",
     )

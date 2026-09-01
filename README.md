@@ -63,16 +63,53 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 | LMSTUDIO_CHAT_URL | http://host.docker.internal:1234/v1/chat/completions | LM Studio 上の チャット作成用のモデルのエンドポイント |
 | EVAL_QUERIES_CSV | eval_queries.csv | 評価用のクエリ:正解の qa_id の組 |
 
-## 全データインポート（別環境への投入）
+## 全データインポート（別環境への投入 / 同一環境への再投入）
 
-全データエクスポート機能で取得した `chatbot.sql` / `conversation.sql` を、まっさらな（空の）別環境へ投入する運用手順です（IMPL-202608261022 / ADR-0055）。
+全データエクスポート機能で取得した `chatbot.sql` / `conversation.sql` を別環境へ投入する運用手順です。AWS 環境では **バッチ自動実行（`import-data.bat`, ADR-0066）を第一手段**とし、手動の ECS Exec 手順（ADR-0055）はバッチが失敗したときの障害切り分け・手動リカバリ手段として併存させます。
 
-> **前提**:
-> - 常に空のDBへの投入のみに対応します（既存データがある状態への投入は非対応、発注者確認#5）。
-> - 投入時はメンテナンス時間帯を設け、対象サービスを停止してから実施します（発注者確認#10）。
+> **前提**（ADR-0066 で更新）:
+> - 既存データがある環境にも投入できます（**全消去→上書き**方式）。バッチ方式は全消去の直前に既存データを **自動でバックアップ**（S3 の `rollback/` プレフィックス）してから実行します。
+> - エクスポート元と投入先が **同一のマイグレーション適用状態（スキーマバージョン）** であることを前提とします（テーブル定義は作り変えません。スキーマ差異がある場合は対象外, ADR-0066 §4）。
+> - 全消去→上書きは不可逆操作のため、バッチ実行時は **対象クラスタ名のタイプ確認** を必須とします（ADR-0066 §6）。
+> - 実行中は対象データベースへ直接接続するサービス（`web_backend`(=`admin_ui`)・`knowledge_mcp`・`tag_selector_mcp`）を停止します。バッチ方式はこの停止・再開も内包します（ADR-0066 §8）。
 > - ブラウザUIは提供しません。運用者による CLI ／一時タスク実行のみです（発注者確認#6）。
+> - 対象テーブルは全データエクスポート機能と同一（`chatbot` 6テーブル・`conversation` 6テーブルの計12テーブル）。バックアップ・全消去・再投入をこの集合で一致させます（ADR-0066 §4）。
 
-### ローカル環境（docker compose）
+### バッチ自動実行（AWS, 推奨 / ADR-0066）
+
+`terraform/import-data.bat` をダブルクリックするだけで、S3 アップロード → サービス停止 → 事前自動バックアップ → 全消去 → 上書き投入 → サービス再開までを 1 回で完結します（ADR-0040 の `.bat` UX を踏襲。中身はコンテナ内 Python オーケストレータ = `deploy import-data`）。
+
+```bat
+rem 1. エクスポート成果物を terraform\ 配下に置く（既定のファイル名）
+rem      terraform\chatbot.sql
+rem      terraform\conversation.sql
+
+rem 2. バッチを実行（ダブルクリック = 両データベース）
+terraform\import-data.bat
+rem   一方のみ: terraform\import-data.bat --target chatbot
+rem            terraform\import-data.bat --target conversation
+rem   別パス指定: terraform\import-data.bat --chatbot-sql path\to\chatbot.sql
+```
+
+実行時、対象クラスタ名の入力を求められます（誤操作防止のタイプ確認, §6）。正しく入力すると次を自動実行します。
+
+- 投入ダンプを `s3://<import-bucket>/import/<db>.sql` へアップロード（§7）
+- 対象サービスを `desired_count=0` に変更しタスク停止を待機（停止前の値を記録, §8）
+- `db_hiroba_qa_init` を `IMPORT_MODE` で run-task 起動 → `STOPPED` まで待機 → `exitCode=0` を確認（§1）
+  - コンテナ内: 消去対象データを `s3://<import-bucket>/rollback/<db>/<時刻>/<db>.sql` へ退避（§5）→ 対象テーブルを `TRUNCATE ... RESTART IDENTITY CASCADE` → 投入ダンプを同一トランザクションで適用（§4）
+- 対象サービスを停止前の `desired_count` へ戻し安定化を待機（成功・失敗どちらでも再開, §8）
+
+`<import-bucket>` は `terraform apply`（`apply-database`）が作成する専用バケット（`<name_prefix>-import-<account-id>-<region>`）です。運用者による事前の S3 準備・`aws s3 cp`・サービス停止/再開は不要です。異常終了した場合は、退避バックアップ（`rollback/`）と CloudWatch Logs `/ecs/db-hiroba-qa-init` を確認し、必要に応じて下記の手動手順（ECS Exec）で切り分けます。
+
+> **退避バックアップの運用ルール**（保持期間・世代管理）は別途定めてください（ADR-0066 結果・影響）。バケットはバージョニング有効です。
+>
+> **実行主体（`terraform/.env` の AWS 認証情報）に必要な権限**: サービス停止・再開のための `ecs:UpdateService` / `ecs:DescribeServices`、投入ダンプアップロードのための import バケットへの `s3:PutObject`、run-task 系（`ecs:RunTask` / `ecs:DescribeTasks`）。`apply-*` を実行できる権限があればおおむね満たされます（ADR-0066 結果・影響）。
+
+### 手動手順（障害時のフォールバック / ADR-0055）
+
+バッチ処理が想定外の状態（S3 上のファイル不備、権限不足等）で失敗した場合の、手動での切り分け・リカバリ手段です。通常運用ではバッチ方式（上記）を使ってください。
+
+#### ローカル環境（docker compose）
 
 ```bash
 # 1. メンテナンス時間帯を設け、対象サービスを停止する
@@ -93,11 +130,87 @@ docker compose start web_backend knowledge_mcp tag_selector_mcp agent_invitro
 > Get-Content -Encoding utf8 conversation.sql | docker compose exec -T conversation_db psql -U conversation_migrator -d conversation
 > ```
 
-### AWS 環境（ECS Exec）
+#### AWS 環境（ECS Exec）
 
-AWS 環境では、ECS Exec（`aws ecs execute-command`、ADR-0029 と同様の実行形態）で `db_hiroba_qa_init` 相当のタスク／コンテナに接続し、`psql` でダンプを投入します。SQLファイルの受け渡しは S3 経由の一時アップロードを推奨します（実装フェーズで確定）。ブラウザUIは作らず、運用者による CLI ／一時タスク実行のみとします（発注者確認#6）。
+バッチ方式（上記）が失敗したときの手動リカバリ手段です。常駐サービスや ALB エンドポイントを新設せず、既存の `db_hiroba_qa_init` タスク定義を一時的に起動して ECS Exec（`aws ecs execute-command`、ADR-0029 と同様の実行形態）で接続し、コンテナ内から対象 RDS へ `psql` でダンプを投入します（ADR-0055/0066 §2）。SQL ファイルの受け渡しは **S3 経由**で行います。
 
-具体的なコマンド例（一時タスクの起動形態、S3 からの取得手順など）は、実装フェーズで確定し、運用手順として別途整備します。
+> **前提（ADR-0066 で反映済み）**: 本手順が使う次の 2 点は、バッチ方式の実装（ADR-0066）と併せて反映済みです。
+>
+> 1. **`psql` / `aws` CLI の同梱**: `db_hiroba_qa_init/Dockerfile` に `postgresql-client`・`awscli` を同梱済みです（ECS Exec 内で `psql` / `aws s3 cp` が使えます）。
+> 2. **S3 権限**: `terraform/modules/db-init-task` の task role に、import バケットへの `s3:GetObject` / `s3:PutObject` / `s3:ListBucket` を付与済みです（`import_bucket_arn` に限定）。
+>
+> ECS Exec 用の SSM 権限（`ssmmessages:*`）も task role に付与済みです。`run-task` 時に `--enable-execute-command` を付ければそのまま接続できます。`<import-bucket>` は `apply-database` が作成する専用バケット（`<name_prefix>-import-<account-id>-<region>`）です。
+
+以下、コマンド例。プレースホルダ（`<region>` / `<import-bucket>` / `<task-arn>` 等）は各環境の値に読み替えてください。クラスタ名・サブネット・SG・タスクファミリは、シード（`seed.bat`）と同じ Terraform output から取得します。
+
+```bash
+# 0. 事前情報の取得（シードと同じ output を流用。terraform/README.md「Phase 4」参照）
+#    CLUSTER … app 構成 output（cluster_name）
+#    SUBNETS / SG / TD … database 構成 output（private_subnet_ids / sg_verification_task_id / db_init_task_family）
+
+# 1. エクスポート成果物を S3 にアップロード（運用者が用意した投入用バケットへ）
+aws s3 cp chatbot.sql      s3://<import-bucket>/import/chatbot.sql      --region <region>
+aws s3 cp conversation.sql s3://<import-bucket>/import/conversation.sql --region <region>
+
+# 2. メンテナンス時間帯: 対象サービスを停止する（desired_count=0, 発注者確認#10）
+for svc in admin_ui knowledge_mcp tag_selector_mcp agent_invitro; do
+  aws ecs update-service --cluster $CLUSTER --service $svc --desired-count 0 --region <region>
+done
+aws ecs wait services-stable --cluster $CLUSTER \
+  --services admin_ui knowledge_mcp tag_selector_mcp agent_invitro --region <region>
+
+# 3. db_hiroba_qa_init タスクを「シード実行させず」一時起動する。
+#    既定 CMD（python src/main.py = マイグレーション+シード）を sleep で上書きし、ECS Exec 用に待機させる。
+aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
+  --task-definition $TD --enable-execute-command \
+  --overrides '{"containerOverrides":[{"name":"db-hiroba-qa-init","command":["sleep","3600"]}]}' \
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
+  --region <region>
+#   → 起動した <task-arn> を控える（describe-tasks で RUNNING を確認してから次へ）
+
+# 4. ECS Exec でコンテナ内シェルに接続する
+aws ecs execute-command --cluster $CLUSTER --task <task-arn> \
+  --container db-hiroba-qa-init --command "/bin/sh" --interactive --region <region>
+```
+
+コンテナ内シェルに入ったら、S3 からダンプを取得して新規（空の）DB へ投入します。接続情報はタスクへ注入済みの環境変数（`DATABASE_URL` = chatbot、`CONVERSATION_DB_URL` = conversation）を利用します。
+
+```sh
+# --- ECS Exec で入ったコンテナ内 ---
+aws s3 cp s3://<import-bucket>/import/chatbot.sql      /tmp/chatbot.sql
+aws s3 cp s3://<import-bucket>/import/conversation.sql /tmp/conversation.sql
+
+# 既存データがある場合は、投入前に対象テーブルを手動で全消去する（バッチ方式の TRUNCATE 相当）。
+#   例（chatbot）: psql "$DATABASE_URL" -c 'TRUNCATE category, qa_original, tag, question_altered, tag_alias, qa_tag RESTART IDENTITY CASCADE;'
+#   例（conversation）: psql "$CONVERSATION_DB_URL" -c 'TRUNCATE conversation, message, verification_question, verification_run, verification_run_tag, verification_run_source RESTART IDENTITY CASCADE;'
+# 全消去の前に、必要ならエクスポート機能で退避バックアップを取得しておくこと（誤操作時の復旧手段, ADR-0066 §5）。
+
+# ダンプを投入する（空DB へはそのまま、既存データありなら上記 TRUNCATE 後に）
+psql "$DATABASE_URL"        -v ON_ERROR_STOP=1 -f /tmp/chatbot.sql
+psql "$CONVERSATION_DB_URL" -v ON_ERROR_STOP=1 -f /tmp/conversation.sql
+exit
+```
+
+投入完了後、一時タスクを停止し、サービスを再開します。
+
+```bash
+# 5. 一時タスクを停止する
+aws ecs stop-task --cluster $CLUSTER --task <task-arn> --region <region>
+
+# 6. サービスを再開する（desired_count=1）
+for svc in admin_ui knowledge_mcp tag_selector_mcp agent_invitro; do
+  aws ecs update-service --cluster $CLUSTER --service $svc --desired-count 1 --region <region>
+done
+
+# 7. 後始末: S3 に置いた一時ダンプを削除する
+aws s3 rm s3://<import-bucket>/import/chatbot.sql      --region <region>
+aws s3 rm s3://<import-bucket>/import/conversation.sql --region <region>
+```
+
+> **注記**:
+> - `desired_count=1` は既定運用の値です。`knowledge_mcp` を複数タスクで運用している場合は元の値に戻してください。`terraform apply`（`apply-app`）で管理している場合は、再開を `terraform apply` に委ねても構いません。
+> - `psql` の `-v ON_ERROR_STOP=1` により、途中の SQL エラーで停止します（部分適用の追跡を容易にするため。非機能要件「部分失敗時の扱い（全データインポート）」）。
+> - 投入用 S3 バケットは Terraform state バケットとは別に、`apply-database` が専用バケット（`<name_prefix>-import-<account-id>-<region>`）として作成します（ADR-0066）。task role への `s3:GetObject`/`s3:PutObject`/`s3:ListBucket` はこのバケットに限定して付与済みです。`<import-bucket>` にはこの名前を読み替えてください。
 
 ## デバッグ UI による動作確認
 

@@ -2,6 +2,14 @@ FROM python:3.11
 
 WORKDIR /app
 
+# 全データインポートの手動フォールバック手順（ECS Exec, ADR-0055/0066 §2）で使う
+# psql / aws CLI を同梱する。バッチ方式（IMPORT_MODE, ADR-0066）自体は psycopg2 / boto3 で
+# 完結するため CLI を必要としないが、障害時に運用者がコンテナ内から `psql -f` / `aws s3 cp`
+# で手動リカバリできるように入れておく。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client awscli \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 RUN pip install --upgrade pip
 RUN pip install -e .

@@ -95,6 +95,13 @@ output "db_init_task_family" {
   value       = module.db_init_task.family
 }
 
+# ADR-0066: 全データインポート（全消去→上書き）バッチが、投入ダンプのアップロード先／
+# 退避バックアップの保存先として使う S3 バケット名（deploy import-data が参照）。
+output "import_bucket_name" {
+  description = "全データインポート用 S3 バケット名（import/ ・ rollback/ プレフィックス, ADR-0066）"
+  value       = aws_s3_bucket.import_data.id
+}
+
 output "ecr_repository_urls" {
   description = "シード用 ECR リポジトリ（db-hiroba-qa-init のみ）のマップ"
   value       = module.ecr.repository_urls

@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -69,6 +69,8 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0063](./0063-agent-invitro-mcp-adapter-result-parsing-fix.md) | agent_invitroのMCPツール戻り値パース頑健化（会話タグが常に空になる不具合の修正、ADR-0062の診断見直し） | Accepted |
 | [0064](./0064-question-altered-management-via-knowledge-mcp.md) | 言い換え質問文（question_altered）管理機能の実装方式（Knowledge MCP経由、一覧・作成・編集・削除・CSVインポート/エクスポート、主質問文行を対象外とする設計） | Accepted |
 | [0065](./0065-tag-export-via-knowledge-mcp.md) | タグ階層データのCSVエクスポート機能の実装方式（Knowledge MCP新規ツールによるフラット化、既存インポート列構成との統一） | Accepted |
+| [0067](./0067-qa-record-deletion-cascade.md) | QAレコード削除機能の実装方式（カスケード削除・一覧編集両ページからの単一削除） | Accepted |
+| [0068](./0068-admin-list-pages-search-state-url-sync.md) | 管理画面一覧ページ（QA一覧・言い換え質問文一覧）の検索条件・ページ位置のURL同期方式 | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -91,3 +93,5 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202608261600_タグデータ一括インポート機能要件定義書.md`（タグデータ一括インポート機能: タグ単体の一括登録・更新、タグ名によるupsert、親タグ名による階層指定）
 - `docs/requirement/202608271750_言い換え質問文（question_altered）管理機能要件定義書.md`（言い換え質問文（question_altered）管理機能: 一覧・CSV一括インポート・新規作成・編集・削除ページ、および言い換え行単体のCSVエクスポート機能の追加）
 - `docs/requirement/202608281421_タグデータCSVエクスポート機能要件定義書.md`（タグデータCSVエクスポート機能: タグ階層ページに、タグ一括インポート（ADR-0061）とそのまま再インポートできる列構成でのCSVエクスポート機能を追加）
+- `docs/requirement/202608311540_QAレコード削除機能要件定義書.md`（QAレコード削除機能: QA一覧ページ・QA編集ページからのQAレコード削除、カスケード削除・クロスデータベース整合性の告知）
+- `docs/requirement/202608311600_QA一覧・言い換え質問文一覧ページ検索条件URL保持機能要件定義書.md`（QA一覧・言い換え質問文一覧ページの検索条件・ページ位置のURL保持機能: URLクエリからの検索条件注入、編集後の一覧復帰時の検索条件・ページ位置保持）

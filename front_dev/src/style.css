@@ -863,6 +863,21 @@ body.page-admin {
   color: #c0392b;
 }
 
+/* QA一覧の操作列（編集リンク + 削除ボタンを横並び, ADR-0067） */
+.admin-td-actions {
+  white-space: nowrap;
+}
+
+.admin-td-actions .admin-link {
+  margin-right: 8px;
+}
+
+/* 一覧行内に収める小さめのボタン（ADR-0067） */
+.admin-btn-sm {
+  padding: 2px 10px;
+  font-size: 0.82rem;
+}
+
 .admin-qapicker {
   position: relative;
 }

@@ -1,8 +1,8 @@
 """エクスポート対象テーブルの定義（IMPL-202608241600 T15、5.4 節）。
 
-対象は chatbot データベース6テーブル・conversation データベース2テーブルの計8テーブル。
-カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0005）および
-db_conversation/init.sql に基づく。各テーブルについて次を保持する:
+対象は chatbot データベース6テーブル・conversation データベース6テーブルの計12テーブル。
+カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0005 および
+migrations_conversation/0001〜0003）に基づく。各テーブルについて次を保持する:
 
   - db          : データベース種別（"chatbot" / "conversation"）
   - name        : テーブル名
@@ -14,7 +14,13 @@ db_conversation/init.sql に基づく。各テーブルについて次を保持�
 SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の CHATBOT_TABLES /
 CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
   - chatbot     : category → qa_original → tag → question_altered → tag_alias → qa_tag
-  - conversation: conversation → message
+  - conversation: conversation → message → verification_question → verification_run
+                  → verification_run_tag → verification_run_source
+
+ADR-0066: conversation の検証4テーブル（verification_*）を追加し、全データエクスポート／
+全消去インポートが会話評価・検証データも含めて往復できるようにした（旧: conversation は
+conversation / message の2テーブルのみ）。全消去インポート（ADR-0066）はここで定義する全12
+テーブルを唯一の対象集合とし、バックアップ・TRUNCATE・再投入をこの集合で一致させる。
 """
 
 from __future__ import annotations
@@ -144,7 +150,7 @@ CHATBOT_TABLES: list[TableSpec] = [
 
 
 # --------------------------------------------------------------------------- #
-# conversation データベース（db_conversation/init.sql）
+# conversation データベース（migrations_conversation 0001〜0003 の最終形）
 # --------------------------------------------------------------------------- #
 CONVERSATION_TABLES: list[TableSpec] = [
     TableSpec(
@@ -186,6 +192,115 @@ CONVERSATION_TABLES: list[TableSpec] = [
             "    content         TEXT,\n"
             "    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
             '    UNIQUE(conversation_id, "order")\n'
+            ");"
+        ),
+    ),
+    # 検証機能の4テーブル（migrations_conversation/0002・0003, ADR-0048/0051/0060）。
+    # tag_id / source_id は chatbot データベース側の値を参照するが、データベースを跨ぐ
+    # 外部キー制約は張らない（ADR-0048）。ADR-0066 で全データエクスポート／インポートの
+    # 対象に追加した。
+    TableSpec(
+        db="conversation",
+        name="verification_question",
+        columns=["id", "question_text", "memo", "created_at", "updated_at", "existing_tags"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS verification_question (\n"
+            "    id             SERIAL PRIMARY KEY,\n"
+            "    question_text  TEXT NOT NULL,\n"
+            "    memo           TEXT,\n"
+            "    created_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
+            "    updated_at     TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
+            "    existing_tags  TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="conversation",
+        name="verification_run",
+        columns=[
+            "id",
+            "question_id",
+            "question_text_snapshot",
+            "executed_at",
+            "status",
+            "error_message",
+            "max_tags",
+            "confidence_threshold",
+            "top_k",
+            "min_score",
+            "tag_selector_latency_ms",
+            "knowledge_mcp_latency_ms",
+            "evaluation",
+            "evaluation_comment",
+            "evaluated_at",
+            "existing_tags_snapshot",
+        ],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS verification_run (\n"
+            "    id                        SERIAL PRIMARY KEY,\n"
+            "    question_id               INTEGER NOT NULL REFERENCES verification_question(id) ON DELETE CASCADE,\n"
+            "    question_text_snapshot    TEXT NOT NULL,\n"
+            "    executed_at               TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
+            "    status                    VARCHAR NOT NULL,\n"
+            "    error_message             TEXT,\n"
+            "    max_tags                  INTEGER,\n"
+            "    confidence_threshold      REAL,\n"
+            "    top_k                     INTEGER,\n"
+            "    min_score                 REAL,\n"
+            "    tag_selector_latency_ms   INTEGER,\n"
+            "    knowledge_mcp_latency_ms  INTEGER,\n"
+            "    evaluation                SMALLINT,\n"
+            "    evaluation_comment        TEXT,\n"
+            "    evaluated_at              TIMESTAMP WITH TIME ZONE,\n"
+            "    existing_tags_snapshot    TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="conversation",
+        name="verification_run_tag",
+        columns=["id", "run_id", "rank_no", "tag_id", "tag_name", "score", "path"],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS verification_run_tag (\n"
+            "    id        SERIAL PRIMARY KEY,\n"
+            "    run_id    INTEGER NOT NULL REFERENCES verification_run(id) ON DELETE CASCADE,\n"
+            "    rank_no   INTEGER NOT NULL,\n"
+            "    tag_id    INTEGER,\n"
+            "    tag_name  VARCHAR NOT NULL,\n"
+            "    score     REAL,\n"
+            "    path      TEXT\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="conversation",
+        name="verification_run_source",
+        columns=[
+            "id",
+            "run_id",
+            "rank_no",
+            "source_id",
+            "source_type",
+            "title",
+            "content",
+            "score",
+            "metadata",
+        ],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS verification_run_source (\n"
+            "    id           SERIAL PRIMARY KEY,\n"
+            "    run_id       INTEGER NOT NULL REFERENCES verification_run(id) ON DELETE CASCADE,\n"
+            "    rank_no      INTEGER NOT NULL,\n"
+            "    source_id    VARCHAR,\n"
+            "    source_type  VARCHAR,\n"
+            "    title        TEXT,\n"
+            "    content      TEXT,\n"
+            "    score        REAL,\n"
+            "    metadata     TEXT\n"
             ");"
         ),
     ),

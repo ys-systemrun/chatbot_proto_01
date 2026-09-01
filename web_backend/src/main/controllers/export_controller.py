@@ -28,7 +28,7 @@ def _timestamp() -> str:
 
 
 def _build_csv_files() -> dict[str, bytes]:
-    """CSV 形式: 8テーブルそれぞれを "{table}.csv" として束ねる（embedding は除外）。"""
+    """CSV 形式: 12テーブルそれぞれを "{table}.csv" として束ねる（embedding は除外, ADR-0066）。"""
     files: dict[str, bytes] = {}
     with closing(psycopg2.connect(config.CHATBOT_EXPORT_DB_URL)) as chatbot_conn:
         for spec in CHATBOT_TABLES:

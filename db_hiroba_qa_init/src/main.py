@@ -34,6 +34,7 @@ from psycopg2 import sql
 from yoyo import get_backend, read_migrations
 
 import backfill_title_and_tags
+import import_data
 import seed_description_and_aliases
 from db import DB
 from embedding import get_embedding
@@ -68,6 +69,16 @@ CONVERSATION_MIGRATOR_ROLE_NAME = os.environ.get(
 CONVERSATION_MIGRATOR_PASSWORD = os.environ.get("CONVERSATION_MIGRATOR_PASSWORD", "")
 CONVERSATION_APP_ROLE_NAME = os.environ.get("CONVERSATION_APP_ROLE_NAME", "conversation_app")
 CONVERSATION_APP_PASSWORD = os.environ.get("CONVERSATION_APP_PASSWORD", "")
+
+# 全データインポート（全消去→上書き）バッチモード（ADR-0066）。run-task の environment
+# オーバーライドで IMPORT_MODE=true と各パラメータを注入されたときのみ有効になる。通常のシード
+# 起動（IMPORT_MODE 未設定）では一切実行されない＝誤って破壊的処理が走らないよう分離する。
+IMPORT_MODE = os.environ.get("IMPORT_MODE", "").strip().lower() in ("1", "true", "yes")
+IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
+IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
+IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
+IMPORT_ROLLBACK_PREFIX = os.environ.get("IMPORT_ROLLBACK_PREFIX", "rollback").strip()
+AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
 
 # 埋め込み接続先の切り替え（IMPL-202608101616 4.3 / ADR-0031）。既定はローカル開発の lmstudio。
 EMBEDDING_PROVIDER = os.environ.get("EMBEDDING_PROVIDER", "lmstudio")
@@ -472,7 +483,55 @@ def seed_if_empty(url: str):
     seed_tag_descriptions_and_aliases(url)
 
 
+def _resolve_import_work_urls() -> "tuple[str, str]":
+    """インポート作業用の接続 URL（chatbot / conversation）を返す。
+
+    ロール分離が有効（migrator パスワード設定済み）なら migrator 接続を、そうでなければ
+    マスター接続を使う。TRUNCATE には DDL/DML 権限が要るため migrator を使う（ADR-0052/0066）。
+    """
+    if CHATBOT_MIGRATOR_PASSWORD:
+        chatbot_url = migrator_database_url()
+    else:
+        chatbot_url = DATABASE_URL
+    if CONVERSATION_DB_URL and CONVERSATION_MIGRATOR_PASSWORD:
+        conversation_url = conversation_migrator_database_url()
+    else:
+        conversation_url = CONVERSATION_DB_URL
+    return chatbot_url, conversation_url
+
+
+def run_import_mode():
+    """全データインポート（全消去→上書き）を実行して終了する（ADR-0066, IMPORT_MODE）。"""
+    print(f"{_now()} ====== db_hiroba_qa_init start (IMPORT MODE, ADR-0066).")
+    print(
+        f"{_now()} WARNING: 破壊的モードで起動しました。対象データベースの既存データを全消去し、\n"
+        f"{_now()}          S3 の投入ダンプで上書きします（事前バックアップは自動取得）。"
+    )
+    try:
+        if not IMPORT_BUCKET:
+            raise RuntimeError("IMPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です。")
+        chatbot_url, conversation_url = _resolve_import_work_urls()
+        import_data.run_import(
+            target=IMPORT_TARGET,
+            chatbot_url=chatbot_url,
+            conversation_url=conversation_url,
+            bucket=IMPORT_BUCKET,
+            import_prefix=IMPORT_PREFIX,
+            rollback_prefix=IMPORT_ROLLBACK_PREFIX,
+            region=AWS_REGION,
+        )
+    except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
+        print(f"{_now()} ERROR: db_hiroba_qa_init import failed: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+    print(f"{_now()} ====== db_hiroba_qa_init import completed successfully.")
+    sys.exit(0)
+
+
 def main():
+    if IMPORT_MODE:
+        run_import_mode()
+        return  # run_import_mode は sys.exit する（保険で return）
     print(f"{_now()} ====== db_hiroba_qa_init start.")
     try:
         # --- chatbot: ロール分離 → migrate → seed → app 権限付与 -----------------

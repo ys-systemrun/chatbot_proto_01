@@ -70,6 +70,10 @@ module "db_init_task" {
     # エクスポート専用ロールの GRANT CONNECT ON DATABASE の対象名（ADR-0046 / IMPL-202608241600 T10）。
     # db_hiroba_qa_init 側デフォルト "chatbot" と一致する module.database.db_name を渡す。
     CHATBOT_DB_NAME = module.database.db_name
+    # 全データインポート（全消去→上書き）バッチ用の S3 バケット名（ADR-0066）。IMPORT_MODE の
+    # コンテナがここから投入ダンプ（import/）を取得し、退避バックアップ（rollback/）を保存する。
+    # 通常のシード起動では未使用（IMPORT_MODE のときだけ参照）。
+    IMPORT_BUCKET = aws_s3_bucket.import_data.id
   }
   secrets = {
     DATABASE_URL = module.database.db_url_secret_arn
@@ -89,4 +93,47 @@ module "db_init_task" {
     CONVERSATION_APP_PASSWORD      = module.database.conversation_app_password_secret_arn
   }
   enable_bedrock = true
+
+  # 全データインポート（ADR-0066）: task role へ import バケットの GetObject/PutObject/ListBucket を付与。
+  # enable_import_s3 はプラン時に確定する真偽値（count 判定用）。ARN 自体は apply 後確定でよい。
+  enable_import_s3  = true
+  import_bucket_arn = aws_s3_bucket.import_data.arn
+}
+
+# --- 全データインポート（全消去→上書き）用 S3 バケット（ADR-0066）------------------
+# 投入ダンプ（import/chatbot.sql・import/conversation.sql）の受け渡しと、全消去直前の
+# 自動バックアップ（rollback/<対象>/<時刻>/<対象>.sql）の保存に使う。Terraform state バケット
+# とは分離する（ADR-0055 の運用方針）。バッチ（terraform/deploy import-data）が
+# 投入ダンプをここへアップロードし、db_hiroba_qa_init（IMPORT_MODE）が取得・退避に使う。
+data "aws_caller_identity" "current" {}
+
+resource "aws_s3_bucket" "import_data" {
+  bucket = "${var.name_prefix}-import-${data.aws_caller_identity.current.account_id}-${var.aws_region}"
+  # destroy-database（RDS ごと破棄, 取り消し不可）実行時に、投入ダンプ・退避バックアップが
+  # 残っていてもバケットを削除できるようにする。DB 全破棄と同時なら成果物も不要になるため。
+  force_destroy = true
+}
+
+resource "aws_s3_bucket_versioning" "import_data" {
+  bucket = aws_s3_bucket.import_data.id
+  versioning_configuration {
+    status = "Enabled" # 誤上書き・世代管理のため（退避バックアップの保全）。
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "import_data" {
+  bucket = aws_s3_bucket.import_data.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "import_data" {
+  bucket                  = aws_s3_bucket.import_data.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
 }

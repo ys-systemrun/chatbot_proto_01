@@ -274,6 +274,29 @@ class QaManagementRepository:
             detail = self._load_detail(cur, qa_id)
         return detail
 
+    def delete_qa(self, qa_id: str) -> None:
+        """QA（qa_original）を、紐づく qa_tag・question_altered ごとカスケード削除する（ADR-0067）。
+
+        まず対象QAの存在を検証し（get_qa と同様）、存在しなければ QaError を送出する。
+        存在する場合は同一トランザクション内で、
+          qa_tag（外部キー制約上 qa_original より先に削除する必要がある）
+          → question_altered（is_primary を問わず全件。主質問文行も削除する）
+          → qa_original
+        の順に削除し、孤立行（qa_id が存在しない question_altered）が残らないようにする。
+
+        検証実行履歴（verification_run_source）・会話ログへの参照は、chatbot と
+        conversation データベース間に外部キー制約がないため（ADR-0048）カスケードしない。
+        削除後もこれらの参照は残存し得る（利用者への告知は front_dev の確認ダイアログで行う）。
+        """
+        with self.db.cursor() as cur:
+            if self._load_detail(cur, qa_id) is None:
+                raise QaError(f"qa id={qa_id} does not exist")
+
+            # qa_tag → question_altered → qa_original の順に、同一トランザクションで削除する。
+            cur.execute("DELETE FROM qa_tag WHERE qa_id = %s", (qa_id,))
+            cur.execute("DELETE FROM question_altered WHERE qa_id = %s", (qa_id,))
+            cur.execute("DELETE FROM qa_original WHERE uuid = %s", (qa_id,))
+
     # ------------------------------------------------------------------ #
     # CSV 一括インポート（IMPL-202608261022 T9 / ADR-0053）
     # ------------------------------------------------------------------ #

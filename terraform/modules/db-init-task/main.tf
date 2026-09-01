@@ -50,6 +50,18 @@ variable "enable_bedrock" {
   default = true # 埋め込みを Bedrock で計算（ADR-0031）
 }
 
+variable "import_bucket_arn" {
+  type        = string
+  default     = ""
+  description = "全データインポート（ADR-0066）用 S3 バケットの ARN。enable_import_s3=true のとき権限付与に使う。"
+}
+
+variable "enable_import_s3" {
+  type        = bool
+  default     = false
+  description = "全データインポート（ADR-0066）用の S3 権限を task role に付与するか。count 判定はプラン時に確定させる必要があるため、ARN の有無ではなく本フラグで切り替える。"
+}
+
 variable "log_retention_days" {
   type    = number
   default = 14
@@ -124,6 +136,29 @@ resource "aws_iam_role_policy" "task_bedrock" {
       Action   = ["bedrock:InvokeModel"]
       Resource = "*"
     }]
+  })
+}
+
+# 全データインポート（ADR-0066）: IMPORT_MODE のコンテナが投入ダンプ取得（GetObject）と
+# 退避バックアップ保存（PutObject）に使う。import バケットに限定して付与する（最小権限）。
+resource "aws_iam_role_policy" "task_import_s3" {
+  count = var.enable_import_s3 ? 1 : 0
+  name  = "${var.family}-import-s3"
+  role  = aws_iam_role.task.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${var.import_bucket_arn}/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:ListBucket"]
+        Resource = var.import_bucket_arn
+      },
+    ]
   })
 }
 

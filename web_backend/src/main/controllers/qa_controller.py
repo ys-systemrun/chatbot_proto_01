@@ -130,6 +130,16 @@ async def update_qa(qa_id: str, body: QaUpdateRequest) -> QaDetailResponse:
     return QaDetailResponse(**result)
 
 
+async def delete_qa(qa_id: str) -> None:
+    """QA を削除する（紐づく qa_tag・question_altered もカスケード削除される, ADR-0067）。
+
+    存在しない QA の削除は Knowledge MCP 側が QaError を送出し、グローバル例外ハンドラで
+    409 にマッピングされる（本コントローラでは個別の例外処理を行わない）。
+    """
+    await _client.call_tool("delete_qa", {"qa_id": qa_id})
+    log_admin_operation("delete", "qa", qa_id, {})
+
+
 async def list_categories() -> CategoryListResponse:
     result = await _client.call_tool("list_categories", {})
     return CategoryListResponse(**result)

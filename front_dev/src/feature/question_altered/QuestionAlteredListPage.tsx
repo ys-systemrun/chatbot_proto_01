@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
 import {
   deleteQuestionAltered,
   downloadQuestionAlteredExport,
+  getQa,
   importQuestionAlteredCsv,
   listQuestionAltered,
 } from "../../api";
@@ -15,16 +16,29 @@ import { QaPicker } from "../common/QaPicker";
 
 const PAGE_SIZE = 20;
 
+// URL の page（1始まり）を内部 offset（0始まり）へ変換する。不正値・未指定は先頭ページ扱い。
+function pageParamToOffset(pageParam: string | null): number {
+  const page = Number(pageParam);
+  if (!Number.isInteger(page) || page < 1) return 0;
+  return (page - 1) * PAGE_SIZE;
+}
+
 // 言い換え質問文（is_primary=false）一覧ページ（IMPL-202608281100 / ADR-0064 要件6.1）。
 // QaListPage のUIパターンを踏襲し、QAピッカー絞り込み・キーワード絞り込み・ページング・
 // CSVインポート/エクスポート・行単位の削除を提供する。
 export default function QuestionAlteredListPage() {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [items, setItems] = useState<QaAlteredItem[]>([]);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
+  // マウント時に URL クエリから初期検索条件・ページ位置を復元する（ADR-0068）。
+  const [offset, setOffset] = useState(() =>
+    pageParamToOffset(searchParams.get("page")),
+  );
 
-  const [keyword, setKeyword] = useState("");
-  const [qaId, setQaId] = useState("");
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [qaId, setQaId] = useState(() => searchParams.get("qa_id") ?? "");
   const [qaLabel, setQaLabel] = useState("");
 
   const [loading, setLoading] = useState(false);
@@ -36,6 +50,17 @@ export default function QuestionAlteredListPage() {
     useState<QaAlteredImportResponse | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+
+  // 現在の検索条件と nextOffset から URL クエリを構築し、履歴を replace で同期する。
+  // 既定値（空文字列・page=1）に該当するパラメータは URL から省略する（ADR-0068）。
+  function syncUrl(nextOffset: number) {
+    const next = new URLSearchParams();
+    if (keyword) next.set("keyword", keyword);
+    if (qaId) next.set("qa_id", qaId);
+    const page = Math.floor(nextOffset / PAGE_SIZE) + 1;
+    if (page > 1) next.set("page", String(page));
+    setSearchParams(next, { replace: true });
+  }
 
   function load(nextOffset: number) {
     setLoading(true);
@@ -53,10 +78,22 @@ export default function QuestionAlteredListPage() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    syncUrl(nextOffset);
   }
 
   useEffect(() => {
-    load(0);
+    load(offset);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // URL に qa_id が含まれる場合、絞り込み表示用のラベルを getQa で解決する（ADR-0068 6.2）。
+  // 削除済み等で取得に失敗しても一覧自体は機能させ、プレースホルダを表示する。
+  useEffect(() => {
+    const qid = searchParams.get("qa_id");
+    if (!qid) return;
+    getQa(qid)
+      .then((qa) => setQaLabel(qa.title || "（無題）"))
+      .catch(() => setQaLabel("（不明なQA。削除された可能性があります）"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -122,13 +159,16 @@ export default function QuestionAlteredListPage() {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // 編集・新規作成ページへ現在の一覧 URL（検索条件・ページ位置）を back として引き継ぐ（ADR-0068）。
+  const backParam = encodeURIComponent(location.pathname + location.search);
+
   return (
     <div className="admin-page">
       <div className="admin-page-head">
         <h1 className="admin-title">言い換え質問文一覧</h1>
         <Link
           className="admin-btn admin-btn-primary"
-          to="/admin/question_altered/new"
+          to={`/admin/question_altered/new?back=${backParam}`}
         >
           ＋ 新規言い換え
         </Link>
@@ -239,7 +279,7 @@ export default function QuestionAlteredListPage() {
               <td>
                 <Link
                   className="admin-link"
-                  to={`/admin/question_altered/${item.id}`}
+                  to={`/admin/question_altered/${item.id}?back=${backParam}`}
                 >
                   編集
                 </Link>{" "}

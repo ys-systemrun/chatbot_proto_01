@@ -261,6 +261,163 @@ def cmd_seed(assume_yes: bool = False) -> None:
     log.info("knowledge_mcp を起動するには apply-app（desired_count=1）を実行してください（apply-all は自動で行います）。")
 
 
+# 全データインポート（ADR-0066）: 実行対象データベースと、停止すべき（そのデータベースへ直接
+# 接続する）アプリケーションサービスの対応。admin_ui は AWS 上の web_backend（管理UI）。
+# agent_invitro はデータベースへ直接接続しないため停止対象に含めない（ADR-0066 §8 の検討）。
+_IMPORT_SERVICES_BY_DB = {
+    "chatbot": ["admin_ui", "knowledge_mcp", "tag_selector_mcp"],
+    "conversation": ["admin_ui"],
+}
+_IMPORT_DUMP_DEFAULT = {"chatbot": "chatbot.sql", "conversation": "conversation.sql"}
+
+
+def _import_labels(target: str) -> list[str]:
+    if target == "both":
+        return ["chatbot", "conversation"]
+    if target in ("chatbot", "conversation"):
+        return [target]
+    raise DeployError(f"--target は chatbot / conversation / both のいずれか（指定: {target!r}）。")
+
+
+def _import_services(labels: list[str]) -> list[str]:
+    """対象ラベル群に対応する停止対象サービスの重複なしリスト（定義順を保持）。"""
+    ordered: list[str] = []
+    for svc in ("admin_ui", "knowledge_mcp", "tag_selector_mcp"):
+        if any(svc in _IMPORT_SERVICES_BY_DB[label] for label in labels) and svc not in ordered:
+            ordered.append(svc)
+    return ordered
+
+
+def cmd_import_data(
+    target: str = "both",
+    chatbot_sql: str | None = None,
+    conversation_sql: str | None = None,
+    assume_yes: bool = False,
+) -> None:
+    """全データインポート（全消去→上書き）バッチ（ADR-0066）。
+
+    ローカルの SQL ダンプを S3 へアップロード → 対象サービス停止 → db_hiroba_qa_init を
+    IMPORT_MODE で run-task（事前バックアップ→全消去→上書き投入）→ 完了後サービス再開。
+    破壊的操作のため、実行前に対象クラスタ名のタイプ確認を必須とする（§6）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+    region = cfg.aws_region
+    labels = _import_labels(target)
+
+    log.step("database / app 構成の apply 済み確認")
+    _require_database_applied(cfg)
+    _require_app_applied(cfg)
+    log.ok("両構成の state を確認")
+
+    # 投入ダンプ（ローカルファイル）の解決・存在確認。
+    dump_paths: dict[str, str] = {}
+    overrides = {"chatbot": chatbot_sql, "conversation": conversation_sql}
+    for label in labels:
+        path = overrides[label] or _IMPORT_DUMP_DEFAULT[label]
+        if not os.path.isfile(path):
+            raise DeployError(
+                f"{label} の投入ダンプが見つかりません: {path}\n"
+                f"  エクスポート機能が生成した {_IMPORT_DUMP_DEFAULT[label]} を terraform/ に置くか、"
+                f"  --{label.replace('_', '-')}-sql でパスを指定してください。"
+            )
+        dump_paths[label] = path
+
+    db, app = paths.database_dir(), paths.app_dir()
+
+    log.step("database 構成 output 取得")
+    tf.init_backend(db, cfg.state_bucket, region, cfg.state_key_database)
+    subnets = tf.output_json(db, "private_subnet_ids")
+    sg = tf.output_raw(db, "sg_verification_task_id")
+    family = tf.output_raw(db, "db_init_task_family")
+    import_bucket = tf.output_raw(db, "import_bucket_name")
+    if not subnets or not sg or not family or not import_bucket:
+        raise DeployError(
+            "database 構成の output（private_subnet_ids / sg_verification_task_id / "
+            "db_init_task_family / import_bucket_name）を取得できませんでした。"
+        )
+
+    log.step("app 構成 output 取得")
+    tf.init_backend(app, cfg.state_bucket, region, cfg.state_key_app)
+    cluster = tf.output_raw(app, "cluster_name")
+    if not cluster:
+        raise DeployError("app 構成の output（cluster_name）を取得できませんでした。")
+
+    services = _import_services(labels)
+
+    log.warn("=== 全データインポート（全消去→上書き, 不可逆） ===")
+    log.warn(f"対象データベース: {', '.join(labels)}")
+    log.warn(f"投入ダンプ: {', '.join(f'{k}={v}' for k, v in dump_paths.items())}")
+    log.warn(f"停止するサービス: {', '.join(services)}")
+    log.warn(
+        f"実行内容: 事前バックアップを s3://{import_bucket}/rollback/ に保存 → 対象テーブルを"
+        " 全消去 → 上記ダンプで上書き投入。既存データは全消去されます。"
+    )
+    prompts.confirm_typed(
+        f"実行する場合は対象クラスタ名 '{cluster}' を入力してください: ", cluster
+    )
+
+    # 1. 投入ダンプを S3 へアップロード（§7）。
+    log.step("投入ダンプを S3 へアップロード")
+    for label, path in dump_paths.items():
+        key = f"import/{label}.sql"
+        aws.upload_file(import_bucket, key, path, region)
+        log.ok(f"s3://{import_bucket}/{key} ← {path}")
+
+    # 2. メンテナンス: 対象サービスを停止（desired_count=0）。停止前の値を控える（§8）。
+    prior_counts: dict[str, int] = {}
+    try:
+        log.step("対象サービスの停止（desired_count=0）")
+        for svc in services:
+            prior_counts[svc] = aws.service_desired_count(cluster, svc, region)
+            aws.set_service_desired_count(cluster, svc, 0, region)
+            log.info(f"{svc}: desired_count {prior_counts[svc]} -> 0")
+        if services:
+            aws.wait_services_stable(cluster, services, region)
+            log.ok("対象サービス停止完了")
+
+        # 3. IMPORT_MODE の run-task を起動し、exitCode=0 まで待機（§1）。
+        log_group = f"/ecs/{family}"
+        env = {
+            "IMPORT_MODE": "true",
+            "IMPORT_TARGET": target,
+            "IMPORT_BUCKET": import_bucket,
+            "AWS_REGION": region,
+        }
+        log.step(f"インポート run-task 起動（{family}, IMPORT_MODE, target={target}）")
+        task_arn = aws.run_import_task(
+            cluster, family, subnets, sg, region, container_name=family, environment=env
+        )
+        log.info(f"task: {task_arn}")
+        task = aws.wait_task_stopped(cluster, task_arn, region)
+        exit_code = aws.task_exit_code(task)
+        if str(exit_code) != "0":
+            raise DeployError(
+                f"インポートが異常終了しました (exitCode={exit_code})。CloudWatch Logs "
+                f"{log_group} を確認してください。退避バックアップは "
+                f"s3://{import_bucket}/rollback/ に保存済みです（§5）。"
+            )
+        log.ok("インポート完了（exitCode=0）")
+    finally:
+        # 4. 停止したサービスを停止前の値へ戻して安定化（成功・失敗どちらでも再開する, §8）。
+        if prior_counts:
+            log.step("対象サービスの再開（停止前の desired_count へ復元）")
+            for svc, count in prior_counts.items():
+                try:
+                    aws.set_service_desired_count(cluster, svc, count, region)
+                    log.info(f"{svc}: desired_count -> {count}")
+                except Exception as exc:  # noqa: BLE001 - 再開失敗は警告に留め、他サービスの復元は続ける
+                    log.warn(f"{svc} の再開に失敗しました: {exc}")
+            try:
+                aws.wait_services_stable(cluster, list(prior_counts.keys()), region)
+                log.ok("対象サービス再開完了")
+            except Exception as exc:  # noqa: BLE001
+                log.warn(f"サービス安定待機に失敗しました: {exc}")
+
+    log.step("全データインポート完了")
+    log.info(f"退避バックアップ: s3://{import_bucket}/rollback/<対象>/<時刻>/（復旧手段, §5）")
+
+
 def cmd_apply_all(assume_yes: bool = False) -> None:
     cfg = config.load_config()
     prerequisites(cfg)

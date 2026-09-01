@@ -89,6 +89,14 @@ async def update_qa(qa_id: str, body: qa_controller.QaUpdateRequest):
     return await qa_controller.update_qa(qa_id, body)
 
 
+# QA の削除（ADR-0067）。紐づく qa_tag・question_altered（主質問文行・言い換え行）を
+# カスケード削除する。存在しない QA は Knowledge MCP の QaError → 409（グローバルハンドラ）。
+@app.delete("/api/qa/{qa_id}", status_code=204)
+async def delete_qa(qa_id: str) -> Response:
+    await qa_controller.delete_qa(qa_id)
+    return Response(status_code=204)
+
+
 # QA の CSV 一括インポート（IMPL-202608261022 T11 / ADR-0053）。存在しないタグ名は自動作成する。
 # multipart/form-data の file を受け取り、Knowledge MCP の import_qa_batch へ委ねる。
 @app.post("/api/qa/import", response_model=qa_controller.QaImportResponse)

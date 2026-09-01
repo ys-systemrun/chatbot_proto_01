@@ -85,6 +85,71 @@ def run_seed_task(cluster: str, family: str, subnets, security_group: str, regio
     return tasks[0]["taskArn"]
 
 
+def run_import_task(
+    cluster: str,
+    family: str,
+    subnets,
+    security_group: str,
+    region: str,
+    container_name: str,
+    environment: dict,
+) -> str:
+    """db_hiroba_qa_init を IMPORT_MODE の environment オーバーライドで一時起動する（ADR-0066）。
+
+    既定 CMD（python src/main.py）はそのまま使い、environment だけを上書きして
+    全データインポート（全消去→上書き）バッチを走らせる。
+    """
+    ecs = _client("ecs", region_name=region)
+    resp = ecs.run_task(
+        cluster=cluster,
+        launchType="FARGATE",
+        taskDefinition=family,
+        enableExecuteCommand=True,
+        overrides={
+            "containerOverrides": [
+                {
+                    "name": container_name,
+                    "environment": [
+                        {"name": k, "value": str(v)} for k, v in environment.items()
+                    ],
+                }
+            ]
+        },
+        networkConfiguration={
+            "awsvpcConfiguration": {
+                "subnets": subnets,
+                "securityGroups": [security_group],
+                "assignPublicIp": "DISABLED",
+            }
+        },
+    )
+    tasks = resp.get("tasks", [])
+    if not tasks:
+        raise DeployError(f"インポートの run-task 起動に失敗しました: {resp.get('failures', [])}")
+    return tasks[0]["taskArn"]
+
+
+def service_desired_count(cluster: str, service: str, region: str) -> int:
+    """ECS サービスの現在の desiredCount を返す（停止前の値を控えるため）。"""
+    ecs = _client("ecs", region_name=region)
+    services = ecs.describe_services(cluster=cluster, services=[service]).get("services", [])
+    if not services:
+        raise DeployError(f"サービス {service} が見つかりません（cluster={cluster}）。")
+    return int(services[0].get("desiredCount", 0))
+
+
+def set_service_desired_count(cluster: str, service: str, count: int, region: str) -> None:
+    """ECS サービスの desiredCount を変更する（メンテナンス停止・再開に使う）。"""
+    _client("ecs", region_name=region).update_service(
+        cluster=cluster, service=service, desiredCount=count
+    )
+
+
+def upload_file(bucket: str, key: str, path: str, region: str) -> None:
+    """ローカルファイルを S3 へアップロードする（投入ダンプの受け渡し, ADR-0066 §7）。"""
+    _client("s3", region_name=region).upload_file(path, bucket, key)
+
+
 def wait_task_stopped(cluster: str, task_arn: str, region: str, timeout_sec: int = 1800, interval_sec: int = 15) -> dict:
     ecs = _client("ecs", region_name=region)
     elapsed = 0

@@ -191,6 +191,13 @@ export async function updateQa(
   });
 }
 
+// QA の削除（ADR-0067）。紐づくタグ・言い換え質問文もカスケード削除される。
+export async function deleteQa(id: string): Promise<void> {
+  await jsonFetch<void>(`/api/qa/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function listCategories(): Promise<Category[]> {
   const res = await jsonFetch<{ categories: Category[] }>("/api/categories");
   return res.categories;

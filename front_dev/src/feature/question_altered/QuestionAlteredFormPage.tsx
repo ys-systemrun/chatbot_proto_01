@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import {
   createQuestionAltered,
   deleteQuestionAltered,
@@ -8,6 +8,20 @@ import {
   updateQuestionAltered,
 } from "../../api";
 import { QaPicker } from "../common/QaPicker";
+
+const QUESTION_ALTERED_LIST_PATH = "/admin/question_altered";
+
+// back パラメータのホワイトリスト検証（オープンリダイレクト対策, ADR-0068 決定6）。
+// 言い換え質問文一覧パス単体、または同パス + クエリ文字列の相対パスのみを有効な戻り先とみなす。
+function resolveBackTo(back: string | null): string {
+  if (
+    back === QUESTION_ALTERED_LIST_PATH ||
+    (back && back.startsWith(`${QUESTION_ALTERED_LIST_PATH}?`))
+  ) {
+    return back;
+  }
+  return QUESTION_ALTERED_LIST_PATH;
+}
 
 // 言い換え質問文の新規作成・編集フォーム（IMPL-202608281100 / ADR-0064 要件6.2）。
 // QaFormPage の mode プロパティによる単一コンポーネント構成を踏襲する。
@@ -19,6 +33,8 @@ export default function QuestionAlteredFormPage({
 }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const backTo = resolveBackTo(searchParams.get("back"));
 
   const [qaId, setQaId] = useState("");
   const [qaTitle, setQaTitle] = useState<string | null>(null);
@@ -56,7 +72,7 @@ export default function QuestionAlteredFormPage({
       } else if (id) {
         await updateQuestionAltered(Number(id), { text });
       }
-      navigate("/admin/question_altered");
+      navigate(backTo);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -77,7 +93,7 @@ export default function QuestionAlteredFormPage({
     setError(null);
     try {
       await deleteQuestionAltered(Number(id));
-      navigate("/admin/question_altered");
+      navigate(backTo);
     } catch (e) {
       setError(String(e));
       setSaving(false);
@@ -92,7 +108,7 @@ export default function QuestionAlteredFormPage({
         <h1 className="admin-title">
           {mode === "create" ? "言い換え質問文の新規登録" : "言い換え質問文の編集"}
         </h1>
-        <Link className="admin-link" to="/admin/question_altered">
+        <Link className="admin-link" to={backTo}>
           ← 一覧へ戻る
         </Link>
       </div>

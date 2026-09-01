@@ -51,6 +51,13 @@ class FakeCursor:
             qa_id = p[0]
             self.s["qa_tag"] = {t for t in self.s["qa_tag"] if t[0] != qa_id}
             return
+        if q.startswith("DELETE FROM question_altered"):
+            qa_id = p[0]
+            self.s["altered"] = [a for a in self.s["altered"] if a["qa_id"] != qa_id]
+            return
+        if q.startswith("DELETE FROM qa_original"):
+            self.s["qa"].pop(p[0], None)
+            return
         if q.startswith("UPDATE qa_original"):
             cols = [
                 c
@@ -245,6 +252,40 @@ def test_update_qa_tag_ids_none_vs_empty(repo):
 def test_update_qa_not_found(repo):
     with pytest.raises(QaError):
         repo.update_qa("nope", title="x")
+
+
+# --------------------------------------------------------------------------- #
+# delete_qa（ADR-0067）
+# --------------------------------------------------------------------------- #
+def test_delete_qa_not_found(repo):
+    with pytest.raises(QaError):
+        repo.delete_qa("nope")
+
+
+def test_delete_qa_cascades_tags_and_altered(repo):
+    """QA削除で、紐づく qa_tag・question_altered（主質問文・言い換え行の両方）も削除される。"""
+    detail = repo.create_qa("t", "q", "a", tag_ids=[12, 3])
+    qa_id = detail.id
+    # 言い換え行（is_primary=false）を混在させる
+    repo.db.s["altered"].append({"qa_id": qa_id, "text": "paraphrase", "is_primary": False})
+
+    repo.delete_qa(qa_id)
+
+    assert qa_id not in repo.db.s["qa"]
+    assert [a for a in repo.db.s["altered"] if a["qa_id"] == qa_id] == []
+    assert {tid for (qid, tid) in repo.db.s["qa_tag"] if qid == qa_id} == set()
+
+
+def test_delete_qa_leaves_other_qa_intact(repo):
+    """削除対象以外のQA・タグ・言い換え行は影響を受けない。"""
+    keep = repo.create_qa("keep", "q", "a", tag_ids=[12])
+    target = repo.create_qa("target", "q", "a", tag_ids=[3])
+
+    repo.delete_qa(target.id)
+
+    assert keep.id in repo.db.s["qa"]
+    assert {tid for (qid, tid) in repo.db.s["qa_tag"] if qid == keep.id} == {12}
+    assert [a for a in repo.db.s["altered"] if a["qa_id"] == keep.id]
 
 
 # --------------------------------------------------------------------------- #

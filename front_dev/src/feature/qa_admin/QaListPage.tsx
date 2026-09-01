@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { Link } from "react-router-dom";
-import { importQaCsv, listCategories, listQa, listTags } from "../../api";
+import { Link, useLocation, useSearchParams } from "react-router-dom";
+import { deleteQa, importQaCsv, listCategories, listQa, listTags } from "../../api";
 import type {
   Category,
   QaImportResponse,
@@ -9,23 +9,47 @@ import type {
 } from "../../domain/admin/qa";
 import type { TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
+import { QA_DELETE_CONFIRM } from "./deleteConfirm";
 
 const PAGE_SIZE = 20;
 
+// URL の page（1始まり）を内部 offset（0始まり）へ変換する。不正値・未指定は先頭ページ扱い。
+function pageParamToOffset(pageParam: string | null): number {
+  const page = Number(pageParam);
+  if (!Number.isInteger(page) || page < 1) return 0;
+  return (page - 1) * PAGE_SIZE;
+}
+
 export default function QaListPage() {
+  const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [items, setItems] = useState<QaSummary[]>([]);
   const [total, setTotal] = useState(0);
-  const [offset, setOffset] = useState(0);
+  // マウント時に URL クエリから初期検索条件・ページ位置を復元する（ADR-0068）。
+  const [offset, setOffset] = useState(() =>
+    pageParamToOffset(searchParams.get("page")),
+  );
 
-  const [keyword, setKeyword] = useState("");
-  const [category, setCategory] = useState("");
-  const [tagIds, setTagIds] = useState<number[]>([]);
+  const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
+  const [category, setCategory] = useState(
+    () => searchParams.get("category") ?? "",
+  );
+  const [tagIds, setTagIds] = useState<number[]>(() =>
+    searchParams
+      .getAll("tag_id")
+      .map((v) => Number(v))
+      .filter((n) => Number.isInteger(n) && n > 0),
+  );
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // 削除中の QA id（当該行の削除ボタンを無効化する, ADR-0067）
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // CSV インポート状態（IMPL-202608261022 T12）
   const fileRef = useRef<HTMLInputElement>(null);
@@ -38,6 +62,18 @@ export default function QaListPage() {
     listCategories().then(setCategories).catch((e) => setError(String(e)));
     listTags().then(setTags).catch((e) => setError(String(e)));
   }, []);
+
+  // 現在の検索条件と nextOffset から URL クエリを構築し、履歴を replace で同期する。
+  // 既定値（空文字列・空配列・page=1）に該当するパラメータは URL から省略する（ADR-0068）。
+  function syncUrl(nextOffset: number) {
+    const next = new URLSearchParams();
+    if (keyword) next.set("keyword", keyword);
+    if (category) next.set("category", category);
+    tagIds.forEach((id) => next.append("tag_id", String(id)));
+    const page = Math.floor(nextOffset / PAGE_SIZE) + 1;
+    if (page > 1) next.set("page", String(page));
+    setSearchParams(next, { replace: true });
+  }
 
   function load(nextOffset: number) {
     setLoading(true);
@@ -56,16 +92,34 @@ export default function QaListPage() {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
+    syncUrl(nextOffset);
   }
 
   useEffect(() => {
-    load(0);
+    load(offset);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function onSearch(e: FormEvent) {
     e.preventDefault();
     load(0);
+  }
+
+  async function onDelete(id: string) {
+    if (!window.confirm(QA_DELETE_CONFIRM)) return;
+    setDeletingId(id);
+    setError(null);
+    try {
+      await deleteQa(id);
+      // 削除後は現在ページを再読込する。ページ内の最後の1件を消した場合は前ページへ送る。
+      const nextOffset =
+        items.length === 1 && offset > 0 ? offset - PAGE_SIZE : offset;
+      load(nextOffset);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDeletingId(null);
+    }
   }
 
   async function onImport() {
@@ -92,11 +146,17 @@ export default function QaListPage() {
   const page = Math.floor(offset / PAGE_SIZE) + 1;
   const maxPage = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
+  // 編集・新規作成ページへ現在の一覧 URL（検索条件・ページ位置）を back として引き継ぐ（ADR-0068）。
+  const backParam = encodeURIComponent(location.pathname + location.search);
+
   return (
     <div className="admin-page">
       <div className="admin-page-head">
         <h1 className="admin-title">QA一覧</h1>
-        <Link className="admin-btn admin-btn-primary" to="/admin/qa/new">
+        <Link
+          className="admin-btn admin-btn-primary"
+          to={`/admin/qa/new?back=${backParam}`}
+        >
           ＋ 新規QA
         </Link>
       </div>
@@ -193,10 +253,21 @@ export default function QaListPage() {
               <td>{qa.category ?? "－"}</td>
               <td>{qa.tags.length ? qa.tags.join(", ") : "－"}</td>
               <td className="admin-td-num">{qa.question_altered_count}</td>
-              <td>
-                <Link className="admin-link" to={`/admin/qa/${qa.id}`}>
+              <td className="admin-td-actions">
+                <Link
+                  className="admin-link"
+                  to={`/admin/qa/${qa.id}?back=${backParam}`}
+                >
                   編集
                 </Link>
+                <button
+                  className="admin-btn admin-btn-danger admin-btn-sm"
+                  type="button"
+                  onClick={() => onDelete(qa.id)}
+                  disabled={deletingId === qa.id}
+                >
+                  {deletingId === qa.id ? "削除中..." : "削除"}
+                </button>
               </td>
             </tr>
           ))}

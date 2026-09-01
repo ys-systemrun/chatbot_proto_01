@@ -1,20 +1,35 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams, Link } from "react-router-dom";
 import {
   createQa,
+  deleteQa,
   getQa,
   listCategories,
   listTags,
   updateQa,
 } from "../../api";
+import { QA_DELETE_CONFIRM } from "./deleteConfirm";
 import type { Category } from "../../domain/admin/qa";
 import type { TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
 
+const QA_LIST_PATH = "/admin/qa";
+
+// back パラメータのホワイトリスト検証（オープンリダイレクト対策, ADR-0068 決定6）。
+// QA 一覧パス単体、または同パス + クエリ文字列の相対パスのみを有効な戻り先とみなす。
+function resolveBackTo(back: string | null): string {
+  if (back === QA_LIST_PATH || (back && back.startsWith(`${QA_LIST_PATH}?`))) {
+    return back;
+  }
+  return QA_LIST_PATH;
+}
+
 export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const backTo = resolveBackTo(searchParams.get("back"));
 
   const [title, setTitle] = useState("");
   const [questionText, setQuestionText] = useState("");
@@ -72,10 +87,24 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
           tag_ids: tagIds,
         });
       }
-      navigate("/admin/qa");
+      navigate(backTo);
     } catch (e) {
       setError(String(e));
     } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onDelete() {
+    if (!id) return;
+    if (!window.confirm(QA_DELETE_CONFIRM)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await deleteQa(id);
+      navigate(backTo);
+    } catch (e) {
+      setError(String(e));
       setSaving(false);
     }
   }
@@ -88,7 +117,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
         <h1 className="admin-title">
           {mode === "create" ? "QA新規登録" : "QA編集"}
         </h1>
-        <Link className="admin-link" to="/admin/qa">
+        <Link className="admin-link" to={backTo}>
           ← 一覧へ戻る
         </Link>
       </div>
@@ -162,6 +191,16 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
           >
             {saving ? "保存中..." : "保存"}
           </button>
+          {mode === "edit" && (
+            <button
+              className="admin-btn admin-btn-danger"
+              type="button"
+              onClick={onDelete}
+              disabled={saving}
+            >
+              削除
+            </button>
+          )}
         </div>
       </form>
     </div>
