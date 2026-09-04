@@ -168,7 +168,7 @@ export default function QuestionAlteredListPage() {
         <h1 className="admin-title">言い換え質問文一覧</h1>
         <Link
           className="admin-btn admin-btn-primary"
-          to={`/admin/question_altered/new?back=${backParam}`}
+          to={`/admin/hiroba_question_altered/new?back=${backParam}`}
         >
           ＋ 新規言い換え
         </Link>
@@ -188,9 +188,6 @@ export default function QuestionAlteredListPage() {
         />
         <button className="admin-btn" type="submit">
           検索
-        </button>
-        <button className="admin-btn" type="button" onClick={onExport} disabled={exporting}>
-          {exporting ? "エクスポート中..." : "CSVエクスポート"}
         </button>
       </form>
 
@@ -217,49 +214,6 @@ export default function QuestionAlteredListPage() {
         </div>
       </details>
 
-      <details className="admin-tagfilter">
-        <summary>CSV 一括インポート</summary>
-        <div className="admin-import">
-          <p className="admin-hint">
-            列: <code>id</code>（空=新規/既存=更新）, <code>qa_id</code>
-            （新規時必須）, <code>text</code>（必須）, <code>is_primary</code>
-            （入力は無視）。UTF-8 で保存してください。エクスポートしたCSVはそのまま再インポート
-            できます。<code>id</code> が主質問文行（is_primary=true）を指す行はエラーになります。
-          </p>
-          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
-          <button
-            className="admin-btn admin-btn-primary"
-            onClick={onImport}
-            disabled={importing}
-          >
-            {importing ? "インポート中..." : "インポート"}
-          </button>
-          {importError && (
-            <p className="admin-status admin-error">{importError}</p>
-          )}
-          {importResult && (
-            <div className="admin-status">
-              <p>
-                成功 {importResult.success_count} 件 / 失敗{" "}
-                {importResult.total - importResult.success_count} 件（全{" "}
-                {importResult.total} 件）
-              </p>
-              {importResult.results.some((r) => r.status === "error") && (
-                <ul className="admin-import-errors">
-                  {importResult.results
-                    .filter((r) => r.status === "error")
-                    .map((r) => (
-                      <li key={r.row}>
-                        行 {r.row + 1}: {r.error}
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </details>
-
       {loading && <p className="admin-status">読み込み中...</p>}
       {error && <p className="admin-status admin-error">{error}</p>}
 
@@ -279,7 +233,7 @@ export default function QuestionAlteredListPage() {
               <td>
                 <Link
                   className="admin-link"
-                  to={`/admin/question_altered/${item.id}?back=${backParam}`}
+                  to={`/admin/hiroba_question_altered/${item.id}?back=${backParam}`}
                 >
                   編集
                 </Link>{" "}
@@ -322,6 +276,60 @@ export default function QuestionAlteredListPage() {
           次へ
         </button>
       </div>
+
+      {/* CSV 一括インポート/エクスポートは画面下部にまとめて配置する */}
+      <details className="admin-tagfilter admin-csv-tools">
+        <summary>CSV 一括インポート / エクスポート</summary>
+        <div className="admin-import">
+          <p className="admin-hint">
+            列: <code>id</code>（空=新規/既存=更新）, <code>qa_id</code>
+            （新規時必須）, <code>text</code>（必須）, <code>is_primary</code>
+            （入力は無視）。UTF-8 で保存してください。エクスポートしたCSVはそのまま再インポート
+            できます。<code>id</code> が主質問文行（is_primary=true）を指す行はエラーになります。
+          </p>
+          <div className="admin-csv-actions">
+            <button
+              className="admin-btn"
+              type="button"
+              onClick={onExport}
+              disabled={exporting}
+            >
+              {exporting ? "エクスポート中..." : "CSVエクスポート"}
+            </button>
+          </div>
+          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
+          <button
+            className="admin-btn admin-btn-primary"
+            onClick={onImport}
+            disabled={importing}
+          >
+            {importing ? "インポート中..." : "インポート"}
+          </button>
+          {importError && (
+            <p className="admin-status admin-error">{importError}</p>
+          )}
+          {importResult && (
+            <div className="admin-status">
+              <p>
+                成功 {importResult.success_count} 件 / 失敗{" "}
+                {importResult.total - importResult.success_count} 件（全{" "}
+                {importResult.total} 件）
+              </p>
+              {importResult.results.some((r) => r.status === "error") && (
+                <ul className="admin-import-errors">
+                  {importResult.results
+                    .filter((r) => r.status === "error")
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

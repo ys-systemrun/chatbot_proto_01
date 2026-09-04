@@ -58,7 +58,7 @@ def backfill(conn, items: list) -> dict:
             if not guid or title is None:
                 continue
             cur.execute(
-                "UPDATE qa_original SET title = %s WHERE uuid = %s",
+                "UPDATE hiroba_qa_original SET title = %s WHERE uuid = %s",
                 (title, guid),
             )
             updated_titles += cur.rowcount
@@ -67,7 +67,7 @@ def backfill(conn, items: list) -> dict:
         # 2-(a). ユニークなタグ名を投入
         for name in sorted(tag_names):
             cur.execute(
-                "INSERT INTO tag (name, parent_tag_id) VALUES (%s, NULL) "
+                "INSERT INTO hiroba_tag (name, parent_tag_id) VALUES (%s, NULL) "
                 "ON CONFLICT (name) DO NOTHING",
                 (name,),
             )
@@ -76,7 +76,7 @@ def backfill(conn, items: list) -> dict:
         name_to_id: dict[str, int] = {}
         if tag_names:
             cur.execute(
-                "SELECT id, name FROM tag WHERE name = ANY(%s)",
+                "SELECT id, name FROM hiroba_tag WHERE name = ANY(%s)",
                 (list(tag_names),),
             )
             for tag_id, name in cur.fetchall():
@@ -95,7 +95,7 @@ def backfill(conn, items: list) -> dict:
                 if tag_id is None:
                     continue
                 cur.execute(
-                    "INSERT INTO qa_tag (qa_id, tag_id) VALUES (%s, %s) "
+                    "INSERT INTO hiroba_qa_tag (qa_id, tag_id) VALUES (%s, %s) "
                     "ON CONFLICT DO NOTHING",
                     (guid, tag_id),
                 )

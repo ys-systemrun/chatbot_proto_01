@@ -34,8 +34,8 @@ export default function ExportPage() {
       </div>
 
       <p className="admin-muted">
-        chatbot データベース（6テーブル）と conversation データベース（2テーブル）の全データを
-        ZIP でダウンロードします。CSV は表計算ソフト用（埋め込みベクトルは除外）、SQL は空の
+        chatbot データベース（7テーブル）と conversation データベース（6テーブル）の全13テーブルの
+        全データを ZIP でダウンロードします。CSV は表計算ソフト用（埋め込みベクトルは除外）、SQL は空の
         PostgreSQL へ再投入できる形式です。
       </p>
 

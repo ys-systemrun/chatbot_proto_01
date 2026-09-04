@@ -1,13 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { Link, useLocation, useSearchParams } from "react-router-dom";
-import { deleteQa, importQaCsv, listCategories, listQa, listTags } from "../../api";
+import {
+  deleteQa,
+  importQaCsv,
+  listCategories,
+  listQa,
+  listTagFolders,
+  listTags,
+} from "../../api";
 import type {
   Category,
   QaImportResponse,
   QaSummary,
 } from "../../domain/admin/qa";
-import type { TagNode } from "../../domain/admin/tag";
+import type { TagFolder, TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
 import { QA_DELETE_CONFIRM } from "./deleteConfirm";
 
@@ -44,6 +51,7 @@ export default function QaListPage() {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
+  const [folders, setFolders] = useState<TagFolder[]>([]);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,6 +69,7 @@ export default function QaListPage() {
   useEffect(() => {
     listCategories().then(setCategories).catch((e) => setError(String(e)));
     listTags().then(setTags).catch((e) => setError(String(e)));
+    listTagFolders().then(setFolders).catch((e) => setError(String(e)));
   }, []);
 
   // 現在の検索条件と nextOffset から URL クエリを構築し、履歴を replace で同期する。
@@ -187,50 +196,12 @@ export default function QaListPage() {
 
       <details className="admin-tagfilter">
         <summary>タグで絞り込み{tagIds.length ? `（${tagIds.length}件選択中）` : ""}</summary>
-        <TagPicker tags={tags} selectedIds={tagIds} onChange={setTagIds} />
-      </details>
-
-      <details className="admin-tagfilter">
-        <summary>CSV 一括インポート</summary>
-        <div className="admin-import">
-          <p className="admin-hint">
-            列: <code>uuid</code>（空=新規/既存=更新）, <code>title</code>,{" "}
-            <code>question_text</code>, <code>answer_text</code>,{" "}
-            <code>category_id</code>, <code>tags</code>（タグ名のカンマ区切り。
-            存在しないタグ名は自動作成）。UTF-8 で保存してください。
-          </p>
-          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
-          <button
-            className="admin-btn admin-btn-primary"
-            onClick={onImport}
-            disabled={importing}
-          >
-            {importing ? "インポート中..." : "インポート"}
-          </button>
-          {importError && (
-            <p className="admin-status admin-error">{importError}</p>
-          )}
-          {importResult && (
-            <div className="admin-status">
-              <p>
-                成功 {importResult.success_count} 件 / 失敗{" "}
-                {importResult.total - importResult.success_count} 件（全{" "}
-                {importResult.total} 件）
-              </p>
-              {importResult.results.some((r) => r.status === "error") && (
-                <ul className="admin-import-errors">
-                  {importResult.results
-                    .filter((r) => r.status === "error")
-                    .map((r) => (
-                      <li key={r.row}>
-                        行 {r.row + 1}: {r.error}
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
+        <TagPicker
+          tags={tags}
+          folders={folders}
+          selectedIds={tagIds}
+          onChange={setTagIds}
+        />
       </details>
 
       {loading && <p className="admin-status">読み込み中...</p>}
@@ -252,7 +223,7 @@ export default function QaListPage() {
               <td>{qa.title || "（無題）"}</td>
               <td>{qa.category ?? "－"}</td>
               <td>{qa.tags.length ? qa.tags.join(", ") : "－"}</td>
-              <td className="admin-td-num">{qa.question_altered_count}</td>
+              <td className="admin-td-num">{qa.hiroba_question_altered_count}</td>
               <td className="admin-td-actions">
                 <Link
                   className="admin-link"
@@ -300,6 +271,50 @@ export default function QaListPage() {
           次へ
         </button>
       </div>
+
+      {/* CSV 一括インポート/エクスポートは画面下部にまとめて配置する */}
+      <details className="admin-tagfilter admin-csv-tools">
+        <summary>CSV 一括インポート / エクスポート</summary>
+        <div className="admin-import">
+          <p className="admin-hint">
+            列: <code>uuid</code>（空=新規/既存=更新）, <code>title</code>,{" "}
+            <code>question_text</code>, <code>answer_text</code>,{" "}
+            <code>category_id</code>, <code>tags</code>（タグ名のカンマ区切り。
+            存在しないタグ名は自動作成）。UTF-8 で保存してください。
+          </p>
+          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
+          <button
+            className="admin-btn admin-btn-primary"
+            onClick={onImport}
+            disabled={importing}
+          >
+            {importing ? "インポート中..." : "インポート"}
+          </button>
+          {importError && (
+            <p className="admin-status admin-error">{importError}</p>
+          )}
+          {importResult && (
+            <div className="admin-status">
+              <p>
+                成功 {importResult.success_count} 件 / 失敗{" "}
+                {importResult.total - importResult.success_count} 件（全{" "}
+                {importResult.total} 件）
+              </p>
+              {importResult.results.some((r) => r.status === "error") && (
+                <ul className="admin-import-errors">
+                  {importResult.results
+                    .filter((r) => r.status === "error")
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

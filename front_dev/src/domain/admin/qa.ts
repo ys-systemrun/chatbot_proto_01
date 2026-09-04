@@ -5,7 +5,7 @@ export interface QaSummary {
   title: string;
   category: string | null;
   tags: string[];
-  question_altered_count: number;
+  hiroba_question_altered_count: number;
 }
 
 export interface QaTagRef {
@@ -25,7 +25,7 @@ export interface QaDetail {
   answer_text: string;
   category: QaCategoryRef | null;
   tags: QaTagRef[];
-  question_altered_count: number;
+  hiroba_question_altered_count: number;
 }
 
 export interface QaListResponse {

@@ -19,7 +19,7 @@ class QaSummary:
     title: str
     category: Optional[str]
     tags: List[str] = field(default_factory=list)
-    question_altered_count: int = 0
+    hiroba_question_altered_count: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -27,7 +27,7 @@ class QaSummary:
             "title": self.title,
             "category": self.category,
             "tags": list(self.tags),
-            "question_altered_count": self.question_altered_count,
+            "hiroba_question_altered_count": self.hiroba_question_altered_count,
         }
 
 
@@ -39,7 +39,7 @@ class QaDetail:
     answer_text: str
     category: Optional[dict] = None      # {"id": int, "name": str}
     tags: List[dict] = field(default_factory=list)  # [{"id": int, "name": str}, ...]
-    question_altered_count: int = 0
+    hiroba_question_altered_count: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -49,5 +49,5 @@ class QaDetail:
             "answer_text": self.answer_text,
             "category": self.category,
             "tags": list(self.tags),
-            "question_altered_count": self.question_altered_count,
+            "hiroba_question_altered_count": self.hiroba_question_altered_count,
         }

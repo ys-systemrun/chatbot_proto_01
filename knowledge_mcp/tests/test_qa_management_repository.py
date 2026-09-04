@@ -32,7 +32,7 @@ class FakeCursor:
         self._result = []
         self.rowcount = 0
 
-        if q.startswith("INSERT INTO qa_original"):
+        if q.startswith("INSERT INTO hiroba_qa_original"):
             uuid, question_text, answer_text, category_id, title = p
             self.s["qa"][uuid] = {
                 "question_text": question_text,
@@ -41,24 +41,24 @@ class FakeCursor:
                 "title": title,
             }
             return
-        if q.startswith("INSERT INTO question_altered"):
+        if q.startswith("INSERT INTO hiroba_question_altered"):
             qa_id, text, _emb = p
             self.s["altered"].append(
                 {"qa_id": qa_id, "text": text, "is_primary": True}
             )
             return
-        if q.startswith("DELETE FROM qa_tag"):
+        if q.startswith("DELETE FROM hiroba_qa_tag"):
             qa_id = p[0]
             self.s["qa_tag"] = {t for t in self.s["qa_tag"] if t[0] != qa_id}
             return
-        if q.startswith("DELETE FROM question_altered"):
+        if q.startswith("DELETE FROM hiroba_question_altered"):
             qa_id = p[0]
             self.s["altered"] = [a for a in self.s["altered"] if a["qa_id"] != qa_id]
             return
-        if q.startswith("DELETE FROM qa_original"):
+        if q.startswith("DELETE FROM hiroba_qa_original"):
             self.s["qa"].pop(p[0], None)
             return
-        if q.startswith("UPDATE qa_original"):
+        if q.startswith("UPDATE hiroba_qa_original"):
             cols = [
                 c
                 for c in ("title", "question_text", "answer_text", "category_id")
@@ -68,7 +68,7 @@ class FakeCursor:
             for i, c in enumerate(cols):
                 self.s["qa"][uuid][c] = p[i]
             return
-        if q.startswith("UPDATE question_altered"):
+        if q.startswith("UPDATE hiroba_question_altered"):
             text, _emb, qa_id = p
             n = 0
             for a in self.s["altered"]:
@@ -79,20 +79,20 @@ class FakeCursor:
             return
 
         # --- 参照系 --- #
-        if "FROM category WHERE id = %s" in q:
+        if "FROM hiroba_category WHERE id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["categories"] else []
-        elif "SELECT id FROM tag WHERE id = ANY(%s)" in q:
+        elif "SELECT id FROM hiroba_tag WHERE id = ANY(%s)" in q:
             wanted = set(p[0])
             self._result = [(tid,) for tid in self.s["tags"] if tid in wanted]
-        elif "FROM category ORDER BY id" in q:
+        elif "FROM hiroba_category ORDER BY id" in q:
             self._result = [
                 (cid, name) for cid, name in sorted(self.s["categories"].items())
             ]
-        elif "COUNT(*) FROM question_altered WHERE qa_id = %s" in q:
+        elif "COUNT(*) FROM hiroba_question_altered WHERE qa_id = %s" in q:
             self._result = [
                 (sum(1 for a in self.s["altered"] if a["qa_id"] == p[0]),)
             ]
-        elif "COUNT(*) FROM qa_original" in q:
+        elif "COUNT(*) FROM hiroba_qa_original" in q:
             self._result = [(len(self.s["qa"]),)]
         elif "array_agg" in q:
             # list_qa の一覧SELECT。フィルタは割愛し、全件を uuid 順にページングする。
@@ -112,7 +112,7 @@ class FakeCursor:
                 )
                 rows.append((uuid, r["title"], cname, tags, cnt))
             self._result = rows[offset : offset + limit]
-        elif "FROM qa_tag JOIN tag" in q:
+        elif "FROM hiroba_qa_tag JOIN hiroba_tag" in q:
             qa_id = p[0]
             self._result = sorted(
                 (
@@ -122,7 +122,7 @@ class FakeCursor:
                 ),
                 key=lambda r: r[1],
             )
-        elif "WHERE qa_original.uuid = %s" in q:
+        elif "WHERE hiroba_qa_original.uuid = %s" in q:
             uuid = p[0]
             if uuid in self.s["qa"]:
                 r = self.s["qa"][uuid]
@@ -134,7 +134,7 @@ class FakeCursor:
 
     def executemany(self, sql, seq):
         q = " ".join(sql.split())
-        if q.startswith("INSERT INTO qa_tag"):
+        if q.startswith("INSERT INTO hiroba_qa_tag"):
             for qa_id, tag_id in seq:
                 self.s["qa_tag"].add((qa_id, tag_id))
 
@@ -207,7 +207,7 @@ def test_create_qa_happy_path(repo, embed):
     assert detail.category == {"id": 3, "name": "積算"}
     assert {t["id"] for t in detail.tags} == {12, 3}
     # 主となる question_altered が1件生成され、embedding が計算されている
-    assert detail.question_altered_count == 1
+    assert detail.hiroba_question_altered_count == 1
     assert embed.calls == ["質問"]
     assert repo.db.s["altered"][0]["is_primary"] is True
 

@@ -1,6 +1,6 @@
 """TagMetadataRepository（実装指示書 5.2 / T4 / ADR-0011）。
 
-tag ⋈ tag_alias を全件メモリにキャッシュする（Knowledge MCP の TagRepository が
+hiroba_tag ⋈ hiroba_tag_alias を全件メモリにキャッシュする（Knowledge MCP の TagRepository が
 「キャッシュしない」方針なのとは対照的に、こちらは起動時ロード＋明示リロード＋定期
 ポーリングでキャッシュする。ADR-0011）。
 
@@ -31,7 +31,7 @@ class TagMetadataRepository:
     # ロード / リロード
     # ------------------------------------------------------------------ #
     def load(self) -> None:
-        """tag ⋈ tag_alias を全件読み込み、内部キャッシュを再構築する。
+        """hiroba_tag ⋈ hiroba_tag_alias を全件読み込み、内部キャッシュを再構築する。
 
         新しい辞書を構築してから self._by_id を差し替える（アトミック）。
         DBアクセスに失敗した場合は、既存キャッシュを保持したままエラーをログに記録し、
@@ -50,8 +50,8 @@ class TagMetadataRepository:
                             array_agg(a.alias) FILTER (WHERE a.alias IS NOT NULL),
                             '{}'
                         ) AS aliases
-                    FROM tag t
-                    LEFT JOIN tag_alias a ON a.tag_id = t.id
+                    FROM hiroba_tag t
+                    LEFT JOIN hiroba_tag_alias a ON a.tag_id = t.id
                     GROUP BY t.id, t.name, t.description, t.parent_tag_id
                     ORDER BY t.id
                     """

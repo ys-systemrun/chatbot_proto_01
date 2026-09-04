@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期・サポート知識DB基盤化に伴うDB名再編とテーブル接頭辞付与・タグ管理画面/タグ選択UI改修（検索絞り込み・類似候補チェック・タグフォルダ新設・タグフォルダ階層化・タグ/タグフォルダの表示順序導入）・マイグレーション専用実行モードの新設に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -69,8 +69,16 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0063](./0063-agent-invitro-mcp-adapter-result-parsing-fix.md) | agent_invitroのMCPツール戻り値パース頑健化（会話タグが常に空になる不具合の修正、ADR-0062の診断見直し） | Accepted |
 | [0064](./0064-question-altered-management-via-knowledge-mcp.md) | 言い換え質問文（question_altered）管理機能の実装方式（Knowledge MCP経由、一覧・作成・編集・削除・CSVインポート/エクスポート、主質問文行を対象外とする設計） | Accepted |
 | [0065](./0065-tag-export-via-knowledge-mcp.md) | タグ階層データのCSVエクスポート機能の実装方式（Knowledge MCP新規ツールによるフラット化、既存インポート列構成との統一） | Accepted |
+| [0066](./0066-full-data-import-batch-automation-and-overwrite.md) | 全データインポート機能のバッチ自動化と全消去上書き方式への変更 | Accepted |
 | [0067](./0067-qa-record-deletion-cascade.md) | QAレコード削除機能の実装方式（カスケード削除・一覧編集両ページからの単一削除） | Accepted |
 | [0068](./0068-admin-list-pages-search-state-url-sync.md) | 管理画面一覧ページ（QA一覧・言い換え質問文一覧）の検索条件・ページ位置のURL同期方式 | Accepted |
+| [0069](./0069-support-knowledge-db-rename-and-hiroba-table-prefix.md) | サポート知識DB基盤化に伴うDB名再編（サーバ db_support_knowledge／実DB db_hiroba_qa）と維津美の広場テーブルへの`hiroba_`接頭辞付与 | Accepted |
+| [0070](./0070-tag-admin-ui-client-side-search-filter.md) | タグ管理画面・タグ選択UIへの検索・絞り込み機能の追加（クライアント側フィルタ方式） | Accepted |
+| [0071](./0071-tag-create-similar-name-nonblocking-check.md) | タグ新規作成時の類似候補チェック（非ブロッキング・簡易アルゴリズム方式） | Accepted |
+| [0072](./0072-tag-folder-independent-classification-metadata.md) | タグフォルダ（タグの分類表示専用メタデータ）の新設 | Accepted |
+| [0073](./0073-tag-folder-hierarchy.md) | タグフォルダの階層化（フォルダ間の親子関係新設、ADR-0072の限定的な見直し） | Accepted |
+| [0074](./0074-tag-and-tag-folder-display-order.md) | タグ・タグフォルダへの表示順序（display_order）導入（間隔採番＋中間値挿入方式、上下ボタンによる並べ替え） | Accepted |
+| [0075](./0075-migration-only-execution-mode.md) | マイグレーション専用実行モードの新設（シードスキップ対応、既存db_hiroba_qa_initイメージ再利用） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -95,3 +103,8 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202608281421_タグデータCSVエクスポート機能要件定義書.md`（タグデータCSVエクスポート機能: タグ階層ページに、タグ一括インポート（ADR-0061）とそのまま再インポートできる列構成でのCSVエクスポート機能を追加）
 - `docs/requirement/202608311540_QAレコード削除機能要件定義書.md`（QAレコード削除機能: QA一覧ページ・QA編集ページからのQAレコード削除、カスケード削除・クロスデータベース整合性の告知）
 - `docs/requirement/202608311600_QA一覧・言い換え質問文一覧ページ検索条件URL保持機能要件定義書.md`（QA一覧・言い換え質問文一覧ページの検索条件・ページ位置のURL保持機能: URLクエリからの検索条件注入、編集後の一覧復帰時の検索条件・ページ位置保持）
+- `docs/requirement/202609010935_サポート知識DB基盤化に伴うDB名再編・テーブル接頭辞付与要件定義書.md`（サポート知識DB基盤化に伴うDB名再編・テーブル接頭辞付与: サーバ名 db_hiroba_qa→db_support_knowledge、実DB名 chatbot→db_hiroba_qa、維津美の広場由来6テーブルへの hiroba_ 接頭辞付与、chatbot.sql の構文限定変換と再構築＋再インポートによる移行）
+- `docs/requirement/202609021050_タグ運用ガイドライン.md`（タグ運用ガイドライン: タグの分類軸の考え方、組み合わせタグ付け、重複・類似名への対処、新規タグ作成前の確認手順）
+- `docs/requirement/202609021102_タグ管理画面・タグ選択UI改修要件定義書.md`（タグ管理画面・タグ選択UI改修: 検索・絞り込み機能、新規作成時の類似候補チェック、タグフォルダの新設）
+- `docs/requirement/202609030857_タグフォルダ階層化要件定義書.md`（タグフォルダ階層化: `hiroba_tag_folder`への`parent_folder_id`追加によるフォルダ間親子関係の新設、フォルダ名一意性制約の撤廃、フォルダ削除時の子フォルダ繰り上げ）
+- `docs/requirement/202609031501_タグ・タグフォルダ表示順序導入要件定義書.md`（タグ・タグフォルダ表示順序導入: `hiroba_tag`・`hiroba_tag_folder`へのdisplay_order列追加、間隔採番＋中間値挿入方式による1つ上へ／1つ下へボタンでの並べ替え）

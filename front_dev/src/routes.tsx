@@ -84,7 +84,7 @@ function AdminLayout() {
         <NavLink to="/admin/qa" className="admin-nav-link">
           QA
         </NavLink>
-        <NavLink to="/admin/question_altered" className="admin-nav-link">
+        <NavLink to="/admin/hiroba_question_altered" className="admin-nav-link">
           言い換え
         </NavLink>
         <NavLink to="/admin/tags" className="admin-nav-link">
@@ -121,15 +121,15 @@ export default function AppRoutes() {
             <Route path="qa/new" element={<QaFormPage mode="create" />} />
             <Route path="qa/:id" element={<QaFormPage mode="edit" />} />
             <Route
-              path="question_altered"
+              path="hiroba_question_altered"
               element={<QuestionAlteredListPage />}
             />
             <Route
-              path="question_altered/new"
+              path="hiroba_question_altered/new"
               element={<QuestionAlteredFormPage mode="create" />}
             />
             <Route
-              path="question_altered/:id"
+              path="hiroba_question_altered/:id"
               element={<QuestionAlteredFormPage mode="edit" />}
             />
             <Route path="tags" element={<TagTreePage />} />

@@ -12,6 +12,10 @@ from typing import Dict, List, Optional
 from ..db.connection import Database
 from ..models.tag import TagNode
 
+# 表示順序（display_order）の新規採番・末尾追加・「1つ下へ」で用いる固定間隔（ADR-0074 決定3）。
+# 初期値・末尾追加はこの間隔で採番し、間の挿入は前後2値の中間値を取る（範囲UPDATEを避ける）。
+_DISPLAY_ORDER_GAP = 1000.0
+
 
 class TagError(Exception):
     """タグ操作の業務エラー（循環参照・参照制約違反・重複等）。"""
@@ -33,8 +37,11 @@ class TagRepository:
         description / aliases も併せて取得する。
         """
         with self.db.cursor() as cur:
+            # 兄弟集合内は display_order 昇順（同値時は id をタイブレーク, ADR-0074 決定4）。
+            # グルーピングは行の出現順を保持するため、この並びで各階層の兄弟順が正しく決まる。
             cur.execute(
-                "SELECT id, name, parent_tag_id, description FROM tag ORDER BY id"
+                "SELECT id, name, parent_tag_id, description, folder_id, display_order"
+                " FROM hiroba_tag ORDER BY display_order, id"
             )
             rows = cur.fetchall()
             aliases_by_tag = self._load_aliases(cur)
@@ -46,6 +53,8 @@ class TagRepository:
                 name=r[1],
                 parent_tag_id=r[2],
                 description=r[3],
+                folder_id=r[4],
+                display_order=r[5],
                 aliases=aliases_by_tag.get(r[0], []),
             )
             for r in rows
@@ -64,23 +73,24 @@ class TagRepository:
     @staticmethod
     def _load_aliases(cur) -> Dict[int, List[dict]]:
         """tag_alias を全件読み込み、tag_id -> [{"id", "alias"}, ...] の辞書を返す。"""
-        cur.execute("SELECT id, tag_id, alias FROM tag_alias ORDER BY id")
+        cur.execute("SELECT id, tag_id, alias FROM hiroba_tag_alias ORDER BY id")
         result: Dict[int, List[dict]] = {}
         for row in cur.fetchall():
             result.setdefault(row[1], []).append({"id": row[0], "alias": row[2]})
         return result
 
     def _get_node(self, cur, tag_id: int) -> Optional[TagNode]:
-        """単一タグを description / aliases 込みで取得する（children は空）。"""
+        """単一タグを description / folder_id / aliases 込みで取得する（children は空）。"""
         cur.execute(
-            "SELECT id, name, parent_tag_id, description FROM tag WHERE id = %s",
+            "SELECT id, name, parent_tag_id, description, folder_id, display_order"
+            " FROM hiroba_tag WHERE id = %s",
             (tag_id,),
         )
         row = cur.fetchone()
         if row is None:
             return None
         cur.execute(
-            "SELECT id, alias FROM tag_alias WHERE tag_id = %s ORDER BY id", (tag_id,)
+            "SELECT id, alias FROM hiroba_tag_alias WHERE tag_id = %s ORDER BY id", (tag_id,)
         )
         aliases = [{"id": r[0], "alias": r[1]} for r in cur.fetchall()]
         return TagNode(
@@ -88,12 +98,80 @@ class TagRepository:
             name=row[1],
             parent_tag_id=row[2],
             description=row[3],
+            folder_id=row[4],
+            display_order=row[5],
             aliases=aliases,
         )
 
     def _exists(self, cur, tag_id: int) -> bool:
-        cur.execute("SELECT 1 FROM tag WHERE id = %s", (tag_id,))
+        cur.execute("SELECT 1 FROM hiroba_tag WHERE id = %s", (tag_id,))
         return cur.fetchone() is not None
+
+    def _folder_exists(self, cur, folder_id: int) -> bool:
+        cur.execute("SELECT 1 FROM hiroba_tag_folder WHERE id = %s", (folder_id,))
+        return cur.fetchone() is not None
+
+    # ------------------------------------------------------------------ #
+    # display_order（表示順序）ヘルパ（ADR-0074）
+    # table / parent_col は内部リテラルのみで組み立てる（外部入力を混ぜない）。
+    # parent_id が NULL（ルート）と非NULLで SQL を分岐する（"= NULL" は常に偽になるため）。
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _next_display_order(cur, table: str, parent_col: str, parent_id: Optional[int]) -> float:
+        """兄弟集合の末尾に追加するための display_order を返す（最大値 + GAP、空集合なら GAP）。"""
+        if parent_id is None:
+            cur.execute(
+                f"SELECT MAX(display_order) FROM {table} WHERE {parent_col} IS NULL"
+            )
+        else:
+            cur.execute(
+                f"SELECT MAX(display_order) FROM {table} WHERE {parent_col} = %s",
+                (parent_id,),
+            )
+        row = cur.fetchone()
+        current_max = row[0] if row else None
+        if current_max is None:
+            return _DISPLAY_ORDER_GAP
+        return current_max + _DISPLAY_ORDER_GAP
+
+    @staticmethod
+    def _ordered_siblings(cur, table: str, parent_col: str, parent_id: Optional[int]):
+        """兄弟集合を display_order, id 昇順で [(id, display_order), ...] として返す。"""
+        if parent_id is None:
+            cur.execute(
+                f"SELECT id, display_order FROM {table}"
+                f" WHERE {parent_col} IS NULL ORDER BY display_order, id"
+            )
+        else:
+            cur.execute(
+                f"SELECT id, display_order FROM {table}"
+                f" WHERE {parent_col} = %s ORDER BY display_order, id",
+                (parent_id,),
+            )
+        return cur.fetchall()
+
+    @staticmethod
+    def _compute_reordered_value(siblings, target_id: int, direction: str) -> Optional[float]:
+        """並べ替え後の display_order を中間値挿入方式で計算する（ADR-0074 決定3）。
+
+        siblings は display_order, id 昇順の [(id, display_order), ...]。
+        境界（先頭で up／末尾で down）では None を返す（No-Op、UPDATE しない）。
+        """
+        ids = [s[0] for s in siblings]
+        orders = [s[1] for s in siblings]
+        idx = ids.index(target_id)
+        if direction == "up":
+            if idx == 0:
+                return None  # 既に先頭（No-Op）
+            b = orders[idx - 1]
+            a = orders[idx - 2] if idx - 2 >= 0 else None
+            return (a + b) / 2 if a is not None else b / 2
+        else:  # "down"
+            if idx == len(ids) - 1:
+                return None  # 既に末尾（No-Op）
+            c = orders[idx + 1]
+            d = orders[idx + 2] if idx + 2 < len(orders) else None
+            return (c + d) / 2 if d is not None else c + _DISPLAY_ORDER_GAP
 
     def find_by_name(self, name: str) -> Optional[TagNode]:
         """タグ名で1件検索する（存在しなければ None）。
@@ -102,7 +180,7 @@ class TagRepository:
         （IMPL-202608261022 T9 / ADR-0053）が、未知タグを自動作成する前の存在確認に使う。
         """
         with self.db.cursor() as cur:
-            cur.execute("SELECT id FROM tag WHERE name = %s", (name,))
+            cur.execute("SELECT id FROM hiroba_tag WHERE name = %s", (name,))
             row = cur.fetchone()
             if row is None:
                 return None
@@ -146,23 +224,274 @@ class TagRepository:
         name: str,
         parent_tag_id: Optional[int] = None,
         description: Optional[str] = None,
+        folder_id: Optional[int] = None,
     ) -> TagNode:
         with self.db.cursor() as cur:
             if parent_tag_id is not None and not self._exists(cur, parent_tag_id):
                 raise TagError(f"parent tag id={parent_tag_id} does not exist")
+            if folder_id is not None and not self._folder_exists(cur, folder_id):
+                raise TagError(f"tag folder id={folder_id} does not exist")
             # 重複チェック（UNIQUE制約を明示的に業務エラー化）
-            cur.execute("SELECT 1 FROM tag WHERE name = %s", (name,))
+            cur.execute("SELECT 1 FROM hiroba_tag WHERE name = %s", (name,))
             if cur.fetchone() is not None:
                 raise TagError(f"tag name '{name}' already exists")
 
+            # 新規タグは兄弟集合（同じ parent_tag_id）の末尾へ採番する（ADR-0074 決定3）。
+            display_order = self._next_display_order(
+                cur, "hiroba_tag", "parent_tag_id", parent_tag_id
+            )
             cur.execute(
-                "INSERT INTO tag (name, parent_tag_id, description)"
-                " VALUES (%s, %s, %s) RETURNING id",
-                (name, parent_tag_id, description),
+                "INSERT INTO hiroba_tag"
+                " (name, parent_tag_id, description, folder_id, display_order)"
+                " VALUES (%s, %s, %s, %s, %s) RETURNING id",
+                (name, parent_tag_id, description, folder_id, display_order),
             )
             new_id = cur.fetchone()[0]
             node = self._get_node(cur, new_id)
         return node
+
+    def set_tag_folder(self, tag_id: int, folder_id: Optional[int]) -> TagNode:
+        """タグにタグフォルダを付与・変更・解除する（folder_id=None で解除, ADR-0072）。"""
+        with self.db.cursor() as cur:
+            if not self._exists(cur, tag_id):
+                raise TagError(f"tag id={tag_id} does not exist")
+            if folder_id is not None and not self._folder_exists(cur, folder_id):
+                raise TagError(f"tag folder id={folder_id} does not exist")
+            cur.execute(
+                "UPDATE hiroba_tag SET folder_id = %s WHERE id = %s", (folder_id, tag_id)
+            )
+            node = self._get_node(cur, tag_id)
+        return node
+
+    # ------------------------------------------------------------------ #
+    # タグフォルダマスタ CRUD（ADR-0072 で新設、ADR-0073 で階層化）
+    # tag_alias と同様の「独立したマスタテーブル＋外部キー」方式に、
+    # 自己参照 parent_folder_id によるツリー構造を加えたもの。
+    # folder は分類表示専用であり search_knowledge の検索には一切関与しない。
+    # フォルダ名（name）は表示用ラベルであり一意性を持たない（id で識別, ADR-0073 決定1）。
+    # ------------------------------------------------------------------ #
+    def list_tag_folders(self) -> List[dict]:
+        """タグフォルダを木構造で返す（ADR-0073）。
+
+        各ノードは {"id", "name", "description", "parent_folder_id", "children": [...]}。
+        parent_folder_id が NULL のフォルダをルートとし、子孫を children にネストする。
+        毎回テーブル全体を1クエリで読み直す（キャッシュしない）。
+        """
+        with self.db.cursor() as cur:
+            # 兄弟集合内は display_order 昇順（同値時は id をタイブレーク, ADR-0074 決定4）。
+            cur.execute(
+                "SELECT id, name, description, parent_folder_id, display_order"
+                " FROM hiroba_tag_folder ORDER BY display_order, id"
+            )
+            rows = cur.fetchall()
+
+        nodes: Dict[int, dict] = {
+            r[0]: {
+                "id": r[0],
+                "name": r[1],
+                "description": r[2],
+                "parent_folder_id": r[3],
+                "display_order": r[4],
+                "children": [],
+            }
+            for r in rows
+        }
+        children_of: Dict[Optional[int], List[dict]] = {}
+        for node in nodes.values():
+            children_of.setdefault(node["parent_folder_id"], []).append(node)
+
+        def attach(node: dict) -> dict:
+            node["children"] = [attach(c) for c in children_of.get(node["id"], [])]
+            return node
+
+        roots = children_of.get(None, [])
+        return [attach(n) for n in roots]
+
+    def create_tag_folder(
+        self,
+        name: str,
+        description: Optional[str] = None,
+        parent_folder_id: Optional[int] = None,
+    ) -> dict:
+        """タグフォルダを新規作成する（ADR-0073）。
+
+        parent_folder_id 指定時は当該フォルダの存在を検証する。
+        同名フォルダの存在チェック（作成拒否）は行わない（ADR-0073 決定1: name は重複可）。
+        """
+        with self.db.cursor() as cur:
+            if parent_folder_id is not None and not self._folder_exists(
+                cur, parent_folder_id
+            ):
+                raise TagError(
+                    f"parent tag folder id={parent_folder_id} does not exist"
+                )
+            # 新規フォルダは兄弟集合（同じ parent_folder_id）の末尾へ採番する（ADR-0074 決定3）。
+            display_order = self._next_display_order(
+                cur, "hiroba_tag_folder", "parent_folder_id", parent_folder_id
+            )
+            cur.execute(
+                "INSERT INTO hiroba_tag_folder"
+                " (name, description, parent_folder_id, display_order)"
+                " VALUES (%s, %s, %s, %s) RETURNING id",
+                (name, description, parent_folder_id, display_order),
+            )
+            new_id = cur.fetchone()[0]
+        return {
+            "id": new_id,
+            "name": name,
+            "description": description,
+            "parent_folder_id": parent_folder_id,
+            "display_order": display_order,
+            "children": [],
+        }
+
+    def rename_tag_folder(
+        self, folder_id: int, new_name: str, description: Optional[str] = None
+    ) -> dict:
+        """タグフォルダの名称・説明文を変更する。description=None は変更しない（維持）。
+
+        同名フォルダの存在チェック（改名拒否）は行わない（ADR-0073 決定1: name は重複可）。
+        """
+        with self.db.cursor() as cur:
+            if not self._folder_exists(cur, folder_id):
+                raise TagError(f"tag folder id={folder_id} does not exist")
+            if description is not None:
+                cur.execute(
+                    "UPDATE hiroba_tag_folder SET name = %s, description = %s WHERE id = %s",
+                    (new_name, description, folder_id),
+                )
+            else:
+                cur.execute(
+                    "UPDATE hiroba_tag_folder SET name = %s WHERE id = %s",
+                    (new_name, folder_id),
+                )
+            cur.execute(
+                "SELECT id, name, description, parent_folder_id, display_order"
+                " FROM hiroba_tag_folder WHERE id = %s",
+                (folder_id,),
+            )
+            r = cur.fetchone()
+        return {
+            "id": r[0],
+            "name": r[1],
+            "description": r[2],
+            "parent_folder_id": r[3],
+            "display_order": r[4],
+        }
+
+    def move_tag_folder(
+        self, folder_id: int, new_parent_folder_id: Optional[int]
+    ) -> dict:
+        """タグフォルダの親（parent_folder_id）を変更する（ADR-0073 決定4）。
+
+        move_tag と同じ考え方で、new_parent_folder_id が folder_id 自身または
+        その子孫である場合は循環参照として拒否する。new_parent_folder_id=None で
+        ルートフォルダへ移動する。
+        """
+        with self.db.cursor() as cur:
+            if not self._folder_exists(cur, folder_id):
+                raise TagError(f"tag folder id={folder_id} does not exist")
+            if new_parent_folder_id is not None:
+                if not self._folder_exists(cur, new_parent_folder_id):
+                    raise TagError(
+                        f"parent tag folder id={new_parent_folder_id} does not exist"
+                    )
+                self._assert_no_folder_cycle(cur, folder_id, new_parent_folder_id)
+            # reparent 後は位置指定手段が無いため、新しい兄弟集合の末尾へ display_order を
+            # 再設定する（ADR-0074 決定3）。末尾値は付け替え前の対象親集合の最大値 + GAP で
+            # 計算する（付け替え後だと移動ノード自身の旧値が混入するため）。
+            new_order = self._next_display_order(
+                cur, "hiroba_tag_folder", "parent_folder_id", new_parent_folder_id
+            )
+            cur.execute(
+                "UPDATE hiroba_tag_folder"
+                " SET parent_folder_id = %s, display_order = %s WHERE id = %s",
+                (new_parent_folder_id, new_order, folder_id),
+            )
+            cur.execute(
+                "SELECT id, name, description, parent_folder_id, display_order"
+                " FROM hiroba_tag_folder WHERE id = %s",
+                (folder_id,),
+            )
+            r = cur.fetchone()
+        return {
+            "id": r[0],
+            "name": r[1],
+            "description": r[2],
+            "parent_folder_id": r[3],
+            "display_order": r[4],
+        }
+
+    def reorder_tag_folder(self, folder_id: int, direction: str) -> dict:
+        """タグフォルダを兄弟集合内で1つ上／下へ移動する（ADR-0074 決定2/3）。
+
+        direction は "up" | "down"。境界（先頭で up／末尾で down）は No-Op（更新しない）。
+        更新対象は移動フォルダ1件のみ（中間値挿入）。更新後のフォルダ dict を返す。
+        """
+        if direction not in ("up", "down"):
+            raise TagError(f"invalid direction: {direction!r} (expected 'up' or 'down')")
+        with self.db.cursor() as cur:
+            cur.execute(
+                "SELECT parent_folder_id FROM hiroba_tag_folder WHERE id = %s",
+                (folder_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise TagError(f"tag folder id={folder_id} does not exist")
+            parent_folder_id = row[0]
+            siblings = self._ordered_siblings(
+                cur, "hiroba_tag_folder", "parent_folder_id", parent_folder_id
+            )
+            new_order = self._compute_reordered_value(siblings, folder_id, direction)
+            if new_order is not None:
+                cur.execute(
+                    "UPDATE hiroba_tag_folder SET display_order = %s WHERE id = %s",
+                    (new_order, folder_id),
+                )
+            cur.execute(
+                "SELECT id, name, description, parent_folder_id, display_order"
+                " FROM hiroba_tag_folder WHERE id = %s",
+                (folder_id,),
+            )
+            r = cur.fetchone()
+        return {
+            "id": r[0],
+            "name": r[1],
+            "description": r[2],
+            "parent_folder_id": r[3],
+            "display_order": r[4],
+        }
+
+    def delete_tag_folder(self, folder_id: int) -> None:
+        """タグフォルダを削除する（ADR-0073 決定3）。
+
+        - hiroba_tag から参照されている場合は削除を拒否する（ADR-0072 の判断を継続）。
+        - 削除対象が子フォルダを持つ場合、それらの子フォルダの parent_folder_id を
+          削除対象の親（祖父母フォルダ。ルートだった場合は NULL）へ繰り上げてから削除する。
+          子フォルダに割り当てられたタグの folder_id は変化しない。
+        """
+        with self.db.cursor() as cur:
+            if not self._folder_exists(cur, folder_id):
+                raise TagError(f"tag folder id={folder_id} does not exist")
+            cur.execute(
+                "SELECT 1 FROM hiroba_tag WHERE folder_id = %s LIMIT 1", (folder_id,)
+            )
+            if cur.fetchone() is not None:
+                raise TagError(
+                    f"tag folder id={folder_id} is referenced by tags; cannot delete"
+                )
+            # 子フォルダを削除対象の親（祖父母フォルダ）へ繰り上げる。
+            cur.execute(
+                """
+                UPDATE hiroba_tag_folder
+                SET parent_folder_id = (
+                    SELECT parent_folder_id FROM hiroba_tag_folder WHERE id = %s
+                )
+                WHERE parent_folder_id = %s
+                """,
+                (folder_id, folder_id),
+            )
+            cur.execute("DELETE FROM hiroba_tag_folder WHERE id = %s", (folder_id,))
 
     def rename_tag(
         self,
@@ -174,18 +503,18 @@ class TagRepository:
             if not self._exists(cur, tag_id):
                 raise TagError(f"tag id={tag_id} does not exist")
             cur.execute(
-                "SELECT 1 FROM tag WHERE name = %s AND id <> %s", (new_name, tag_id)
+                "SELECT 1 FROM hiroba_tag WHERE name = %s AND id <> %s", (new_name, tag_id)
             )
             if cur.fetchone() is not None:
                 raise TagError(f"tag name '{new_name}' already exists")
             if description is not None:
                 cur.execute(
-                    "UPDATE tag SET name = %s, description = %s WHERE id = %s",
+                    "UPDATE hiroba_tag SET name = %s, description = %s WHERE id = %s",
                     (new_name, description, tag_id),
                 )
             else:
                 cur.execute(
-                    "UPDATE tag SET name = %s WHERE id = %s", (new_name, tag_id)
+                    "UPDATE hiroba_tag SET name = %s WHERE id = %s", (new_name, tag_id)
                 )
             node = self._get_node(cur, tag_id)
         return node
@@ -197,7 +526,7 @@ class TagRepository:
             if not self._exists(cur, tag_id):
                 raise TagError(f"tag id={tag_id} does not exist")
             cur.execute(
-                "UPDATE tag SET description = %s WHERE id = %s", (description, tag_id)
+                "UPDATE hiroba_tag SET description = %s WHERE id = %s", (description, tag_id)
             )
             node = self._get_node(cur, tag_id)
         return node
@@ -207,11 +536,11 @@ class TagRepository:
         with self.db.cursor() as cur:
             if not self._exists(cur, tag_id):
                 raise TagError(f"tag id={tag_id} does not exist")
-            cur.execute("SELECT 1 FROM tag_alias WHERE alias = %s", (alias,))
+            cur.execute("SELECT 1 FROM hiroba_tag_alias WHERE alias = %s", (alias,))
             if cur.fetchone() is not None:
                 raise TagError(f"alias '{alias}' already exists")
             cur.execute(
-                "INSERT INTO tag_alias (tag_id, alias) VALUES (%s, %s) RETURNING id",
+                "INSERT INTO hiroba_tag_alias (tag_id, alias) VALUES (%s, %s) RETURNING id",
                 (tag_id, alias),
             )
             new_id = cur.fetchone()[0]
@@ -219,10 +548,10 @@ class TagRepository:
 
     def remove_tag_alias(self, alias_id: int) -> None:
         with self.db.cursor() as cur:
-            cur.execute("SELECT 1 FROM tag_alias WHERE id = %s", (alias_id,))
+            cur.execute("SELECT 1 FROM hiroba_tag_alias WHERE id = %s", (alias_id,))
             if cur.fetchone() is None:
                 raise TagError(f"alias id={alias_id} does not exist")
-            cur.execute("DELETE FROM tag_alias WHERE id = %s", (alias_id,))
+            cur.execute("DELETE FROM hiroba_tag_alias WHERE id = %s", (alias_id,))
 
     def move_tag(self, tag_id: int, new_parent_tag_id: Optional[int]) -> TagNode:
         with self.db.cursor() as cur:
@@ -232,10 +561,39 @@ class TagRepository:
                 if not self._exists(cur, new_parent_tag_id):
                     raise TagError(f"parent tag id={new_parent_tag_id} does not exist")
                 self._assert_no_cycle(cur, tag_id, new_parent_tag_id)
-            cur.execute(
-                "UPDATE tag SET parent_tag_id = %s WHERE id = %s",
-                (new_parent_tag_id, tag_id),
+            # reparent 後は新しい兄弟集合の末尾へ display_order を再設定する（ADR-0074 決定3）。
+            # 末尾値は付け替え前の対象親集合の最大値 + GAP で計算する。
+            new_order = self._next_display_order(
+                cur, "hiroba_tag", "parent_tag_id", new_parent_tag_id
             )
+            cur.execute(
+                "UPDATE hiroba_tag SET parent_tag_id = %s, display_order = %s WHERE id = %s",
+                (new_parent_tag_id, new_order, tag_id),
+            )
+            node = self._get_node(cur, tag_id)
+        return node
+
+    def reorder_tag(self, tag_id: int, direction: str) -> TagNode:
+        """タグを兄弟集合内で1つ上／下へ移動する（ADR-0074 決定2/3）。
+
+        direction は "up" | "down"。境界（先頭で up／末尾で down）は No-Op（更新しない）。
+        更新対象は移動タグ1件のみ（中間値挿入）。更新後の TagNode を返す。
+        """
+        if direction not in ("up", "down"):
+            raise TagError(f"invalid direction: {direction!r} (expected 'up' or 'down')")
+        with self.db.cursor() as cur:
+            node = self._get_node(cur, tag_id)
+            if node is None:
+                raise TagError(f"tag id={tag_id} does not exist")
+            siblings = self._ordered_siblings(
+                cur, "hiroba_tag", "parent_tag_id", node.parent_tag_id
+            )
+            new_order = self._compute_reordered_value(siblings, tag_id, direction)
+            if new_order is not None:
+                cur.execute(
+                    "UPDATE hiroba_tag SET display_order = %s WHERE id = %s",
+                    (new_order, tag_id),
+                )
             node = self._get_node(cur, tag_id)
         return node
 
@@ -244,21 +602,21 @@ class TagRepository:
             if not self._exists(cur, tag_id):
                 raise TagError(f"tag id={tag_id} does not exist")
             # qa_tag からの参照がある場合は拒否
-            cur.execute("SELECT 1 FROM qa_tag WHERE tag_id = %s LIMIT 1", (tag_id,))
+            cur.execute("SELECT 1 FROM hiroba_qa_tag WHERE tag_id = %s LIMIT 1", (tag_id,))
             if cur.fetchone() is not None:
                 raise TagError(
                     f"tag id={tag_id} is referenced by qa_tag; cannot delete"
                 )
             # 子タグを持つ場合は拒否
             cur.execute(
-                "SELECT 1 FROM tag WHERE parent_tag_id = %s LIMIT 1", (tag_id,)
+                "SELECT 1 FROM hiroba_tag WHERE parent_tag_id = %s LIMIT 1", (tag_id,)
             )
             if cur.fetchone() is not None:
                 raise TagError(f"tag id={tag_id} has child tags; cannot delete")
             # 拒否判定を通過したら、紐づく tag_alias を先にカスケード削除する
             # （IMPL-202608060837 0節の決定）。
-            cur.execute("DELETE FROM tag_alias WHERE tag_id = %s", (tag_id,))
-            cur.execute("DELETE FROM tag WHERE id = %s", (tag_id,))
+            cur.execute("DELETE FROM hiroba_tag_alias WHERE tag_id = %s", (tag_id,))
+            cur.execute("DELETE FROM hiroba_tag WHERE id = %s", (tag_id,))
 
     # ------------------------------------------------------------------ #
     # 一括インポート（IMPL-202608261630 T1 / ADR-0061）
@@ -276,7 +634,7 @@ class TagRepository:
         results: List[Optional[dict]] = [None] * len(rows)
 
         with self.db.cursor() as cur:
-            cur.execute("SELECT name, id FROM tag")
+            cur.execute("SELECT name, id FROM hiroba_tag")
             resolved_names: Dict[str, int] = {name: tid for name, tid in cur.fetchall()}
 
         remaining = list(range(len(rows)))
@@ -351,10 +709,10 @@ class TagRepository:
         cur.execute(
             """
             WITH RECURSIVE ancestors AS (
-                SELECT id, parent_tag_id FROM tag WHERE id = %s
+                SELECT id, parent_tag_id FROM hiroba_tag WHERE id = %s
                 UNION ALL
                 SELECT t.id, t.parent_tag_id
-                FROM tag t
+                FROM hiroba_tag t
                 JOIN ancestors a ON t.id = a.parent_tag_id
             )
             SELECT 1 FROM ancestors WHERE id = %s LIMIT 1
@@ -364,4 +722,35 @@ class TagRepository:
         if cur.fetchone() is not None:
             raise TagError(
                 "moving this tag under the given parent would create a cycle"
+            )
+
+    @staticmethod
+    def _assert_no_folder_cycle(
+        cur, folder_id: int, new_parent_folder_id: int
+    ) -> None:
+        """タグフォルダ版の循環参照検証（ADR-0073 決定4、_assert_no_cycle のフォルダ版）。
+
+        new_parent_folder_id から parent_folder_id を再帰的に辿り（＝祖先集合）、
+        その中に folder_id が含まれる（＝folder_id は new_parent の祖先）場合、
+        folder_id を new_parent の下へ移すと循環になるため拒否する。
+        """
+        if new_parent_folder_id == folder_id:
+            raise TagError("a tag folder cannot be its own parent (cycle)")
+
+        cur.execute(
+            """
+            WITH RECURSIVE ancestors AS (
+                SELECT id, parent_folder_id FROM hiroba_tag_folder WHERE id = %s
+                UNION ALL
+                SELECT f.id, f.parent_folder_id
+                FROM hiroba_tag_folder f
+                JOIN ancestors a ON f.id = a.parent_folder_id
+            )
+            SELECT 1 FROM ancestors WHERE id = %s LIMIT 1
+            """,
+            (new_parent_folder_id, folder_id),
+        )
+        if cur.fetchone() is not None:
+            raise TagError(
+                "moving this tag folder under the given parent would create a cycle"
             )

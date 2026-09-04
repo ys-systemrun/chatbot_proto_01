@@ -9,7 +9,7 @@ import {
 } from "../../api";
 import { QaPicker } from "../common/QaPicker";
 
-const QUESTION_ALTERED_LIST_PATH = "/admin/question_altered";
+const QUESTION_ALTERED_LIST_PATH = "/admin/hiroba_question_altered";
 
 // back パラメータのホワイトリスト検証（オープンリダイレクト対策, ADR-0068 決定6）。
 // 言い換え質問文一覧パス単体、または同パス + クエリ文字列の相対パスのみを有効な戻り先とみなす。

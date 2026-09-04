@@ -3,7 +3,7 @@
 処理順序:
   1. chatbot ロール分離: migrator / app ロールを作成（マスター接続, ADR-0052）。
   2. chatbot マイグレーション適用（yoyo, migrator 接続, ADR-0017）。
-  3. chatbot シード（category / qa_original / question_altered / backfill / tag 説明, migrator 接続）。
+  3. chatbot シード（hiroba_category / hiroba_qa_original / hiroba_question_altered / backfill / hiroba_tag 説明, migrator 接続）。
   4. chatbot app ロールへ DML 権限を付与（全テーブル作成後, マスター接続）。
   5. conversation データベースの作成（AWS のみ）→ ロール作成 → yoyo マイグレーション → app 権限付与。
   6. エクスポート専用読み取りロールの作成（AWS のみ, ADR-0046）。
@@ -18,6 +18,13 @@
 いずれかの手順で例外が発生した場合、ログに出力の上、非0の終了コードで終了する（ADR-0018）。
 全手順が成功した場合は終了コード0で終了する。テーブル単位の存在チェックによる冪等性で、
 再実行しても未投入分のみが投入される。
+
+実行モード（environment オーバーライドで切替, ADR-0066/0075）:
+  - 通常起動（未設定）: 上記6ステップを全て実行する。
+  - MIGRATE_ONLY=true（ADR-0075）: 手順3（chatbot シード投入）のみをスキップし、それ以外の
+    手順1・2・4・5・6は通常どおり実行する。スキーマ変更のみを反映したいとき（データ投入は後日
+    import-data で行う）に使う。非破壊的。
+  - IMPORT_MODE=true（ADR-0066）: 通常フローを実行せず、全消去→上書き投入バッチのみを実行する。
 """
 
 from __future__ import annotations
@@ -52,7 +59,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 CONVERSATION_DB_NAME = os.environ.get("CONVERSATION_DB_NAME", "conversation")
 CONVERSATION_DB_URL = os.environ.get("CONVERSATION_DB_URL", "")
 # エクスポート専用読み取りロール（ADR-0046 / IMPL-202608241600 T1）。
-CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "chatbot")
+CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "db_hiroba_qa")
 EXPORT_READER_ROLE_NAME = os.environ.get("EXPORT_READER_ROLE_NAME", "chatbot_export_reader")
 EXPORT_READER_PASSWORD = os.environ.get("EXPORT_READER_PASSWORD", "")
 
@@ -74,6 +81,12 @@ CONVERSATION_APP_PASSWORD = os.environ.get("CONVERSATION_APP_PASSWORD", "")
 # オーバーライドで IMPORT_MODE=true と各パラメータを注入されたときのみ有効になる。通常のシード
 # 起動（IMPORT_MODE 未設定）では一切実行されない＝誤って破壊的処理が走らないよう分離する。
 IMPORT_MODE = os.environ.get("IMPORT_MODE", "").strip().lower() in ("1", "true", "yes")
+# マイグレーション専用モード（ADR-0075）。run-task の environment オーバーライドで
+# MIGRATE_ONLY=true を注入されたときのみ有効になる。通常のシード起動（未設定）では既存動作を
+# 完全に維持する（後方互換）。真の場合、main() の6ステップのうち chatbot シード投入（手順3）
+# のみをスキップし、ロール作成・マイグレーション適用・権限付与・エクスポート専用ロール作成は
+# 通常どおり実行する。IMPORT_MODE と同じ真偽値判定方式を踏襲する。
+MIGRATE_ONLY = os.environ.get("MIGRATE_ONLY", "").strip().lower() in ("1", "true", "yes")
 IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
 IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
 IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
@@ -547,7 +560,13 @@ def main():
             chatbot_work_url = DATABASE_URL
 
         migrate(chatbot_work_url)
-        seed_if_empty(chatbot_work_url)
+        if MIGRATE_ONLY:
+            print(
+                f"{_now()} MIGRATE_ONLY is set; skipping chatbot seed insertion "
+                "(ADR-0075). Roles / migrations / grants are still applied."
+            )
+        else:
+            seed_if_empty(chatbot_work_url)
         if chatbot_roles_enabled:
             grant_chatbot_app_privileges()
 

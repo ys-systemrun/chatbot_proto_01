@@ -110,12 +110,12 @@ async def list_categories():
 
 
 # ---------------------------------------------------------------------------
-# 管理UI: /api/question_altered*（言い換え行管理, ADR-0064）
+# 管理UI: /api/hiroba_question_altered*（言い換え行管理, ADR-0064）
 # ---------------------------------------------------------------------------
 # is_primary=false の言い換え行のみを対象とする。/export・/import は /{item_id}（int）より
 # 前に登録し、パスパラメータへ誤って一致しないようにする（T4 / 検証機能と同じ配慮）。
 @app.get(
-    "/api/question_altered",
+    "/api/hiroba_question_altered",
     response_model=question_altered_controller.QaAlteredListResponse,
 )
 async def list_question_altered(
@@ -128,7 +128,7 @@ async def list_question_altered(
 
 
 # CSVエクスポート（is_primary=false 全件）。text/csv + attachment で返す。
-@app.get("/api/question_altered/export")
+@app.get("/api/hiroba_question_altered/export")
 async def export_question_altered() -> Response:
     csv_bytes, filename = await question_altered_controller.build_export_csv()
     return Response(
@@ -140,7 +140,7 @@ async def export_question_altered() -> Response:
 
 # CSV一括インポート（id によるupsert、is_primary=true 行はエラー、行単位で部分成功）。
 @app.post(
-    "/api/question_altered/import",
+    "/api/hiroba_question_altered/import",
     response_model=question_altered_controller.QaAlteredImportResponse,
 )
 async def import_question_altered(file: UploadFile = File(...)):
@@ -148,7 +148,7 @@ async def import_question_altered(file: UploadFile = File(...)):
 
 
 @app.get(
-    "/api/question_altered/{item_id}",
+    "/api/hiroba_question_altered/{item_id}",
     response_model=question_altered_controller.QaAlteredDetail,
 )
 async def get_question_altered(item_id: int):
@@ -156,7 +156,7 @@ async def get_question_altered(item_id: int):
 
 
 @app.post(
-    "/api/question_altered",
+    "/api/hiroba_question_altered",
     status_code=201,
     response_model=question_altered_controller.QaAlteredDetail,
 )
@@ -167,7 +167,7 @@ async def create_question_altered(
 
 
 @app.put(
-    "/api/question_altered/{item_id}",
+    "/api/hiroba_question_altered/{item_id}",
     response_model=question_altered_controller.QaAlteredDetail,
 )
 async def update_question_altered(
@@ -176,7 +176,7 @@ async def update_question_altered(
     return await question_altered_controller.update_item(item_id, body)
 
 
-@app.delete("/api/question_altered/{item_id}", status_code=204)
+@app.delete("/api/hiroba_question_altered/{item_id}", status_code=204)
 async def delete_question_altered(item_id: int) -> Response:
     await question_altered_controller.delete_item(item_id)
     return Response(status_code=204)
@@ -206,6 +206,15 @@ async def delete_tag(tag_id: int) -> Response:
     return Response(status_code=204)
 
 
+# タグを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。body: {"direction": "up" | "down"}。
+# 先頭で up／末尾で down は No-Op（Knowledge MCP 側で更新なし）。表示順序のみ変更し検索には影響しない。
+@app.patch("/api/tags/{tag_id}/reorder")
+async def reorder_tag(
+    tag_id: int, body: tag_controller.TagReorderRequest
+) -> dict:
+    return await tag_controller.reorder_tag(tag_id, body)
+
+
 # タグの CSV エクスポート（IMPL-202608281500 / ADR-0065）。全タグを name/parent_name/description の
 # 3列（import_tag_batch と完全一致、そのまま再インポート可能）で text/csv + attachment で返す。
 @app.get("/api/tags/export")
@@ -223,6 +232,51 @@ async def export_tags() -> Response:
 @app.post("/api/tags/import", response_model=tag_controller.TagImportResponse)
 async def import_tags(file: UploadFile = File(...)):
     return await tag_controller.import_tags_csv(await file.read())
+
+
+# ---------------------------------------------------------------------------
+# 管理UI: /api/tag-folders*（タグフォルダマスタ, ADR-0072）
+# ---------------------------------------------------------------------------
+# タグフォルダは parent_tag_id による is-a 階層とは独立した分類表示専用メタデータ。
+# search_knowledge の検索結果・スコアには一切影響しない。
+@app.get("/api/tag-folders", response_model=tag_controller.TagFolderListResponse)
+async def list_tag_folders():
+    return await tag_controller.list_tag_folders()
+
+
+@app.post("/api/tag-folders", status_code=201)
+async def create_tag_folder(body: tag_controller.TagFolderCreateRequest) -> dict:
+    return await tag_controller.create_tag_folder(body)
+
+
+@app.put("/api/tag-folders/{folder_id}")
+async def update_tag_folder(
+    folder_id: int, body: tag_controller.TagFolderUpdateRequest
+) -> dict:
+    return await tag_controller.update_tag_folder(folder_id, body)
+
+
+# タグフォルダの移動（ADR-0073）。親フォルダを付け替える。移動先が自分自身または子孫の場合は
+# Knowledge MCP の TagError→409（グローバルハンドラ）。ルート更新（name/description）とは別経路。
+@app.put("/api/tag-folders/{folder_id}/move")
+async def move_tag_folder(
+    folder_id: int, body: tag_controller.TagFolderMoveRequest
+) -> dict:
+    return await tag_controller.move_tag_folder(folder_id, body)
+
+
+@app.delete("/api/tag-folders/{folder_id}", status_code=204)
+async def delete_tag_folder(folder_id: int) -> Response:
+    await tag_controller.delete_tag_folder(folder_id)
+    return Response(status_code=204)
+
+
+# タグフォルダを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。body: {"direction": "up" | "down"}。
+@app.patch("/api/tag-folders/{folder_id}/reorder")
+async def reorder_tag_folder(
+    folder_id: int, body: tag_controller.TagReorderRequest
+) -> dict:
+    return await tag_controller.reorder_tag_folder(folder_id, body)
 
 
 # ---------------------------------------------------------------------------

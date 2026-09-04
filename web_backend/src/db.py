@@ -18,13 +18,13 @@ class DB:
             cur.execute(
                 """
                 SELECT
-                    question_altered.text as question,
-                    qa_original.answer_text as answer,
-                    qa_original.question_text as question_original,
-                    question_altered.qa_id as qa_id,
+                    hiroba_question_altered.text as question,
+                    hiroba_qa_original.answer_text as answer,
+                    hiroba_qa_original.question_text as question_original,
+                    hiroba_question_altered.qa_id as qa_id,
                     embedding <=> %s as distance
-                FROM question_altered
-                LEFT JOIN qa_original ON question_altered.qa_id = qa_original.uuid
+                FROM hiroba_question_altered
+                LEFT JOIN hiroba_qa_original ON hiroba_question_altered.qa_id = hiroba_qa_original.uuid
                 ORDER BY embedding <=> %s
                 LIMIT %s
                 """,

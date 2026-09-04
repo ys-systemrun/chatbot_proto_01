@@ -222,9 +222,14 @@ def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1
     log.info("検証（Phase 6）: mcp-inspector イメージを手動 build/push 後に run-task + ECS Exec（README 参照）。")
 
 
-def cmd_seed(assume_yes: bool = False) -> None:
-    cfg = config.load_config()
-    prerequisites(cfg)
+def _run_db_init_task(cfg: config.Config, *, migrate_only: bool, label: str) -> None:
+    """db_init_task_family を run-task 起動し exitCode=0 まで待つ共通処理（seed / migrate 共用）。
+
+    migrate_only=True のとき、run-task に MIGRATE_ONLY=true の environment オーバーライドを付与して
+    起動し、db_hiroba_qa_init のシード投入（手順3）のみをスキップさせる（ADR-0075）。それ以外の
+    処理（両構成 apply 済み確認・output 取得・run-task・STOPPED 待機・exitCode 確認）は seed と同一。
+    IMPORT_MODE と同型の environment オーバーライド機構（run_import_task, ADR-0066）を再利用する。
+    """
     region = cfg.aws_region
 
     log.step("database / app 構成の apply 済み確認")
@@ -249,16 +254,51 @@ def cmd_seed(assume_yes: bool = False) -> None:
         raise DeployError("app 構成の output（cluster_name）を取得できませんでした。")
 
     log_group = f"/ecs/{family}"
-    log.step(f"シード run-task 起動（{family}）")
-    task_arn = aws.run_seed_task(cluster, family, subnets, sg, region)
+    if migrate_only:
+        log.step(f"{label} run-task 起動（{family}, MIGRATE_ONLY）")
+        task_arn = aws.run_import_task(
+            cluster, family, subnets, sg, region,
+            container_name=family, environment={"MIGRATE_ONLY": "true"},
+        )
+    else:
+        log.step(f"{label} run-task 起動（{family}）")
+        task_arn = aws.run_seed_task(cluster, family, subnets, sg, region)
     log.info(f"task: {task_arn}")
 
     task = aws.wait_task_stopped(cluster, task_arn, region)
     exit_code = aws.task_exit_code(task)
     if str(exit_code) != "0":
-        raise DeployError(f"シードが異常終了しました (exitCode={exit_code})。CloudWatch Logs {log_group} を確認してください。")
-    log.ok("シード完了（exitCode=0）")
+        raise DeployError(f"{label}が異常終了しました (exitCode={exit_code})。CloudWatch Logs {log_group} を確認してください。")
+    log.ok(f"{label}完了（exitCode=0）")
+
+
+def cmd_seed(assume_yes: bool = False, skip_seed: bool = False) -> None:
+    """シード run-task を起動する（再シード用途）。
+
+    skip_seed=True のときはマイグレーション専用モード（MIGRATE_ONLY=true）で起動し、シード投入を
+    除外して migrate コマンドと同一結果になる（ADR-0075）。未指定時は既存動作（6ステップ全実行）
+    を完全に維持する（後方互換）。いずれも非破壊的操作のため確認プロンプトは設けない。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+    if skip_seed:
+        _run_db_init_task(cfg, migrate_only=True, label="マイグレーション")
+        return
+    _run_db_init_task(cfg, migrate_only=False, label="シード")
     log.info("knowledge_mcp を起動するには apply-app（desired_count=1）を実行してください（apply-all は自動で行います）。")
+
+
+def cmd_migrate() -> None:
+    """マイグレーション専用モードで db_hiroba_qa_init の run-task を起動する（ADR-0075）。
+
+    cmd_seed(skip_seed=True) と同一結果（MIGRATE_ONLY=true）。シード投入（embedding 計算を伴いうる
+    手順3）を除外し、両データベースのロール作成・マイグレーション適用・権限付与・エクスポート専用
+    ロール作成のみを実行する。スキーマ変更のみを RDS に反映したいとき（データ投入・更新は引き続き
+    import-data を使う）に用いる。非破壊的操作のため確認プロンプトは設けない（無人実行可）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+    _run_db_init_task(cfg, migrate_only=True, label="マイグレーション")
 
 
 # 全データインポート（ADR-0066）: 実行対象データベースと、停止すべき（そのデータベースへ直接

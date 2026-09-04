@@ -65,16 +65,20 @@ def register_tools(
 
     @mcp.tool(
         name="create_tag",
-        description="タグを新規作成する。parent_tag_id 指定で子タグとして作成し、description も同時に設定できる。",
+        description="タグを新規作成する。parent_tag_id 指定で子タグとして作成し、description・folder_id（タグフォルダ）も同時に設定できる。",
     )
     def create_tag(
         name: str,
         parent_tag_id: Optional[int] = None,
         description: Optional[str] = None,
+        folder_id: Optional[int] = None,
     ) -> dict:
         try:
             node = tag_repository.create_tag(
-                name, parent_tag_id=parent_tag_id, description=description
+                name,
+                parent_tag_id=parent_tag_id,
+                description=description,
+                folder_id=folder_id,
             )
         except TagError as e:
             raise ToolError(str(e))
@@ -137,6 +141,18 @@ def register_tools(
         return node.to_dict(include_children=False)
 
     @mcp.tool(
+        name="reorder_tag",
+        description="タグを兄弟集合内で1つ上（up）／1つ下（down）へ並べ替える。"
+                    "先頭で up／末尾で down は何もしない（No-Op）。表示順序のみを変更し検索には影響しない（ADR-0074）。",
+    )
+    def reorder_tag(tag_id: int, direction: str) -> dict:
+        try:
+            node = tag_repository.reorder_tag(tag_id, direction)
+        except TagError as e:
+            raise ToolError(str(e))
+        return node.to_dict(include_children=False)
+
+    @mcp.tool(
         name="delete_tag",
         description="タグを削除する。qa_tag から参照されている、または子タグを持つ場合は拒否する。削除可能な場合は紐づく tag_alias も同時に削除する。",
     )
@@ -167,6 +183,97 @@ def register_tools(
     )
     def export_tags() -> dict:
         return {"items": tag_repository.export_tags()}
+
+    # -------------------------------------------------------------- #
+    # タグフォルダマスタ管理ツール（分類表示専用メタデータ, ADR-0072）
+    # tag_alias 管理ツール群と同様の構成。search_knowledge の検索には一切関与しない。
+    # -------------------------------------------------------------- #
+    @mcp.tool(
+        name="set_tag_folder",
+        description="タグにタグフォルダを付与・変更・解除する（folder_id=null で解除）。分類表示専用で検索には影響しない。",
+    )
+    def set_tag_folder(tag_id: int, folder_id: Optional[int] = None) -> dict:
+        try:
+            node = tag_repository.set_tag_folder(tag_id, folder_id)
+        except TagError as e:
+            raise ToolError(str(e))
+        return node.to_dict(include_children=False)
+
+    @mcp.tool(
+        name="list_tag_folders",
+        description="タグフォルダを木構造（children にネスト）で返す。id/name/description/parent_folder_id を含む"
+                    "（分類表示専用メタデータ, ADR-0072/0073）。",
+    )
+    def list_tag_folders() -> dict:
+        return {"folders": tag_repository.list_tag_folders()}
+
+    @mcp.tool(
+        name="create_tag_folder",
+        description="タグフォルダを新規作成する。parent_folder_id 指定で子フォルダとして作成する"
+                    "（同名フォルダの作成は許容する, ADR-0073）。",
+    )
+    def create_tag_folder(
+        name: str,
+        description: Optional[str] = None,
+        parent_folder_id: Optional[int] = None,
+    ) -> dict:
+        try:
+            return tag_repository.create_tag_folder(
+                name, description=description, parent_folder_id=parent_folder_id
+            )
+        except TagError as e:
+            raise ToolError(str(e))
+
+    @mcp.tool(
+        name="rename_tag_folder",
+        description="タグフォルダの名称・説明文を変更する。description を省略すると説明文は維持する"
+                    "（同名フォルダへの改名は許容する, ADR-0073）。",
+    )
+    def rename_tag_folder(
+        folder_id: int, new_name: str, description: Optional[str] = None
+    ) -> dict:
+        try:
+            return tag_repository.rename_tag_folder(
+                folder_id, new_name, description=description
+            )
+        except TagError as e:
+            raise ToolError(str(e))
+
+    @mcp.tool(
+        name="move_tag_folder",
+        description="タグフォルダの親（parent_folder_id）を変更する。new_parent_folder_id=null でルートへ移動する。"
+                    "循環参照になる操作は拒否する（ADR-0073）。",
+    )
+    def move_tag_folder(
+        folder_id: int, new_parent_folder_id: Optional[int] = None
+    ) -> dict:
+        try:
+            return tag_repository.move_tag_folder(folder_id, new_parent_folder_id)
+        except TagError as e:
+            raise ToolError(str(e))
+
+    @mcp.tool(
+        name="reorder_tag_folder",
+        description="タグフォルダを兄弟集合内で1つ上（up）／1つ下（down）へ並べ替える。"
+                    "先頭で up／末尾で down は何もしない（No-Op）。表示順序のみを変更する（ADR-0074）。",
+    )
+    def reorder_tag_folder(folder_id: int, direction: str) -> dict:
+        try:
+            return tag_repository.reorder_tag_folder(folder_id, direction)
+        except TagError as e:
+            raise ToolError(str(e))
+
+    @mcp.tool(
+        name="delete_tag_folder",
+        description="タグフォルダを削除する。hiroba_tag から参照されている場合は拒否する。"
+                    "子フォルダを持つ場合は、その子フォルダを削除対象の親（祖父母フォルダ）へ繰り上げる（ADR-0073）。",
+    )
+    def delete_tag_folder(folder_id: int) -> dict:
+        try:
+            tag_repository.delete_tag_folder(folder_id)
+        except TagError as e:
+            raise ToolError(str(e))
+        return {"deleted": folder_id}
 
     # -------------------------------------------------------------- #
     # QA管理ツール（書き込み系, ADR-0014 / IMPL-202608060837）

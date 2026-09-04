@@ -8,13 +8,13 @@ from typing import List, Optional
 
 @dataclass
 class TagRecord:
-    """tag ⋈ tag_alias を集約した、タグ知識ベースの1レコード。"""
+    """hiroba_tag ⋈ hiroba_tag_alias を集約した、タグ知識ベースの1レコード。"""
 
     id: int
     name: str
     description: Optional[str] = None
     parent_tag_id: Optional[int] = None
-    aliases: List[str] = field(default_factory=list)  # tag_alias から集約した alias 一覧
+    aliases: List[str] = field(default_factory=list)  # hiroba_tag_alias から集約した alias 一覧
 
     def to_dict(self) -> dict:
         """list_taxonomy 出力（5.8節）に沿った辞書へ変換する。"""

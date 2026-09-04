@@ -21,7 +21,7 @@ body {
 #app {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
   max-width: 860px;
   margin: 0 auto;
   background: #ffffff;
@@ -239,7 +239,7 @@ body {
 /* ── Evaluated messages page ────────────────────────────────── */
 body.page-evaluated #app {
   max-width: 1200px;
-  height: auto;
+  height: 100%;
   min-height: 100vh;
 }
 
@@ -456,6 +456,8 @@ body.page-evaluated #app {
 /* 管理画面（/admin 配下, IMPL-202608060837）                             */
 /* ===================================================================== */
 body.page-admin {
+  height: auto;
+  min-height: 100%;
   background: #f4f6f8;
 }
 
@@ -611,6 +613,19 @@ body.page-admin {
   color: #c0392b;
 }
 
+/* 兄弟集合内の並べ替えボタン（↑/↓, ADR-0074）。境界（先頭/末尾）では disabled で淡色表示。 */
+.admin-reorder {
+  font-weight: 700;
+  padding: 2px 4px;
+  line-height: 1;
+}
+
+.admin-link:disabled {
+  color: #b0b8bf;
+  cursor: default;
+  text-decoration: none;
+}
+
 .admin-pager {
   display: flex;
   align-items: center;
@@ -744,6 +759,94 @@ body.page-admin {
   max-width: 140px;
 }
 
+/* タグ検索・絞り込み（ADR-0070） */
+.admin-tagsearch,
+.admin-tagpicker-search {
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.admin-breadcrumb {
+  color: #52606d;
+  font-size: 0.9rem;
+}
+
+.admin-breadcrumb-anc {
+  color: #8a94a0;
+}
+
+/* タグフォルダ別グルーピング（ADR-0072） */
+.admin-folder-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.admin-folder-group + .admin-folder-group {
+  margin-top: 8px;
+}
+
+.admin-folder-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: #3a4652;
+  padding: 6px 4px;
+  border-bottom: 2px solid #dbe1e6;
+  margin-bottom: 4px;
+}
+
+/* フォルダ見出しの直下タグ数（ADR-0073）。 */
+.admin-folder-count {
+  font-weight: 400;
+  font-size: 0.8em;
+  color: #7a8794;
+}
+
+.admin-tagpicker-wrap .admin-folder-group + .admin-folder-group {
+  margin-top: 8px;
+}
+
+.admin-tagpicker-wrap .admin-folder-heading {
+  font-size: 0.82rem;
+  border-bottom: 1px solid #eef1f4;
+  margin: 4px 0 2px;
+  padding: 2px 0;
+}
+
+/* 類似候補チェック（ADR-0071） */
+.admin-similar {
+  border: 1px solid #f0c36d;
+  background: #fdf6e3;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.admin-similar-head {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  color: #8a6d3b;
+}
+
+.admin-similar-list {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.88rem;
+}
+
+.admin-similar-list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* 全データエクスポート（IMPL-202608241600） */
 .admin-export-formats {
   border: 1px solid #e1e6ea;
@@ -783,6 +886,19 @@ body.page-admin {
   padding-left: 20px;
   color: #c0392b;
   font-size: 0.85rem;
+}
+
+/* CSV 一括インポート/エクスポートは各管理画面の下部にまとめて配置する。
+   一覧・操作UIとの区切りとして上に余白と境界線を置く。 */
+.admin-csv-tools {
+  margin-top: 24px;
+  padding-top: 8px;
+  border-top: 1px solid #e1e6ea;
+}
+
+.admin-csv-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* 検証機能 詳細（IMPL-202608260909） */

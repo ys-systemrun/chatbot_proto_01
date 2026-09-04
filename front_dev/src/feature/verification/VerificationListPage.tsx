@@ -150,47 +150,6 @@ export default function VerificationListPage() {
         </button>
       </form>
 
-      <details className="admin-tagfilter">
-        <summary>CSV 一括インポート</summary>
-        <div className="admin-import">
-          <p className="admin-hint">
-            列: <code>question_text</code>（必須）, <code>memo</code>（任意）。UTF-8
-            で保存してください。常に新規追加されます（重複判定なし）。
-          </p>
-          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
-          <button
-            className="admin-btn admin-btn-primary"
-            onClick={onImport}
-            disabled={importing}
-          >
-            {importing ? "インポート中..." : "インポート"}
-          </button>
-          {importError && (
-            <p className="admin-status admin-error">{importError}</p>
-          )}
-          {importResult && (
-            <div className="admin-status">
-              <p>
-                成功 {importResult.success_count} 件 / 失敗{" "}
-                {importResult.total - importResult.success_count} 件（全{" "}
-                {importResult.total} 件）
-              </p>
-              {importResult.results.some((r) => r.status === "error") && (
-                <ul className="admin-import-errors">
-                  {importResult.results
-                    .filter((r) => r.status === "error")
-                    .map((r) => (
-                      <li key={r.row}>
-                        行 {r.row + 1}: {r.error}
-                      </li>
-                    ))}
-                </ul>
-              )}
-            </div>
-          )}
-        </div>
-      </details>
-
       {loading && <p className="admin-status">読み込み中...</p>}
       {error && <p className="admin-status admin-error">{error}</p>}
 
@@ -312,6 +271,48 @@ export default function VerificationListPage() {
           次へ
         </button>
       </div>
+
+      {/* CSV 一括インポートは画面下部にまとめて配置する */}
+      <details className="admin-tagfilter admin-csv-tools">
+        <summary>CSV 一括インポート</summary>
+        <div className="admin-import">
+          <p className="admin-hint">
+            列: <code>question_text</code>（必須）, <code>memo</code>（任意）。UTF-8
+            で保存してください。常に新規追加されます（重複判定なし）。
+          </p>
+          <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
+          <button
+            className="admin-btn admin-btn-primary"
+            onClick={onImport}
+            disabled={importing}
+          >
+            {importing ? "インポート中..." : "インポート"}
+          </button>
+          {importError && (
+            <p className="admin-status admin-error">{importError}</p>
+          )}
+          {importResult && (
+            <div className="admin-status">
+              <p>
+                成功 {importResult.success_count} 件 / 失敗{" "}
+                {importResult.total - importResult.success_count} 件（全{" "}
+                {importResult.total} 件）
+              </p>
+              {importResult.results.some((r) => r.status === "error") && (
+                <ul className="admin-import-errors">
+                  {importResult.results
+                    .filter((r) => r.status === "error")
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </details>
     </div>
   );
 }

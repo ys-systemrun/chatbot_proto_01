@@ -26,7 +26,7 @@ def _apply(conn):
     with conn.cursor() as cur:
         cur.execute(
             f"""
-            CREATE TABLE IF NOT EXISTS question_altered (
+            CREATE TABLE IF NOT EXISTS hiroba_question_altered (
                 id SERIAL PRIMARY KEY,
                 qa_id TEXT,
                 text TEXT,

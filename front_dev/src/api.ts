@@ -14,8 +14,13 @@ import type {
 } from "./domain/admin/qa";
 import type {
   TagCreateRequest,
+  TagFolder,
+  TagFolderCreateRequest,
+  TagFolderMoveRequest,
+  TagFolderUpdateRequest,
   TagImportResponse,
   TagNode,
+  TagReorderRequest,
   TagUpdateRequest,
 } from "./domain/admin/tag";
 import type {
@@ -235,9 +240,73 @@ export async function deleteTag(id: number): Promise<void> {
   await jsonFetch<void>(`/api/tags/${id}`, { method: "DELETE" });
 }
 
+// タグを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。先頭で up／末尾で down はサーバ側で No-Op。
+export async function reorderTag(
+  id: number,
+  body: TagReorderRequest,
+): Promise<TagNode> {
+  return jsonFetch<TagNode>(`/api/tags/${id}/reorder`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
 // タグの CSV 一括インポート（IMPL-202608261630 T4）。name一致でupsertする。
 export async function importTagsCsv(file: File): Promise<TagImportResponse> {
   return uploadCsv<TagImportResponse>("/api/tags/import", file);
+}
+
+// --------------------------------------------------------------------------- //
+// タグフォルダマスタ（分類表示専用メタデータ, ADR-0072）
+// --------------------------------------------------------------------------- //
+export async function listTagFolders(): Promise<TagFolder[]> {
+  const res = await jsonFetch<{ folders: TagFolder[] }>("/api/tag-folders");
+  return res.folders;
+}
+
+export async function createTagFolder(
+  body: TagFolderCreateRequest,
+): Promise<TagFolder> {
+  return jsonFetch<TagFolder>("/api/tag-folders", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateTagFolder(
+  id: number,
+  body: TagFolderUpdateRequest,
+): Promise<TagFolder> {
+  return jsonFetch<TagFolder>(`/api/tag-folders/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+// タグフォルダの移動（ADR-0073）。親フォルダを付け替える。循環参照はサーバが 409 で拒否する。
+export async function moveTagFolder(
+  id: number,
+  body: TagFolderMoveRequest,
+): Promise<TagFolder> {
+  return jsonFetch<TagFolder>(`/api/tag-folders/${id}/move`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function deleteTagFolder(id: number): Promise<void> {
+  await jsonFetch<void>(`/api/tag-folders/${id}`, { method: "DELETE" });
+}
+
+// タグフォルダを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。
+export async function reorderTagFolder(
+  id: number,
+  body: TagReorderRequest,
+): Promise<TagFolder> {
+  return jsonFetch<TagFolder>(`/api/tag-folders/${id}/reorder`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 }
 
 // タグの CSV エクスポート（IMPL-202608281500 / ADR-0065）。
@@ -378,7 +447,7 @@ export async function importVerificationQuestionsCsv(
 
 // --------------------------------------------------------------------------- //
 // 言い換え質問文（question_altered）管理 API（IMPL-202608281100 / ADR-0064）
-// is_primary=false の言い換え行のみを対象とする。/api/question_altered/* を呼び出し、
+// is_primary=false の言い換え行のみを対象とする。/api/hiroba_question_altered/* を呼び出し、
 // web_backend が Knowledge MCP 経由で処理する。
 // --------------------------------------------------------------------------- //
 export async function listQuestionAltered(
@@ -389,17 +458,17 @@ export async function listQuestionAltered(
   if (params.keyword) q.set("keyword", params.keyword);
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
-  return jsonFetch<QaAlteredListResponse>(`/api/question_altered?${q.toString()}`);
+  return jsonFetch<QaAlteredListResponse>(`/api/hiroba_question_altered?${q.toString()}`);
 }
 
 export async function getQuestionAltered(id: number): Promise<QaAlteredItem> {
-  return jsonFetch<QaAlteredItem>(`/api/question_altered/${id}`);
+  return jsonFetch<QaAlteredItem>(`/api/hiroba_question_altered/${id}`);
 }
 
 export async function createQuestionAltered(
   body: QaAlteredCreateRequest,
 ): Promise<QaAlteredItem> {
-  return jsonFetch<QaAlteredItem>("/api/question_altered", {
+  return jsonFetch<QaAlteredItem>("/api/hiroba_question_altered", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -409,27 +478,27 @@ export async function updateQuestionAltered(
   id: number,
   body: QaAlteredUpdateRequest,
 ): Promise<QaAlteredItem> {
-  return jsonFetch<QaAlteredItem>(`/api/question_altered/${id}`, {
+  return jsonFetch<QaAlteredItem>(`/api/hiroba_question_altered/${id}`, {
     method: "PUT",
     body: JSON.stringify(body),
   });
 }
 
 export async function deleteQuestionAltered(id: number): Promise<void> {
-  await jsonFetch<void>(`/api/question_altered/${id}`, { method: "DELETE" });
+  await jsonFetch<void>(`/api/hiroba_question_altered/${id}`, { method: "DELETE" });
 }
 
 // CSV 一括インポート（id によるupsert。is_primary=true 行を指す行はエラー、他行は継続）。
 export async function importQuestionAlteredCsv(
   file: File,
 ): Promise<QaAlteredImportResponse> {
-  return uploadCsv<QaAlteredImportResponse>("/api/question_altered/import", file);
+  return uploadCsv<QaAlteredImportResponse>("/api/hiroba_question_altered/import", file);
 }
 
 // CSV エクスポート（is_primary=false 全件）。そのまま再インポートできる形式でダウンロードする。
 export async function downloadQuestionAlteredExport(): Promise<void> {
   await downloadBlob(
-    "/api/question_altered/export",
+    "/api/hiroba_question_altered/export",
     "text/csv",
     "question_altered_paraphrases.csv",
   );

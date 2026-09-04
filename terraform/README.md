@@ -73,6 +73,7 @@ terraform/
 ├── apply-app.bat        app 構成のみ apply（要: database 構成 apply 済み）
 ├── apply-all.bat        フルパイプライン（database → app閉 → seed → app開）
 ├── seed.bat             シード run-task のみ実行（再シード用途。要: 両構成 apply 済み）
+├── migrate.bat          マイグレーション専用 run-task（シード投入をスキップ。ADR-0075。要: 両構成 apply 済み）
 ├── destroy-app.bat      app 構成のみ破棄（RDS は残す。'destroy-app' 入力の確認あり）
 ├── destroy-database.bat database 構成を破棄（RDS 削除。'destroy-database' 入力の確認あり）
 ├── deploy/                 コンテナ内 Python オーケストレータ（ADR-0040。*.bat の実体）
@@ -188,6 +189,13 @@ aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
 # CloudWatch Logs /ecs/db-hiroba-qa-init でマイグレーション・シードを確認し、exitCode=0 を確認
 aws ecs describe-tasks --cluster $CLUSTER --tasks <task-arn> --query 'tasks[].containers[].exitCode'
 ```
+
+> **スキーマ変更のみを反映したい場合（ADR-0075）**: `migrate.bat`（または `seed --skip-seed`）を使う。
+> `seed` と同じ `db_init_task_family` を `MIGRATE_ONLY=true` の environment オーバーライドで起動し、
+> シード投入（QA原本・言い換え質問・カテゴリ、embedding 計算を伴いうる手順）だけをスキップして、
+> ロール作成・両DBのマイグレーション適用・権限付与・エクスポート専用ロール作成は通常どおり実行する。
+> 非破壊的・冪等（何度実行しても未適用分のみ適用）で確認プロンプトなし。使い分け:
+> スキーマ反映=`migrate`、データ投入・更新=`import-data`、初回や再シード=`seed`（オプションなし）。
 
 ### Phase 5: app 構成 再 apply（ゲート開）
 **exitCode=0 を確認してから** knowledge_mcp サービスを稼働させる:

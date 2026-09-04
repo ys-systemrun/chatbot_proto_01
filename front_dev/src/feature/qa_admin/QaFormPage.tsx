@@ -6,12 +6,13 @@ import {
   deleteQa,
   getQa,
   listCategories,
+  listTagFolders,
   listTags,
   updateQa,
 } from "../../api";
 import { QA_DELETE_CONFIRM } from "./deleteConfirm";
 import type { Category } from "../../domain/admin/qa";
-import type { TagNode } from "../../domain/admin/tag";
+import type { TagFolder, TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
 
 const QA_LIST_PATH = "/admin/qa";
@@ -39,6 +40,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
+  const [folders, setFolders] = useState<TagFolder[]>([]);
 
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
@@ -47,6 +49,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
   useEffect(() => {
     listCategories().then(setCategories).catch((e) => setError(String(e)));
     listTags().then(setTags).catch((e) => setError(String(e)));
+    listTagFolders().then(setFolders).catch((e) => setError(String(e)));
   }, []);
 
   useEffect(() => {
@@ -180,7 +183,12 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
 
         <div className="admin-field">
           <span className="admin-label">タグ</span>
-          <TagPicker tags={tags} selectedIds={tagIds} onChange={setTagIds} />
+          <TagPicker
+            tags={tags}
+            folders={folders}
+            selectedIds={tagIds}
+            onChange={setTagIds}
+          />
         </div>
 
         <div className="admin-form-actions">

@@ -74,7 +74,7 @@ class QARepository:
 
         if category:
             conditions.append(
-                "qa_original.category_id = (SELECT id FROM category WHERE name = %(category)s)"
+                "hiroba_qa_original.category_id = (SELECT id FROM hiroba_category WHERE name = %(category)s)"
             )
             params["category"] = category
 
@@ -87,41 +87,41 @@ class QARepository:
 
         sql = """
             WITH RECURSIVE tag_closure(tag_id, closure_id) AS (
-                SELECT id, id FROM tag
+                SELECT id, id FROM hiroba_tag
                 UNION ALL
                 SELECT tc.tag_id, t.parent_tag_id
                 FROM tag_closure tc
-                JOIN tag t ON t.id = tc.closure_id
+                JOIN hiroba_tag t ON t.id = tc.closure_id
                 WHERE t.parent_tag_id IS NOT NULL
             ),
             input_closure AS (
                 SELECT COALESCE(array_agg(DISTINCT tc.closure_id), ARRAY[]::integer[]) AS closure
                 FROM tag_closure tc
-                WHERE tc.tag_id IN (SELECT id FROM tag WHERE name = ANY(%(tag_names)s))
+                WHERE tc.tag_id IN (SELECT id FROM hiroba_tag WHERE name = ANY(%(tag_names)s))
             )
             SELECT
-                qa_original.uuid AS qa_id,
-                qa_original.title AS title,
-                qa_original.answer_text AS answer,
-                category.name AS category_name,
+                hiroba_qa_original.uuid AS qa_id,
+                hiroba_qa_original.title AS title,
+                hiroba_qa_original.answer_text AS answer,
+                hiroba_category.name AS category_name,
                 COALESCE(
-                    (SELECT array_agg(tag.name) FROM qa_tag JOIN tag ON tag.id = qa_tag.tag_id
-                     WHERE qa_tag.qa_id = qa_original.uuid),
+                    (SELECT array_agg(hiroba_tag.name) FROM hiroba_qa_tag JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+                     WHERE hiroba_qa_tag.qa_id = hiroba_qa_original.uuid),
                     ARRAY[]::text[]
                 ) AS tag_names,
                 COALESCE(
                     (SELECT array_agg(DISTINCT tc.closure_id)
-                     FROM qa_tag qt JOIN tag_closure tc ON tc.tag_id = qt.tag_id
-                     WHERE qt.qa_id = qa_original.uuid),
+                     FROM hiroba_qa_tag qt JOIN tag_closure tc ON tc.tag_id = qt.tag_id
+                     WHERE qt.qa_id = hiroba_qa_original.uuid),
                     ARRAY[]::integer[]
                 ) AS qa_closure,
                 (SELECT closure FROM input_closure) AS input_closure,
-                question_altered.embedding <=> %(query_vec)s::vector AS distance
-            FROM question_altered
-            LEFT JOIN qa_original ON question_altered.qa_id = qa_original.uuid
-            LEFT JOIN category ON qa_original.category_id = category.id
+                hiroba_question_altered.embedding <=> %(query_vec)s::vector AS distance
+            FROM hiroba_question_altered
+            LEFT JOIN hiroba_qa_original ON hiroba_question_altered.qa_id = hiroba_qa_original.uuid
+            LEFT JOIN hiroba_category ON hiroba_qa_original.category_id = hiroba_category.id
             {where_clause}
-            ORDER BY question_altered.embedding <=> %(query_vec)s::vector
+            ORDER BY hiroba_question_altered.embedding <=> %(query_vec)s::vector
             LIMIT %(pool_size)s
         """.format(where_clause=where_clause)
 

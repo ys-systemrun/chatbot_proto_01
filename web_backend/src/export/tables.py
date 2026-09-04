@@ -1,8 +1,11 @@
 """エクスポート対象テーブルの定義（IMPL-202608241600 T15、5.4 節）。
 
-対象は chatbot データベース6テーブル・conversation データベース6テーブルの計12テーブル。
-カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0005 および
-migrations_conversation/0001〜0003）に基づく。各テーブルについて次を保持する:
+対象は chatbot データベース7テーブル・conversation データベース6テーブルの計13テーブル。
+カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0008 および
+migrations_conversation/0001〜0003）に基づく（0006 で hiroba_tag_folder / hiroba_tag.folder_id 追加, ADR-0072、
+0007 で hiroba_tag_folder.parent_folder_id 追加・name UNIQUE 撤廃, ADR-0073、
+0008 で hiroba_tag / hiroba_tag_folder に display_order 追加, ADR-0074）。
+各テーブルについて次を保持する:
 
   - db          : データベース種別（"chatbot" / "conversation"）
   - name        : テーブル名
@@ -13,13 +16,13 @@ migrations_conversation/0001〜0003）に基づく。各テーブルについて
 
 SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の CHATBOT_TABLES /
 CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
-  - chatbot     : category → qa_original → tag → question_altered → tag_alias → qa_tag
+  - chatbot     : category → qa_original → tag_folder → tag → question_altered → tag_alias → qa_tag
   - conversation: conversation → message → verification_question → verification_run
                   → verification_run_tag → verification_run_source
 
 ADR-0066: conversation の検証4テーブル（verification_*）を追加し、全データエクスポート／
 全消去インポートが会話評価・検証データも含めて往復できるようにした（旧: conversation は
-conversation / message の2テーブルのみ）。全消去インポート（ADR-0066）はここで定義する全12
+conversation / message の2テーブルのみ）。全消去インポート（ADR-0066）はここで定義する全13
 テーブルを唯一の対象集合とし、バックアップ・TRUNCATE・再投入をこの集合で一致させる。
 """
 
@@ -60,16 +63,16 @@ class TableSpec:
 
 
 # --------------------------------------------------------------------------- #
-# chatbot データベース（migrations 0001〜0005 の最終形）
+# chatbot データベース（migrations 0001〜0008 の最終形）
 # --------------------------------------------------------------------------- #
 CHATBOT_TABLES: list[TableSpec] = [
     TableSpec(
         db="chatbot",
-        name="category",
+        name="hiroba_category",
         columns=["id", "name"],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS category (\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_category (\n"
             "    id INTEGER PRIMARY KEY,\n"
             "    name TEXT\n"
             ");"
@@ -77,11 +80,11 @@ CHATBOT_TABLES: list[TableSpec] = [
     ),
     TableSpec(
         db="chatbot",
-        name="qa_original",
+        name="hiroba_qa_original",
         columns=["uuid", "question_text", "answer_text", "category_id", "title"],
         order_by=["uuid"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS qa_original (\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_qa_original (\n"
             "    uuid TEXT PRIMARY KEY,\n"
             "    question_text TEXT,\n"
             "    answer_text TEXT,\n"
@@ -90,28 +93,55 @@ CHATBOT_TABLES: list[TableSpec] = [
             ");"
         ),
     ),
+    # タグフォルダマスタ（ADR-0072、ADR-0073 で階層化、ADR-0074 で display_order 追加）。
+    # hiroba_tag.folder_id の参照先のため hiroba_tag より前に置く。parent_folder_id は自己参照。
+    # name の UNIQUE は撤廃済み（ADR-0073 決定1: name は表示用ラベルで重複可）。
     TableSpec(
         db="chatbot",
-        name="tag",
-        columns=["id", "name", "parent_tag_id", "description"],
+        name="hiroba_tag_folder",
+        columns=["id", "name", "description", "parent_folder_id", "display_order"],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS tag (\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_tag_folder (\n"
             "    id SERIAL PRIMARY KEY,\n"
-            "    name TEXT NOT NULL UNIQUE,\n"
-            "    parent_tag_id INTEGER REFERENCES tag(id),\n"
-            "    description TEXT\n"
+            "    name TEXT NOT NULL,\n"
+            "    description TEXT,\n"
+            "    parent_folder_id INTEGER REFERENCES hiroba_tag_folder(id),\n"
+            "    display_order DOUBLE PRECISION NOT NULL\n"
             ");"
         ),
     ),
     TableSpec(
         db="chatbot",
-        name="question_altered",
+        name="hiroba_tag",
+        columns=[
+            "id",
+            "name",
+            "parent_tag_id",
+            "description",
+            "folder_id",
+            "display_order",
+        ],
+        order_by=["id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS hiroba_tag (\n"
+            "    id SERIAL PRIMARY KEY,\n"
+            "    name TEXT NOT NULL UNIQUE,\n"
+            "    parent_tag_id INTEGER REFERENCES hiroba_tag(id),\n"
+            "    description TEXT,\n"
+            "    folder_id INTEGER REFERENCES hiroba_tag_folder(id),\n"
+            "    display_order DOUBLE PRECISION NOT NULL\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="hiroba_question_altered",
         columns=["id", "qa_id", "text", "embedding", "is_primary"],
         order_by=["id"],
         csv_exclude={"embedding"},
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS question_altered (\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_question_altered (\n"
             "    id SERIAL PRIMARY KEY,\n"
             "    qa_id TEXT,\n"
             "    text TEXT,\n"
@@ -122,26 +152,26 @@ CHATBOT_TABLES: list[TableSpec] = [
     ),
     TableSpec(
         db="chatbot",
-        name="tag_alias",
+        name="hiroba_tag_alias",
         columns=["id", "tag_id", "alias"],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS tag_alias (\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_tag_alias (\n"
             "    id SERIAL PRIMARY KEY,\n"
-            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES hiroba_tag(id),\n"
             "    alias TEXT NOT NULL UNIQUE\n"
             ");"
         ),
     ),
     TableSpec(
         db="chatbot",
-        name="qa_tag",
+        name="hiroba_qa_tag",
         columns=["qa_id", "tag_id"],
         order_by=["qa_id", "tag_id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS qa_tag (\n"
-            "    qa_id TEXT NOT NULL REFERENCES qa_original(uuid),\n"
-            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
+            "CREATE TABLE IF NOT EXISTS hiroba_qa_tag (\n"
+            "    qa_id TEXT NOT NULL REFERENCES hiroba_qa_original(uuid),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES hiroba_tag(id),\n"
             "    PRIMARY KEY (qa_id, tag_id)\n"
             ");"
         ),

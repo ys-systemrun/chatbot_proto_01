@@ -63,6 +63,10 @@ TAG_NODE_SCHEMA = {
         "name": {"type": "string"},
         "parent_tag_id": {"type": ["integer", "null"]},
         "description": {"type": ["string", "null"]},
+        # タグフォルダ（分類表示専用メタデータ, ADR-0072）。検索ロジックには使わない。
+        "folder_id": {"type": ["integer", "null"]},
+        # 兄弟集合内の表示順序（ADR-0074）。表示専用属性で検索・スコアには関与しない。
+        "display_order": {"type": ["number", "null"]},
         "aliases": {"type": "array", "items": TAG_ALIAS_SCHEMA},
         "children": {"type": "array", "items": {"type": "object"}},
     },
@@ -75,6 +79,48 @@ LIST_TAGS_OUTPUT_SCHEMA = {
     "required": ["tags"],
 }
 
+# reorder_tag / reorder_tag_folder の入力（ADR-0074）。direction は up / down のみ。
+REORDER_TAG_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "tag_id": {"type": "integer"},
+        "direction": {"type": "string", "enum": ["up", "down"]},
+    },
+    "required": ["tag_id", "direction"],
+}
+
+REORDER_TAG_FOLDER_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "folder_id": {"type": "integer"},
+        "direction": {"type": "string", "enum": ["up", "down"]},
+    },
+    "required": ["folder_id", "direction"],
+}
+
+# タグフォルダマスタ（分類表示専用メタデータ, ADR-0072 で新設、ADR-0073 で階層化）。
+# parent_folder_id による自己参照ツリー構造。children に子フォルダをネストして返す。
+# name は表示用ラベルで一意性を持たない（id で識別, ADR-0073 決定1）。
+TAG_FOLDER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "name": {"type": "string"},
+        "description": {"type": ["string", "null"]},
+        "parent_folder_id": {"type": ["integer", "null"]},
+        # 兄弟集合内の表示順序（ADR-0074）。表示専用属性で検索には関与しない。
+        "display_order": {"type": ["number", "null"]},
+        "children": {"type": "array", "items": {"type": "object"}},
+    },
+    "required": ["id", "name"],
+}
+
+LIST_TAG_FOLDERS_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {"folders": {"type": "array", "items": TAG_FOLDER_SCHEMA}},
+    "required": ["folders"],
+}
+
 # QA管理ツール（IMPL-202608060837 4.2） --------------------------------------
 QA_SUMMARY_SCHEMA = {
     "type": "object",
@@ -83,9 +129,9 @@ QA_SUMMARY_SCHEMA = {
         "title": {"type": "string"},
         "category": {"type": ["string", "null"]},
         "tags": {"type": "array", "items": {"type": "string"}},
-        "question_altered_count": {"type": "integer"},
+        "hiroba_question_altered_count": {"type": "integer"},
     },
-    "required": ["id", "title", "category", "tags", "question_altered_count"],
+    "required": ["id", "title", "category", "tags", "hiroba_question_altered_count"],
 }
 
 QA_DETAIL_SCHEMA = {
@@ -97,7 +143,7 @@ QA_DETAIL_SCHEMA = {
         "answer_text": {"type": "string"},
         "category": {"type": ["object", "null"]},
         "tags": {"type": "array", "items": {"type": "object"}},
-        "question_altered_count": {"type": "integer"},
+        "hiroba_question_altered_count": {"type": "integer"},
     },
     "required": [
         "id",
@@ -106,7 +152,7 @@ QA_DETAIL_SCHEMA = {
         "answer_text",
         "category",
         "tags",
-        "question_altered_count",
+        "hiroba_question_altered_count",
     ],
 }
 

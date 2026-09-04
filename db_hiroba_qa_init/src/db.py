@@ -18,14 +18,14 @@ class DB:
 
     def exists_qa_original(self) -> bool:
         with self.conn.cursor() as cur:
-            cur.execute("SELECT EXISTS (SELECT 1 FROM qa_original);")
+            cur.execute("SELECT EXISTS (SELECT 1 FROM hiroba_qa_original);")
             return cur.fetchone()[0]
 
     def insert_qa_original(self, rows: List[QAOriginal]):
         with self.conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO qa_original (uuid, question_text, answer_text, category_id)
+                INSERT INTO hiroba_qa_original (uuid, question_text, answer_text, category_id)
                 VALUES (%s, %s, %s, %s)
                 """,
                 [
@@ -36,14 +36,14 @@ class DB:
 
     def exists_category(self) -> bool:
         with self.conn.cursor() as cur:
-            cur.execute("SELECT EXISTS (SELECT 1 FROM category);")
+            cur.execute("SELECT EXISTS (SELECT 1 FROM hiroba_category);")
             return cur.fetchone()[0]
 
     def insert_category(self, rows: List[Category]):
         with self.conn.cursor() as cur:
             cur.executemany(
                 """
-                INSERT INTO category (id, name)
+                INSERT INTO hiroba_category (id, name)
                 VALUES (%s, %s)
                 """,
                 [(row.id, row.name) for row in rows],
@@ -51,7 +51,7 @@ class DB:
 
     def exists_question_altered(self) -> bool:
         with self.conn.cursor() as cur:
-            cur.execute("SELECT EXISTS (SELECT 1 FROM question_altered);")
+            cur.execute("SELECT EXISTS (SELECT 1 FROM hiroba_question_altered);")
             return cur.fetchone()[0]
 
     def insert_question_altered(self, rows: List[QuestionAltered]):
@@ -60,7 +60,7 @@ class DB:
             if values and len(values[0]) == 4:
                 cur.executemany(
                     """
-                    INSERT INTO question_altered (id, qa_id, text, embedding)
+                    INSERT INTO hiroba_question_altered (id, qa_id, text, embedding)
                     VALUES (%s, %s, %s, %s)
                     """,
                     values,
@@ -68,7 +68,7 @@ class DB:
             else:
                 cur.executemany(
                     """
-                    INSERT INTO question_altered (qa_id, text, embedding)
+                    INSERT INTO hiroba_question_altered (qa_id, text, embedding)
                     VALUES (%s, %s, %s)
                     """,
                     values,

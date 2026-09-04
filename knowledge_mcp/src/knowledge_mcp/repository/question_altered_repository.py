@@ -57,12 +57,12 @@ class QuestionAlteredRepository:
 
         where_clause = "WHERE " + " AND ".join(conditions)
 
-        count_sql = f"SELECT COUNT(*) FROM question_altered qa {where_clause}"
+        count_sql = f"SELECT COUNT(*) FROM hiroba_question_altered qa {where_clause}"
 
         list_sql = f"""
             SELECT qa.id, qa.qa_id, qo.title, qa.text, qa.is_primary
-            FROM question_altered qa
-            LEFT JOIN qa_original qo ON qo.uuid = qa.qa_id
+            FROM hiroba_question_altered qa
+            LEFT JOIN hiroba_qa_original qo ON qo.uuid = qa.qa_id
             {where_clause}
             ORDER BY qa.text NULLS LAST, qa.id
             LIMIT %s OFFSET %s
@@ -107,7 +107,7 @@ class QuestionAlteredRepository:
             self._assert_qa_exists(cur, qa_id)
             cur.execute(
                 """
-                INSERT INTO question_altered (qa_id, text, embedding, is_primary)
+                INSERT INTO hiroba_question_altered (qa_id, text, embedding, is_primary)
                 VALUES (%s, %s, %s, false)
                 RETURNING id
                 """,
@@ -139,7 +139,7 @@ class QuestionAlteredRepository:
                 )
             cur.execute(
                 """
-                UPDATE question_altered
+                UPDATE hiroba_question_altered
                 SET text = %s, embedding = %s
                 WHERE id = %s AND is_primary = false
                 """,
@@ -164,7 +164,7 @@ class QuestionAlteredRepository:
                     f"question_altered id={item_id} is a primary row and cannot be deleted"
                 )
             cur.execute(
-                "DELETE FROM question_altered WHERE id = %s AND is_primary = false",
+                "DELETE FROM hiroba_question_altered WHERE id = %s AND is_primary = false",
                 (item_id,),
             )
 
@@ -233,7 +233,7 @@ class QuestionAlteredRepository:
             cur.execute(
                 """
                 SELECT id, qa_id, text, is_primary
-                FROM question_altered
+                FROM hiroba_question_altered
                 WHERE is_primary = false
                 ORDER BY text NULLS LAST, id
                 """
@@ -251,8 +251,8 @@ class QuestionAlteredRepository:
         cur.execute(
             """
             SELECT qa.id, qa.qa_id, qo.title, qa.text, qa.is_primary
-            FROM question_altered qa
-            LEFT JOIN qa_original qo ON qo.uuid = qa.qa_id
+            FROM hiroba_question_altered qa
+            LEFT JOIN hiroba_qa_original qo ON qo.uuid = qa.qa_id
             WHERE qa.id = %s
             """,
             (item_id,),
@@ -280,6 +280,6 @@ class QuestionAlteredRepository:
 
     @staticmethod
     def _assert_qa_exists(cur, qa_id: str) -> None:
-        cur.execute("SELECT 1 FROM qa_original WHERE uuid = %s", (qa_id,))
+        cur.execute("SELECT 1 FROM hiroba_qa_original WHERE uuid = %s", (qa_id,))
         if cur.fetchone() is None:
             raise QuestionAlteredError(f"qa id={qa_id} does not exist")

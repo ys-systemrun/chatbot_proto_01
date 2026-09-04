@@ -105,7 +105,7 @@ def test_no_filters_uses_named_params_without_category_condition():
     entry = db.log[0]
     assert isinstance(entry["params"], dict)  # 名前付きプレースホルダ（dict）
     # category フィルタは付かない
-    assert "category_id = (SELECT id FROM category WHERE name = %(category)s)" not in entry["sql"]
+    assert "category_id = (SELECT id FROM hiroba_category WHERE name = %(category)s)" not in entry["sql"]
     assert "category" not in entry["params"]
     # 既定の候補プールサイズ max(top_k*10, 50)
     assert entry["params"]["pool_size"] == 50
@@ -133,7 +133,7 @@ def test_category_filter_adds_condition_and_named_param():
     repo.search("q", category="カテゴリA", top_k=3)
 
     entry = db.log[0]
-    assert "category_id = (SELECT id FROM category WHERE name = %(category)s)" in entry["sql"]
+    assert "category_id = (SELECT id FROM hiroba_category WHERE name = %(category)s)" in entry["sql"]
     assert entry["params"]["category"] == "カテゴリA"
 
 

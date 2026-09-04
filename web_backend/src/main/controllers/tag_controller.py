@@ -34,18 +34,48 @@ class TagCreateRequest(BaseModel):
     name: str
     parent_tag_id: int | None = None
     description: str | None = None
+    folder_id: int | None = None  # タグフォルダ（分類表示専用, ADR-0072）
 
 
 class TagUpdateRequest(BaseModel):
-    # name / description / parent_tag_id のいずれか複数を指定できる。
+    # name / description / parent_tag_id / folder_id のいずれか複数を指定できる。
     # exclude_unset で「送られた項目のみ」を対応するツール呼び出しへ変換する。
+    # folder_id は送られたときのみ set_tag_folder を呼ぶ（null 指定でタグフォルダを解除）。
     name: str | None = None
     description: str | None = None
     parent_tag_id: int | None = None
+    folder_id: int | None = None
+
+
+class TagReorderRequest(BaseModel):
+    # 兄弟集合内での並べ替え方向（ADR-0074）。"up"=1つ上へ、"down"=1つ下へ。
+    direction: str
 
 
 class TagListResponse(BaseModel):
     tags: list[dict]
+
+
+# タグフォルダマスタ（分類表示専用メタデータ, ADR-0072 で新設、ADR-0073 で階層化）。
+class TagFolderCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    # 親フォルダ（ADR-0073）。省略/None でルートフォルダとして作成する。
+    parent_folder_id: int | None = None
+
+
+class TagFolderUpdateRequest(BaseModel):
+    name: str
+    description: str | None = None
+
+
+class TagFolderMoveRequest(BaseModel):
+    # 移動先の親フォルダ（ADR-0073）。None でルートフォルダへ移動する。
+    new_parent_folder_id: int | None = None
+
+
+class TagFolderListResponse(BaseModel):
+    folders: list[dict]
 
 
 # CSV 一括インポート（IMPL-202608261630 T3 / ADR-0061）。
@@ -102,6 +132,13 @@ async def update_tag(tag_id: int, body: TagUpdateRequest) -> dict:
             {"tag_id": tag_id, "new_parent_tag_id": fields["parent_tag_id"]},
         )
 
+    # folder_id は送られたときのみ set_tag_folder を呼ぶ（null 指定でタグフォルダを解除, ADR-0072）。
+    if "folder_id" in fields:
+        node = await _client.call_tool(
+            "set_tag_folder",
+            {"tag_id": tag_id, "folder_id": fields["folder_id"]},
+        )
+
     log_admin_operation("update", "tag", tag_id, fields)
     return node or {}
 
@@ -109,6 +146,65 @@ async def update_tag(tag_id: int, body: TagUpdateRequest) -> dict:
 async def delete_tag(tag_id: int) -> None:
     await _client.call_tool("delete_tag", {"tag_id": tag_id})
     log_admin_operation("delete", "tag", tag_id, {})
+
+
+async def reorder_tag(tag_id: int, body: TagReorderRequest) -> dict:
+    """タグを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。"""
+    node = await _client.call_tool(
+        "reorder_tag", {"tag_id": tag_id, "direction": body.direction}
+    )
+    log_admin_operation("reorder", "tag", tag_id, {"direction": body.direction})
+    return node
+
+
+# --------------------------------------------------------------------------- #
+# タグフォルダマスタ（分類表示専用メタデータ, ADR-0072）
+# tag と同様に Knowledge MCP のツール経由で処理する。
+# --------------------------------------------------------------------------- #
+async def list_tag_folders() -> TagFolderListResponse:
+    result = await _client.call_tool("list_tag_folders", {})
+    return TagFolderListResponse(**result)
+
+
+async def create_tag_folder(body: TagFolderCreateRequest) -> dict:
+    folder = await _client.call_tool(
+        "create_tag_folder", body.model_dump(exclude_none=True)
+    )
+    log_admin_operation("create", "tag_folder", folder.get("id"), body.model_dump())
+    return folder
+
+
+async def update_tag_folder(folder_id: int, body: TagFolderUpdateRequest) -> dict:
+    args: dict = {"folder_id": folder_id, "new_name": body.name}
+    if body.description is not None:
+        args["description"] = body.description
+    folder = await _client.call_tool("rename_tag_folder", args)
+    log_admin_operation("update", "tag_folder", folder_id, body.model_dump())
+    return folder
+
+
+async def move_tag_folder(folder_id: int, body: TagFolderMoveRequest) -> dict:
+    """タグフォルダの親を変更する（ADR-0073）。循環参照は Knowledge MCP 側で TagError→409。"""
+    folder = await _client.call_tool(
+        "move_tag_folder",
+        {"folder_id": folder_id, "new_parent_folder_id": body.new_parent_folder_id},
+    )
+    log_admin_operation("update", "tag_folder", folder_id, body.model_dump())
+    return folder
+
+
+async def delete_tag_folder(folder_id: int) -> None:
+    await _client.call_tool("delete_tag_folder", {"folder_id": folder_id})
+    log_admin_operation("delete", "tag_folder", folder_id, {})
+
+
+async def reorder_tag_folder(folder_id: int, body: TagReorderRequest) -> dict:
+    """タグフォルダを兄弟集合内で1つ上／下へ並べ替える（ADR-0074）。"""
+    folder = await _client.call_tool(
+        "reorder_tag_folder", {"folder_id": folder_id, "direction": body.direction}
+    )
+    log_admin_operation("reorder", "tag_folder", folder_id, {"direction": body.direction})
+    return folder
 
 
 # --------------------------------------------------------------------------- #

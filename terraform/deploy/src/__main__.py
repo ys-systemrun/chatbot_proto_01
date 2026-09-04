@@ -24,7 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
     ap = add("apply-app", with_yes=True)
     ap.add_argument("--knowledge-mcp-desired-count", type=int, default=1)
     add("apply-all", with_yes=True)
-    add("seed", with_yes=True)
+    sd = add("seed", with_yes=True)
+    sd.add_argument(
+        "--skip-seed",
+        action="store_true",
+        help="シード投入をスキップしマイグレーション専用モードで起動（MIGRATE_ONLY=true, ADR-0075）",
+    )
+    add("migrate")
     imp = add("import-data")
     imp.add_argument(
         "--target",
@@ -54,7 +60,9 @@ def main(argv=None) -> None:
         elif args.command == "apply-all":
             commands.cmd_apply_all(args.yes)
         elif args.command == "seed":
-            commands.cmd_seed(args.yes)
+            commands.cmd_seed(args.yes, skip_seed=args.skip_seed)
+        elif args.command == "migrate":
+            commands.cmd_migrate()
         elif args.command == "import-data":
             commands.cmd_import_data(
                 target=args.target,

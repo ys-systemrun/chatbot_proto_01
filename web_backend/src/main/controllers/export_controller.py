@@ -45,7 +45,7 @@ def _build_sql_files() -> dict[str, bytes]:
 
     with closing(psycopg2.connect(config.CHATBOT_EXPORT_DB_URL)) as chatbot_conn:
         embedding_dim = dump.detect_vector_dim(
-            chatbot_conn, "question_altered", "embedding"
+            chatbot_conn, "hiroba_question_altered", "embedding"
         )
         parts = [tables.CHATBOT_SQL_HEADER]
         for spec in CHATBOT_TABLES:

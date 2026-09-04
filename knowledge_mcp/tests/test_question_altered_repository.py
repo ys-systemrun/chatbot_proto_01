@@ -96,11 +96,11 @@ def test_create_embeds_and_inserts_is_primary_false():
         return [0.5, 0.6]
 
     def responder(sql, params):
-        if sql.strip().startswith("SELECT 1 FROM qa_original"):
+        if sql.strip().startswith("SELECT 1 FROM hiroba_qa_original"):
             return (1,)  # qa_id 存在
         if "RETURNING id" in sql:
             return (42,)  # INSERT ... RETURNING id
-        if "FROM question_altered qa" in sql:  # _load
+        if "FROM hiroba_question_altered qa" in sql:  # _load
             return (42, "qa-1", "タイトル", "本文", False)
         return None
 
@@ -111,7 +111,7 @@ def test_create_embeds_and_inserts_is_primary_false():
     assert model.id == 42
     assert model.is_primary is False
     assert calls["embedded"] == ["本文"]
-    insert = next(e for e in db.log if "INSERT INTO question_altered" in e["sql"])
+    insert = next(e for e in db.log if "INSERT INTO hiroba_question_altered" in e["sql"])
     assert "false" in insert["sql"]  # is_primary=false 固定
 
 
@@ -126,7 +126,7 @@ def test_create_requires_qa_id_and_text():
 
 def test_create_rejects_missing_qa():
     def responder(sql, params):
-        if sql.strip().startswith("SELECT 1 FROM qa_original"):
+        if sql.strip().startswith("SELECT 1 FROM hiroba_qa_original"):
             return None  # qa_id 不存在
         return None
 
@@ -143,7 +143,7 @@ def test_create_rejects_missing_qa():
 # --------------------------------------------------------------------------- #
 def test_update_rejects_primary_row():
     def responder(sql, params):
-        if "FROM question_altered qa" in sql:
+        if "FROM hiroba_question_altered qa" in sql:
             return (7, "qa-1", "タイトル", "本文", True)  # is_primary=true
         return None
 
@@ -166,7 +166,7 @@ def test_update_rejects_missing_row():
 
 def test_delete_rejects_primary_row():
     def responder(sql, params):
-        if "FROM question_altered qa" in sql:
+        if "FROM hiroba_question_altered qa" in sql:
             return (7, "qa-1", "タイトル", "本文", True)
         return None
 
@@ -184,11 +184,11 @@ def test_delete_rejects_primary_row():
 def test_import_batch_create_and_update_and_errors():
     # id 空=create（qa存在）、id=7 は primary でエラー、id=5 は qa_id 付け替えでエラー
     def responder(sql, params):
-        if sql.strip().startswith("SELECT 1 FROM qa_original"):
+        if sql.strip().startswith("SELECT 1 FROM hiroba_qa_original"):
             return (1,)
         if "RETURNING id" in sql:
             return (100,)
-        if "FROM question_altered qa" in sql:
+        if "FROM hiroba_question_altered qa" in sql:
             item_id = params[0]
             if item_id == 7:
                 return (7, "qa-x", "T", "既存", True)   # primary

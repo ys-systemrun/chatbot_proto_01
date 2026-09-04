@@ -49,16 +49,16 @@ class QaManagementRepository:
 
         if keyword:
             conditions.append(
-                "(qa_original.title ILIKE %s"
-                " OR qa_original.question_text ILIKE %s"
-                " OR qa_original.answer_text ILIKE %s)"
+                "(hiroba_qa_original.title ILIKE %s"
+                " OR hiroba_qa_original.question_text ILIKE %s"
+                " OR hiroba_qa_original.answer_text ILIKE %s)"
             )
             like = f"%{keyword}%"
             params.extend([like, like, like])
 
         if category:
             conditions.append(
-                "qa_original.category_id = (SELECT id FROM category WHERE name = %s)"
+                "hiroba_qa_original.category_id = (SELECT id FROM hiroba_category WHERE name = %s)"
             )
             params.append(category)
 
@@ -67,8 +67,8 @@ class QaManagementRepository:
             conditions.append(
                 """(
                     SELECT COUNT(DISTINCT qt.tag_id)
-                    FROM qa_tag qt
-                    WHERE qt.qa_id = qa_original.uuid
+                    FROM hiroba_qa_tag qt
+                    WHERE qt.qa_id = hiroba_qa_original.uuid
                       AND qt.tag_id = ANY(%s)
                 ) = %s"""
             )
@@ -77,31 +77,31 @@ class QaManagementRepository:
 
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
-        count_sql = f"SELECT COUNT(*) FROM qa_original {where_clause}"
+        count_sql = f"SELECT COUNT(*) FROM hiroba_qa_original {where_clause}"
 
         list_sql = f"""
             SELECT
-                qa_original.uuid AS qa_id,
-                qa_original.title AS title,
-                category.name AS category_name,
+                hiroba_qa_original.uuid AS qa_id,
+                hiroba_qa_original.title AS title,
+                hiroba_category.name AS category_name,
                 COALESCE(
                     (
-                        SELECT array_agg(tag.name ORDER BY tag.name)
-                        FROM qa_tag
-                        JOIN tag ON tag.id = qa_tag.tag_id
-                        WHERE qa_tag.qa_id = qa_original.uuid
+                        SELECT array_agg(hiroba_tag.name ORDER BY hiroba_tag.name)
+                        FROM hiroba_qa_tag
+                        JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+                        WHERE hiroba_qa_tag.qa_id = hiroba_qa_original.uuid
                     ),
                     ARRAY[]::text[]
                 ) AS tags,
                 (
                     SELECT COUNT(*)
-                    FROM question_altered
-                    WHERE question_altered.qa_id = qa_original.uuid
-                ) AS question_altered_count
-            FROM qa_original
-            LEFT JOIN category ON qa_original.category_id = category.id
+                    FROM hiroba_question_altered
+                    WHERE hiroba_question_altered.qa_id = hiroba_qa_original.uuid
+                ) AS hiroba_question_altered_count
+            FROM hiroba_qa_original
+            LEFT JOIN hiroba_category ON hiroba_qa_original.category_id = hiroba_category.id
             {where_clause}
-            ORDER BY qa_original.title NULLS LAST, qa_original.uuid
+            ORDER BY hiroba_qa_original.title NULLS LAST, hiroba_qa_original.uuid
             LIMIT %s OFFSET %s
         """
 
@@ -118,7 +118,7 @@ class QaManagementRepository:
                 title=row[1] or "",
                 category=row[2],
                 tags=list(row[3]) if row[3] else [],
-                question_altered_count=row[4],
+                hiroba_question_altered_count=row[4],
             )
             for row in rows
         ]
@@ -135,7 +135,7 @@ class QaManagementRepository:
     def list_categories(self) -> List[dict]:
         """[{"id": int, "name": str}, ...] を返す（category テーブルの単純SELECT）。"""
         with self.db.cursor() as cur:
-            cur.execute("SELECT id, name FROM category ORDER BY id")
+            cur.execute("SELECT id, name FROM hiroba_category ORDER BY id")
             rows = cur.fetchall()
         return [{"id": r[0], "name": r[1]} for r in rows]
 
@@ -168,7 +168,7 @@ class QaManagementRepository:
 
             cur.execute(
                 """
-                INSERT INTO qa_original (uuid, question_text, answer_text, category_id, title)
+                INSERT INTO hiroba_qa_original (uuid, question_text, answer_text, category_id, title)
                 VALUES (%s, %s, %s, %s, %s)
                 """,
                 (qa_id, question_text, answer_text, category_id, title),
@@ -176,14 +176,14 @@ class QaManagementRepository:
             # 主となる質問文行（is_primary=true）を1件生成する。
             cur.execute(
                 """
-                INSERT INTO question_altered (qa_id, text, embedding, is_primary)
+                INSERT INTO hiroba_question_altered (qa_id, text, embedding, is_primary)
                 VALUES (%s, %s, %s, true)
                 """,
                 (qa_id, question_text, vec_str),
             )
             if tag_ids:
                 cur.executemany(
-                    "INSERT INTO qa_tag (qa_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                    "INSERT INTO hiroba_qa_tag (qa_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                     [(qa_id, tid) for tid in tag_ids],
                 )
             detail = self._load_detail(cur, qa_id)
@@ -237,7 +237,7 @@ class QaManagementRepository:
                 set_params.append(category_id)
             if set_clauses:
                 cur.execute(
-                    f"UPDATE qa_original SET {', '.join(set_clauses)} WHERE uuid = %s",
+                    f"UPDATE hiroba_qa_original SET {', '.join(set_clauses)} WHERE uuid = %s",
                     set_params + [qa_id],
                 )
 
@@ -245,7 +245,7 @@ class QaManagementRepository:
             if question_text is not None:
                 cur.execute(
                     """
-                    UPDATE question_altered
+                    UPDATE hiroba_question_altered
                     SET text = %s, embedding = %s
                     WHERE qa_id = %s AND is_primary = true
                     """,
@@ -256,7 +256,7 @@ class QaManagementRepository:
                 if cur.rowcount == 0:
                     cur.execute(
                         """
-                        INSERT INTO question_altered (qa_id, text, embedding, is_primary)
+                        INSERT INTO hiroba_question_altered (qa_id, text, embedding, is_primary)
                         VALUES (%s, %s, %s, true)
                         """,
                         (qa_id, question_text, vec_str),
@@ -264,10 +264,10 @@ class QaManagementRepository:
 
             # tag_ids 指定時: qa_tag を指定集合で置き換える（None は変更なし、[] は全解除）。
             if tag_ids is not None:
-                cur.execute("DELETE FROM qa_tag WHERE qa_id = %s", (qa_id,))
+                cur.execute("DELETE FROM hiroba_qa_tag WHERE qa_id = %s", (qa_id,))
                 if tag_ids:
                     cur.executemany(
-                        "INSERT INTO qa_tag (qa_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                        "INSERT INTO hiroba_qa_tag (qa_id, tag_id) VALUES (%s, %s) ON CONFLICT DO NOTHING",
                         [(qa_id, tid) for tid in tag_ids],
                     )
 
@@ -293,9 +293,9 @@ class QaManagementRepository:
                 raise QaError(f"qa id={qa_id} does not exist")
 
             # qa_tag → question_altered → qa_original の順に、同一トランザクションで削除する。
-            cur.execute("DELETE FROM qa_tag WHERE qa_id = %s", (qa_id,))
-            cur.execute("DELETE FROM question_altered WHERE qa_id = %s", (qa_id,))
-            cur.execute("DELETE FROM qa_original WHERE uuid = %s", (qa_id,))
+            cur.execute("DELETE FROM hiroba_qa_tag WHERE qa_id = %s", (qa_id,))
+            cur.execute("DELETE FROM hiroba_question_altered WHERE qa_id = %s", (qa_id,))
+            cur.execute("DELETE FROM hiroba_qa_original WHERE uuid = %s", (qa_id,))
 
     # ------------------------------------------------------------------ #
     # CSV 一括インポート（IMPL-202608261022 T9 / ADR-0053）
@@ -375,15 +375,15 @@ class QaManagementRepository:
         cur.execute(
             """
             SELECT
-                qa_original.uuid,
-                qa_original.title,
-                qa_original.question_text,
-                qa_original.answer_text,
-                category.id,
-                category.name
-            FROM qa_original
-            LEFT JOIN category ON qa_original.category_id = category.id
-            WHERE qa_original.uuid = %s
+                hiroba_qa_original.uuid,
+                hiroba_qa_original.title,
+                hiroba_qa_original.question_text,
+                hiroba_qa_original.answer_text,
+                hiroba_category.id,
+                hiroba_category.name
+            FROM hiroba_qa_original
+            LEFT JOIN hiroba_category ON hiroba_qa_original.category_id = hiroba_category.id
+            WHERE hiroba_qa_original.uuid = %s
             """,
             (qa_id,),
         )
@@ -393,18 +393,18 @@ class QaManagementRepository:
 
         cur.execute(
             """
-            SELECT tag.id, tag.name
-            FROM qa_tag
-            JOIN tag ON tag.id = qa_tag.tag_id
-            WHERE qa_tag.qa_id = %s
-            ORDER BY tag.name
+            SELECT hiroba_tag.id, hiroba_tag.name
+            FROM hiroba_qa_tag
+            JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+            WHERE hiroba_qa_tag.qa_id = %s
+            ORDER BY hiroba_tag.name
             """,
             (qa_id,),
         )
         tags = [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
         cur.execute(
-            "SELECT COUNT(*) FROM question_altered WHERE qa_id = %s", (qa_id,)
+            "SELECT COUNT(*) FROM hiroba_question_altered WHERE qa_id = %s", (qa_id,)
         )
         altered_count = cur.fetchone()[0]
 
@@ -419,14 +419,14 @@ class QaManagementRepository:
             answer_text=row[3] or "",
             category=category,
             tags=tags,
-            question_altered_count=altered_count,
+            hiroba_question_altered_count=altered_count,
         )
 
     @staticmethod
     def _assert_category_exists(cur, category_id: Optional[int]) -> None:
         if category_id is None:
             return
-        cur.execute("SELECT 1 FROM category WHERE id = %s", (category_id,))
+        cur.execute("SELECT 1 FROM hiroba_category WHERE id = %s", (category_id,))
         if cur.fetchone() is None:
             raise QaError(f"category id={category_id} does not exist")
 
@@ -434,7 +434,7 @@ class QaManagementRepository:
     def _assert_tags_exist(cur, tag_ids: Optional[List[int]]) -> None:
         if not tag_ids:
             return
-        cur.execute("SELECT id FROM tag WHERE id = ANY(%s)", (list(tag_ids),))
+        cur.execute("SELECT id FROM hiroba_tag WHERE id = ANY(%s)", (list(tag_ids),))
         found = {r[0] for r in cur.fetchall()}
         missing = [tid for tid in tag_ids if tid not in found]
         if missing:

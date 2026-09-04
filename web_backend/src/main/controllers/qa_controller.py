@@ -31,7 +31,7 @@ class QaSummaryModel(BaseModel):
     title: str
     category: str | None = None
     tags: list[str] = []
-    question_altered_count: int = 0
+    hiroba_question_altered_count: int = 0
 
 
 class QaListResponse(BaseModel):
@@ -46,7 +46,7 @@ class QaDetailResponse(BaseModel):
     answer_text: str
     category: dict | None = None
     tags: list[dict] = []
-    question_altered_count: int = 0
+    hiroba_question_altered_count: int = 0
 
 
 class QaCreateRequest(BaseModel):
