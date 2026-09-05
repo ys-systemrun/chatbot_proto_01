@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+<rect x="0" y="0" width="960" height="600" rx="0" fill="#f4f5f7"/>
+<rect x="0" y="0" width="960" height="44" rx="0" fill="#1f2937"/>
+<text x="24" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">チャット</text>
+<text x="130" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#3b82f6" font-weight="700" text-anchor="start">管理</text>
+<rect x="126" y="36" width="38" height="3" rx="2" fill="#3b82f6"/>
+<text x="210" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">評価</text>
+<rect x="0" y="44" width="960" height="40" rx="0" fill="#eef1f5"/>
+<line x1="0" y1="84" x2="960" y2="84" stroke="#d7dbe0" stroke-width="1"/>
+<text x="24" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="700" text-anchor="start">QA・タグ管理</text>
+<text x="150" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">QA</text>
+<text x="210" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">言い換え</text>
+<text x="296" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">タグ</text>
+<text x="356" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">検証</text>
+<text x="416" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#2563eb" font-weight="700" text-anchor="start">エクスポート</text>
+<rect x="413" y="76" width="84" height="3" rx="2" fill="#2563eb"/>
+<text x="24" y="116" font-family="'Segoe UI',system-ui,sans-serif" font-size="18" fill="#1f2933" font-weight="700" text-anchor="start">全データエクスポート</text>
+<text x="24" y="142" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">chatbot DB + conversation DB の全13テーブルを ZIP でダウンロード</text>
+<rect x="24" y="170" width="912" height="160" rx="10" fill="#ffffff" stroke="#d7dbe0" stroke-width="1"/>
+<text x="44" y="208" font-family="'Segoe UI',system-ui,sans-serif" font-size="14" fill="#1f2933" font-weight="700" text-anchor="start">形式を選択</text>
+<rect x="44" y="226" width="18" height="18" rx="9" fill="#ffffff" stroke="#2563eb" stroke-width="2"/>
+<rect x="48" y="230" width="10" height="10" rx="5" fill="#2563eb"/>
+<text x="72" y="240" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">SQL（空のPostgreSQLへ再投入可能）</text>
+<rect x="44" y="258" width="18" height="18" rx="9" fill="#ffffff" stroke="#d7dbe0" stroke-width="2"/>
+<text x="72" y="272" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">CSV（表計算ソフト用・ベクトルは除外）</text>
+<rect x="44" y="296" width="200" height="30" rx="6" fill="#059669"/><text x="144.0" y="316" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">エクスポート</text>
+<rect x="24" y="350" width="912" height="40" rx="8" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1"/>
+<text x="40" y="375" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#065f46" font-weight="normal" text-anchor="start">✓ SQL 形式でエクスポートしました。</text>
+<rect x="0" y="574" width="960" height="26" rx="0" fill="#111827"/>
+<text x="14" y="592" font-family="monospace" font-size="12" fill="#9aa4b2" font-weight="normal" text-anchor="start">URL: /admin/export</text>
+<text x="946" y="592" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="end">管理 / エクスポート</text>
+</svg>

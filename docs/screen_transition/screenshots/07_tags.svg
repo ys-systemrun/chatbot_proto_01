@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+<rect x="0" y="0" width="960" height="600" rx="0" fill="#f4f5f7"/>
+<rect x="0" y="0" width="960" height="44" rx="0" fill="#1f2937"/>
+<text x="24" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">チャット</text>
+<text x="130" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#3b82f6" font-weight="700" text-anchor="start">管理</text>
+<rect x="126" y="36" width="38" height="3" rx="2" fill="#3b82f6"/>
+<text x="210" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">評価</text>
+<rect x="0" y="44" width="960" height="40" rx="0" fill="#eef1f5"/>
+<line x1="0" y1="84" x2="960" y2="84" stroke="#d7dbe0" stroke-width="1"/>
+<text x="24" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="700" text-anchor="start">QA・タグ管理</text>
+<text x="150" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">QA</text>
+<text x="210" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">言い換え</text>
+<text x="296" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#2563eb" font-weight="700" text-anchor="start">タグ</text>
+<rect x="293" y="76" width="32" height="3" rx="2" fill="#2563eb"/>
+<text x="356" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">検証</text>
+<text x="416" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">エクスポート</text>
+<text x="24" y="116" font-family="'Segoe UI',system-ui,sans-serif" font-size="18" fill="#1f2933" font-weight="700" text-anchor="start">タグ管理（フォルダ階層ツリー）</text>
+<rect x="530" y="98" width="119" height="30" rx="6" fill="#6b7280"/><text x="589.5" y="118" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">CSVエクスポート</text>
+<rect x="690" y="98" width="108" height="30" rx="6" fill="#6b7280"/><text x="744.0" y="118" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">CSVインポート</text>
+<rect x="840" y="98" width="64" height="30" rx="6" fill="#2563eb"/><text x="872.0" y="118" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">＋ 追加</text>
+<text x="24" y="144" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="600" text-anchor="start">タグ検索（類似タグ・パンくず表示）</text>
+<rect x="24" y="150" width="360" height="30" rx="6" fill="#fbfcfd" stroke="#d7dbe0" stroke-width="1"/>
+<text x="34" y="170.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">返品</text>
+<rect x="24" y="200" width="912" height="300" rx="10" fill="#ffffff" stroke="#d7dbe0" stroke-width="1"/>
+<text x="44" y="230" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="700" text-anchor="start">📁 製品カテゴリ</text>
+<text x="740" y="230" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="72" y="262" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="700" text-anchor="start">📁 サポート</text>
+<text x="740" y="262" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="100" y="294" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">🏷 返品</text>
+<text x="740" y="294" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="100" y="326" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">🏷 交換</text>
+<text x="740" y="326" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="72" y="358" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">🏷 製品A</text>
+<text x="740" y="358" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="44" y="390" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="400" text-anchor="start">📁 未分類</text>
+<text x="740" y="390" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#8a94a6" font-weight="normal" text-anchor="start">編集 / 削除 / ↑↓並べ替え</text>
+<text x="24" y="470" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">フォルダ移動・タグ並べ替え・フォルダ/タグの追加編集削除はページ内モーダルで実行</text>
+<rect x="0" y="574" width="960" height="26" rx="0" fill="#111827"/>
+<text x="14" y="592" font-family="monospace" font-size="12" fill="#9aa4b2" font-weight="normal" text-anchor="start">URL: /admin/tags</text>
+<text x="946" y="592" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="end">管理 / タグ</text>
+</svg>

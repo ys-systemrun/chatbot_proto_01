@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+<rect x="0" y="0" width="960" height="600" rx="0" fill="#f4f5f7"/>
+<rect x="0" y="0" width="960" height="44" rx="0" fill="#1f2937"/>
+<text x="24" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">チャット</text>
+<text x="130" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">管理</text>
+<text x="210" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#3b82f6" font-weight="700" text-anchor="start">評価</text>
+<rect x="206" y="36" width="38" height="3" rx="2" fill="#3b82f6"/>
+<text x="24" y="78" font-family="'Segoe UI',system-ui,sans-serif" font-size="18" fill="#1f2933" font-weight="700" text-anchor="start">評価済みメッセージ一覧</text>
+<text x="24" y="100" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">👍/👎 が付いた会話を時系列で確認する（読み取り専用）</text>
+<rect x="24" y="120" width="912" height="32" rx="6" fill="#f1f4f8" stroke="#d7dbe0" stroke-width="1"/>
+<text x="38.0" y="141" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">#</text>
+<text x="220.4" y="141" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">ロール</text>
+<text x="402.8" y="141" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">評価</text>
+<text x="585.2" y="141" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">内容</text>
+<text x="767.6" y="141" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">日時</text>
+<rect x="24" y="152" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="177.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">1</text>
+<text x="220.4" y="177.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">ユーザー</text>
+<text x="402.8" y="177.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">－</text>
+<text x="585.2" y="177.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">返品の手続きを…</text>
+<text x="767.6" y="177.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">2026/09/01 10:12</text>
+<rect x="24" y="192" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="217.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">2</text>
+<text x="220.4" y="217.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">アシスタント</text>
+<text x="402.8" y="217.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">👍</text>
+<text x="585.2" y="217.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">マイページの注文履歴…</text>
+<text x="767.6" y="217.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">2026/09/01 10:12</text>
+<rect x="24" y="232" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="257.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">3</text>
+<text x="220.4" y="257.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">ユーザー</text>
+<text x="402.8" y="257.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">－</text>
+<text x="585.2" y="257.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">領収書は出せますか</text>
+<text x="767.6" y="257.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">2026/09/02 09:40</text>
+<rect x="24" y="272" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="297.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">4</text>
+<text x="220.4" y="297.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">アシスタント</text>
+<text x="402.8" y="297.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">👎</text>
+<text x="585.2" y="297.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">領収書は発行できません</text>
+<text x="767.6" y="297.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">2026/09/02 09:41</text>
+<text x="24" y="320" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">会話単位で折りたたみ、各メッセージの入力(input)・モデル名も展開表示</text>
+<rect x="0" y="574" width="960" height="26" rx="0" fill="#111827"/>
+<text x="14" y="592" font-family="monospace" font-size="12" fill="#9aa4b2" font-weight="normal" text-anchor="start">URL: /evaluated_messages</text>
+<text x="946" y="592" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="end">評価 / evaluated_messages</text>
+</svg>

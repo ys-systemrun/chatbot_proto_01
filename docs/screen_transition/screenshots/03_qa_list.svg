@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+<rect x="0" y="0" width="960" height="600" rx="0" fill="#f4f5f7"/>
+<rect x="0" y="0" width="960" height="44" rx="0" fill="#1f2937"/>
+<text x="24" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">チャット</text>
+<text x="130" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#3b82f6" font-weight="700" text-anchor="start">管理</text>
+<rect x="126" y="36" width="38" height="3" rx="2" fill="#3b82f6"/>
+<text x="210" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">評価</text>
+<rect x="0" y="44" width="960" height="40" rx="0" fill="#eef1f5"/>
+<line x1="0" y1="84" x2="960" y2="84" stroke="#d7dbe0" stroke-width="1"/>
+<text x="24" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="700" text-anchor="start">QA・タグ管理</text>
+<text x="150" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#2563eb" font-weight="700" text-anchor="start">QA</text>
+<rect x="147" y="76" width="32" height="3" rx="2" fill="#2563eb"/>
+<text x="210" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">言い換え</text>
+<text x="296" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">タグ</text>
+<text x="356" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">検証</text>
+<text x="416" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">エクスポート</text>
+<text x="24" y="116" font-family="'Segoe UI',system-ui,sans-serif" font-size="18" fill="#1f2933" font-weight="700" text-anchor="start">QA 一覧</text>
+<rect x="640" y="98" width="108" height="30" rx="6" fill="#6b7280"/><text x="694.0" y="118" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">CSVインポート</text>
+<rect x="810" y="98" width="86" height="30" rx="6" fill="#2563eb"/><text x="853.0" y="118" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">＋ 新規作成</text>
+<text x="24" y="144" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="600" text-anchor="start">キーワード</text>
+<rect x="24" y="150" width="240" height="30" rx="6" fill="#fbfcfd" stroke="#d7dbe0" stroke-width="1"/>
+<text x="34" y="170.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">返品</text>
+<text x="280" y="144" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="600" text-anchor="start">カテゴリ</text>
+<rect x="280" y="150" width="200" height="30" rx="6" fill="#fbfcfd" stroke="#d7dbe0" stroke-width="1"/>
+<text x="290" y="170.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">手続き</text>
+<text x="500" y="144" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="600" text-anchor="start">タグ絞り込み（TagPicker）</text>
+<rect x="500" y="150" width="260" height="30" rx="6" fill="#fbfcfd" stroke="#d7dbe0" stroke-width="1"/>
+<text x="510" y="170.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="normal" text-anchor="start">#返品</text>
+<rect x="24" y="210" width="912" height="32" rx="6" fill="#f1f4f8" stroke="#d7dbe0" stroke-width="1"/>
+<text x="38.0" y="231" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">タイトル(→編集)</text>
+<text x="266.0" y="231" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">カテゴリ</text>
+<text x="494.0" y="231" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">言い換え数</text>
+<text x="722.0" y="231" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">タグ</text>
+<rect x="24" y="242" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="267.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#2563eb" font-weight="normal" text-anchor="start">返品の手続き</text>
+<text x="266.0" y="267.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">手続き</text>
+<text x="494.0" y="267.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">3</text>
+<text x="722.0" y="267.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">#返品 #製品A</text>
+<rect x="24" y="282" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="307.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#2563eb" font-weight="normal" text-anchor="start">領収書の発行</text>
+<text x="266.0" y="307.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">経理</text>
+<text x="494.0" y="307.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">1</text>
+<text x="722.0" y="307.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">#経理</text>
+<rect x="24" y="322" width="912" height="40" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="347.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#2563eb" font-weight="normal" text-anchor="start">配送状況の確認</text>
+<text x="266.0" y="347.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">配送</text>
+<text x="494.0" y="347.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">0</text>
+<text x="722.0" y="347.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">#配送</text>
+<text x="24" y="400" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">行のタイトル → QA編集 / 言い換え数 → 言い換え一覧（QA絞り込み）</text>
+<rect x="770" y="420" width="30" height="28" rx="6" fill="#ffffff" stroke="#d7dbe0" stroke-width="1"/>
+<text x="785" y="439" font-family="'Segoe UI',system-ui,sans-serif" font-size="14" fill="#1f2933" font-weight="normal" text-anchor="start">‹</text>
+<text x="820" y="439" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="normal" text-anchor="start">1 / 5</text>
+<rect x="865" y="420" width="30" height="28" rx="6" fill="#ffffff" stroke="#d7dbe0" stroke-width="1"/>
+<text x="880" y="439" font-family="'Segoe UI',system-ui,sans-serif" font-size="14" fill="#1f2933" font-weight="normal" text-anchor="start">›</text>
+<rect x="0" y="574" width="960" height="26" rx="0" fill="#111827"/>
+<text x="14" y="592" font-family="monospace" font-size="12" fill="#9aa4b2" font-weight="normal" text-anchor="start">URL: /admin/qa?page=1&amp;keyword=…</text>
+<text x="946" y="592" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="end">管理 / QA一覧</text>
+</svg>

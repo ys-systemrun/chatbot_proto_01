@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 600" width="960" height="600">
+<rect x="0" y="0" width="960" height="600" rx="0" fill="#f4f5f7"/>
+<rect x="0" y="0" width="960" height="44" rx="0" fill="#1f2937"/>
+<text x="24" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">チャット</text>
+<text x="130" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#3b82f6" font-weight="700" text-anchor="start">管理</text>
+<rect x="126" y="36" width="38" height="3" rx="2" fill="#3b82f6"/>
+<text x="210" y="28" font-family="'Segoe UI',system-ui,sans-serif" font-size="15" fill="#c9d1d9" font-weight="400" text-anchor="start">評価</text>
+<rect x="0" y="44" width="960" height="40" rx="0" fill="#eef1f5"/>
+<line x1="0" y1="84" x2="960" y2="84" stroke="#d7dbe0" stroke-width="1"/>
+<text x="24" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#8a94a6" font-weight="700" text-anchor="start">QA・タグ管理</text>
+<text x="150" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">QA</text>
+<text x="210" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">言い換え</text>
+<text x="296" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">タグ</text>
+<text x="356" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#2563eb" font-weight="700" text-anchor="start">検証</text>
+<rect x="353" y="76" width="32" height="3" rx="2" fill="#2563eb"/>
+<text x="416" y="69" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="400" text-anchor="start">エクスポート</text>
+<text x="24" y="116" font-family="'Segoe UI',system-ui,sans-serif" font-size="18" fill="#1f2933" font-weight="700" text-anchor="start">検証詳細</text>
+<text x="24" y="138" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#2563eb" font-weight="normal" text-anchor="start">← 検証一覧へ戻る</text>
+<rect x="24" y="160" width="912" height="60" rx="10" fill="#ffffff" stroke="#d7dbe0" stroke-width="1"/>
+<text x="40" y="185" font-family="'Segoe UI',system-ui,sans-serif" font-size="14" fill="#1f2933" font-weight="600" text-anchor="start">質問文: 返品はできますか</text>
+<text x="40" y="208" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">検証実行日時: 2026/09/03 10:00</text>
+<text x="24" y="250" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="700" text-anchor="start">検索結果（タグ / 情報源スコア）</text>
+<rect x="24" y="264" width="520" height="32" rx="6" fill="#f1f4f8" stroke="#d7dbe0" stroke-width="1"/>
+<text x="38.0" y="285" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">ラベル</text>
+<text x="298.0" y="285" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="700" text-anchor="start">スコア</text>
+<rect x="24" y="296" width="520" height="34" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="318.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">#返品</text>
+<text x="298.0" y="318.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">0.82</text>
+<rect x="24" y="330" width="520" height="34" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="352.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">#手続き</text>
+<text x="298.0" y="352.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">0.64</text>
+<rect x="24" y="364" width="520" height="34" rx="0" fill="#ffffff" stroke="#e3e7ec" stroke-width="1"/>
+<text x="38.0" y="386.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">QA: 返品の手続き</text>
+<text x="298.0" y="386.0" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#1f2933" font-weight="normal" text-anchor="start">0.79</text>
+<rect x="560" y="264" width="376" height="150" rx="10" fill="#fbfcfd" stroke="#d7dbe0" stroke-width="1"/>
+<text x="576" y="290" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#1f2933" font-weight="700" text-anchor="start">評価入力</text>
+<rect x="576" y="306" width="90" height="30" rx="6" fill="#dcfce7"/>
+<text x="621" y="326" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#166534" font-weight="normal" text-anchor="middle">適切</text>
+<rect x="676" y="306" width="90" height="30" rx="6" fill="#fee2e2"/>
+<text x="721" y="326" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#991b1b" font-weight="normal" text-anchor="middle">不適切</text>
+<rect x="576" y="356" width="190" height="30" rx="6" fill="#059669"/><text x="671.0" y="376" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">評価を保存</text>
+<rect x="810" y="430" width="110" height="30" rx="6" fill="#2563eb"/><text x="865.0" y="450" font-family="'Segoe UI',system-ui,sans-serif" font-size="13" fill="#ffffff" font-weight="600" text-anchor="middle">編集</text>
+<text x="24" y="450" font-family="'Segoe UI',system-ui,sans-serif" font-size="12" fill="#8a94a6" font-weight="normal" text-anchor="start">「編集」→ 検証質問の編集フォーム、「検証実行」で再実行</text>
+<rect x="0" y="574" width="960" height="26" rx="0" fill="#111827"/>
+<text x="14" y="592" font-family="monospace" font-size="12" fill="#9aa4b2" font-weight="normal" text-anchor="start">URL: /admin/verification/:id</text>
+<text x="946" y="592" font-family="'Segoe UI',system-ui,sans-serif" font-size="11" fill="#6b7280" font-weight="normal" text-anchor="end">管理 / 検証詳細</text>
+</svg>
