@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import {
+  addTagAlias,
   createTag,
   createTagFolder,
   deleteTag,
@@ -10,12 +11,15 @@ import {
   listTagFolders,
   listTags,
   moveTagFolder,
+  removeTagAlias,
   reorderTag,
   reorderTagFolder,
   updateTag,
+  updateTagAlias,
   updateTagFolder,
 } from "../../api";
 import type {
+  TagAlias,
   TagFolder,
   TagImportResponse,
   TagNode,
@@ -98,6 +102,14 @@ export default function TagTreePage() {
   // CSV エクスポート状態（IMPL-202608281500 / ADR-0065）
   const [exporting, setExporting] = useState(false);
 
+  // タグエイリアスのインライン追加・編集（ADR-0080）。1度に1つの入力欄のみを開く。
+  // aliasId=null は「追加」、非nullは既存エイリアスの「編集」。value が類似候補チェックの入力になる。
+  const [aliasEdit, setAliasEdit] = useState<{
+    tagId: number;
+    aliasId: number | null;
+    value: string;
+  } | null>(null);
+
   function reload() {
     setLoading(true);
     Promise.all([listTags(), listTagFolders()])
@@ -129,6 +141,14 @@ export default function TagTreePage() {
   );
   // 新規作成名の類似候補（非ブロッキング, ADR-0071）
   const similar = useMemo(() => findSimilarTags(tags, newName), [tags, newName]);
+  // エイリアス追加・編集中の入力に対する類似候補（ADR-0082）。新規タグ作成と同じ findSimilarTags を
+  // 再利用し、操作対象のタグ自身（同じタグへの別表記の追加は正常）は候補から除外する。
+  const aliasSimilar = useMemo(() => {
+    if (!aliasEdit || !aliasEdit.value.trim()) return [];
+    return findSimilarTags(tags, aliasEdit.value).filter(
+      (c) => c.node.id !== aliasEdit.tagId,
+    );
+  }, [tags, aliasEdit]);
 
   async function run(action: () => Promise<unknown>) {
     setError(null);
@@ -188,6 +208,38 @@ export default function TagTreePage() {
   // 通常ここに到達するのは移動可能なケースのみ（サーバ側も境界は No-Op）。
   function onReorder(node: TagNode, direction: "up" | "down") {
     run(() => reorderTag(node.id, { direction }));
+  }
+
+  // --- タグエイリアスの追加・編集・削除（ADR-0080） --- //
+  // 追加・編集はインライン入力欄で行い、入力中は類似候補チェック（ADR-0082）を非ブロッキング表示する。
+  function beginAddAlias(node: TagNode) {
+    setAliasEdit({ tagId: node.id, aliasId: null, value: "" });
+  }
+
+  function beginEditAlias(node: TagNode, alias: TagAlias) {
+    setAliasEdit({ tagId: node.id, aliasId: alias.id, value: alias.alias });
+  }
+
+  function cancelAliasEdit() {
+    setAliasEdit(null);
+  }
+
+  async function submitAliasEdit() {
+    if (!aliasEdit) return;
+    const value = aliasEdit.value.trim();
+    if (!value) return;
+    const { tagId, aliasId } = aliasEdit;
+    await run(() =>
+      aliasId == null
+        ? addTagAlias(tagId, { alias: value })
+        : updateTagAlias(tagId, aliasId, { alias: value }),
+    );
+    setAliasEdit(null);
+  }
+
+  function onDeleteAlias(node: TagNode, alias: TagAlias) {
+    if (!window.confirm(`エイリアス「${alias.alias}」を削除しますか？`)) return;
+    run(() => removeTagAlias(node.id, alias.id));
   }
 
   // --- タグフォルダマスタ管理（ADR-0072） --- //
@@ -345,6 +397,115 @@ export default function TagTreePage() {
     );
   }
 
+  // タグ行のエイリアス欄（ADR-0080: 追加・編集・削除、ADR-0082: 入力中の類似候補チェック）。
+  // 表示専用のバッジから、各バッジの編集（✎）・削除（✕）＋追加入力欄を備えたUIへ拡張する。
+  function aliasArea(node: TagNode) {
+    const editing = aliasEdit?.tagId === node.id ? aliasEdit : null;
+    return (
+      <div className="admin-alias-area">
+        {node.aliases.map((a) =>
+          editing?.aliasId === a.id ? null : (
+            <span key={a.id} className="admin-alias" title="同義語">
+              {a.alias}
+              <button
+                type="button"
+                className="admin-alias-btn"
+                title="エイリアスを編集"
+                onClick={() => beginEditAlias(node, a)}
+              >
+                ✎
+              </button>
+              <button
+                type="button"
+                className="admin-alias-btn admin-danger"
+                title="エイリアスを削除"
+                onClick={() => onDeleteAlias(node, a)}
+              >
+                ✕
+              </button>
+            </span>
+          ),
+        )}
+        {editing ? (
+          <span className="admin-alias-editor">
+            <input
+              className="admin-input admin-alias-input"
+              autoFocus
+              placeholder={
+                editing.aliasId == null
+                  ? "追加するエイリアス"
+                  : "エイリアスを編集"
+              }
+              value={editing.value}
+              onChange={(e) =>
+                setAliasEdit({ ...editing, value: e.target.value })
+              }
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submitAliasEdit();
+                } else if (e.key === "Escape") {
+                  cancelAliasEdit();
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="admin-link"
+              onClick={submitAliasEdit}
+              disabled={!editing.value.trim()}
+            >
+              保存
+            </button>
+            <button
+              type="button"
+              className="admin-link"
+              onClick={cancelAliasEdit}
+            >
+              取消
+            </button>
+          </span>
+        ) : (
+          <button
+            type="button"
+            className="admin-link admin-alias-add"
+            title="エイリアス（同義語）を追加"
+            onClick={() => beginAddAlias(node)}
+          >
+            ＋エイリアス
+          </button>
+        )}
+        {/* 入力中の類似候補（非ブロッキング, ADR-0082）。対象タグ自身は除外済み。 */}
+        {editing && aliasSimilar.length > 0 && (
+          <div className="admin-similar admin-alias-similar">
+            <p className="admin-similar-head">
+              似た名前の既存タグ・エイリアスがあります（登録はブロックしません。
+              別概念なら続行、同じ概念なら既存をご利用ください）:
+            </p>
+            <ul className="admin-similar-list">
+              {aliasSimilar.map((c) => (
+                <li key={c.node.id}>
+                  <span className="admin-tagname">{c.matchedText}</span>
+                  {c.kind === "alias" && (
+                    <span className="admin-alias">
+                      エイリアス → {c.node.name}
+                    </span>
+                  )}
+                  {c.parentName && (
+                    <span className="admin-tagdesc">（親: {c.parentName}）</span>
+                  )}
+                  {c.node.description && (
+                    <span className="admin-tagdesc">{c.node.description}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   // ancestors を渡すと先頭にパンくず（祖先名の経路）を表示する（絞り込み時, ADR-0070）。
   function tagMain(node: TagNode, ancestors?: string[]) {
     return (
@@ -362,11 +523,7 @@ export default function TagTreePage() {
         {node.description && (
           <span className="admin-tagdesc">{node.description}</span>
         )}
-        {node.aliases.map((a) => (
-          <span key={a.id} className="admin-alias" title="同義語（表示のみ）">
-            {a.alias}
-          </span>
-        ))}
+        {aliasArea(node)}
       </div>
     );
   }
@@ -629,8 +786,13 @@ export default function TagTreePage() {
           <p className="admin-hint">
             列: <code>name</code>（必須）, <code>parent_name</code>（任意、空欄は
             新規作成時＝ルート直下／更新時＝変更なし）, <code>description</code>
-            （任意、空欄は更新時＝変更なし）。name が既存タグに一致すれば更新、
+            （任意、空欄は更新時＝変更なし）, <code>aliases</code>（任意、パイプ
+            <code>|</code> 区切りで複数指定）。name が既存タグに一致すれば更新、
             一致しなければ新規作成します。UTF-8 で保存してください。
+            <br />
+            エイリアスは<strong>追加専用</strong>です（CSV に書いた同義語を対象タグへ
+            追加するのみ。CSV から省いた既存エイリアスは削除されません）。別のタグに
+            既に登録済みの同義語は、その1件のみ警告となり他は続行します（ADR-0081）。
             （タグフォルダはCSV対象外のため、管理画面で個別に設定してください。）
           </p>
           <div className="admin-csv-actions">
@@ -668,6 +830,21 @@ export default function TagTreePage() {
                     .map((r) => (
                       <li key={r.row}>
                         行 {r.row + 1}: {r.error}
+                      </li>
+                    ))}
+                </ul>
+              )}
+              {/* エイリアス追加専用の警告（別タグに既存 等, ADR-0081 決定3）。行自体は成功。 */}
+              {importResult.results.some(
+                (r) => (r.alias_warnings?.length ?? 0) > 0,
+              ) && (
+                <ul className="admin-import-warnings">
+                  {importResult.results
+                    .filter((r) => (r.alias_warnings?.length ?? 0) > 0)
+                    .map((r) => (
+                      <li key={r.row}>
+                        行 {r.row + 1}（エイリアス警告）:{" "}
+                        {r.alias_warnings!.join(" / ")}
                       </li>
                     ))}
                 </ul>

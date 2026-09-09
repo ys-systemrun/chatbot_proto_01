@@ -21,6 +21,7 @@ from src.main.controllers import (
     qa_controller,
     question_altered_controller,
     tag_controller,
+    troubleshooting_controller,
     verification_controller,
 )
 
@@ -215,8 +216,9 @@ async def reorder_tag(
     return await tag_controller.reorder_tag(tag_id, body)
 
 
-# タグの CSV エクスポート（IMPL-202608281500 / ADR-0065）。全タグを name/parent_name/description の
-# 3列（import_tag_batch と完全一致、そのまま再インポート可能）で text/csv + attachment で返す。
+# タグの CSV エクスポート（IMPL-202608281500 / ADR-0065、ADR-0081 で aliases 列追加）。全タグを
+# name/parent_name/description/aliases の4列（import_tag_batch と完全一致、そのまま再インポート可能）で
+# text/csv + attachment で返す。aliases はパイプ「|」区切り・インポート時は追加専用（ADR-0081）。
 @app.get("/api/tags/export")
 async def export_tags() -> Response:
     csv_bytes, filename = await tag_controller.build_export_csv()
@@ -232,6 +234,28 @@ async def export_tags() -> Response:
 @app.post("/api/tags/import", response_model=tag_controller.TagImportResponse)
 async def import_tags(file: UploadFile = File(...)):
     return await tag_controller.import_tags_csv(await file.read())
+
+
+# タグエイリアスの追加・編集・削除（ADR-0080）。tag_id は UI 上の文脈を表すパス要素。
+# alias 重複は Knowledge MCP の TagError→409（グローバルハンドラ）で返る。
+@app.post("/api/tags/{tag_id}/aliases", status_code=201)
+async def add_tag_alias(
+    tag_id: int, body: tag_controller.TagAliasCreateRequest
+) -> dict:
+    return await tag_controller.add_tag_alias(tag_id, body)
+
+
+@app.put("/api/tags/{tag_id}/aliases/{alias_id}")
+async def update_tag_alias(
+    tag_id: int, alias_id: int, body: tag_controller.TagAliasUpdateRequest
+) -> dict:
+    return await tag_controller.update_tag_alias(tag_id, alias_id, body)
+
+
+@app.delete("/api/tags/{tag_id}/aliases/{alias_id}", status_code=204)
+async def remove_tag_alias(tag_id: int, alias_id: int) -> Response:
+    await tag_controller.remove_tag_alias(tag_id, alias_id)
+    return Response(status_code=204)
 
 
 # ---------------------------------------------------------------------------
@@ -277,6 +301,54 @@ async def reorder_tag_folder(
     folder_id: int, body: tag_controller.TagReorderRequest
 ) -> dict:
     return await tag_controller.reorder_tag_folder(folder_id, body)
+
+
+# ---------------------------------------------------------------------------
+# 管理UI: /api/troubleshooting_articles*（トラブルシューティング記事管理, ADR-0079）
+# ---------------------------------------------------------------------------
+# 一覧・詳細・更新（構造化フィールド編集＋タグ付け）のみ。新規作成・削除は初期スコープ外
+# （新規追加は HTML インポートが唯一の経路）。/source_keys は /{article_id}（int）より前に
+# 登録し、パスパラメータへ誤って一致しないようにする（qa_controller と同じ配慮）。
+@app.get(
+    "/api/troubleshooting_articles",
+    response_model=troubleshooting_controller.TroubleshootingListResponse,
+)
+async def list_troubleshooting_articles(
+    keyword: str | None = None,
+    source_key: str | None = None,
+    tag_id: list[int] | None = Query(default=None),
+    limit: int = 20,
+    offset: int = 0,
+):
+    return await troubleshooting_controller.list_articles(
+        keyword, source_key, tag_id, limit, offset
+    )
+
+
+@app.get(
+    "/api/troubleshooting_articles/source_keys",
+    response_model=troubleshooting_controller.SourceKeyListResponse,
+)
+async def list_troubleshooting_source_keys():
+    return await troubleshooting_controller.list_source_keys()
+
+
+@app.get(
+    "/api/troubleshooting_articles/{article_id}",
+    response_model=troubleshooting_controller.TroubleshootingDetailResponse,
+)
+async def get_troubleshooting_article(article_id: int):
+    return await troubleshooting_controller.get_article(article_id)
+
+
+@app.put(
+    "/api/troubleshooting_articles/{article_id}",
+    response_model=troubleshooting_controller.TroubleshootingDetailResponse,
+)
+async def update_troubleshooting_article(
+    article_id: int, body: troubleshooting_controller.TroubleshootingUpdateRequest
+):
+    return await troubleshooting_controller.update_article(article_id, body)
 
 
 # ---------------------------------------------------------------------------

@@ -16,25 +16,12 @@ from typing import Callable, List, Optional
 
 from ..db.connection import Database, to_vector_str
 from ..models.document import Document
+# スコアリングヘルパーは TroubleshootingRepository と共通化した（ADR-0078）。
+# 後方互換のため distance_to_score / _jaccard の名前で引き続き本モジュールから参照可能にする。
+from .scoring import distance_to_score  # noqa: F401  (re-export)
+from .scoring import jaccard as _jaccard  # noqa: F401  (re-export)
 
 SOURCE_TYPE = "qa"
-
-
-def distance_to_score(distance: float) -> float:
-    """スコア変換式（実装指示書 0節）: score = 1 / (1 + distance)。
-
-    distance は pgvector の <=> 値（小さいほど類似）。暫定式で、精度検証・調整の対象。
-    """
-    return 1.0 / (1.0 + distance)
-
-
-def _jaccard(a: set, b: set) -> float:
-    """空集合同士は 0.0（要件定義書6.2節: 両方空でも重なりなし扱い。呼び出し元で
-    「タグ未指定」自体は別途分岐しており、ここに来るのは常に入力側が非空のケースのみ）。"""
-    union = a | b
-    if not union:
-        return 0.0
-    return len(a & b) / len(union)
 
 
 class QARepository:
@@ -87,17 +74,17 @@ class QARepository:
 
         sql = """
             WITH RECURSIVE tag_closure(tag_id, closure_id) AS (
-                SELECT id, id FROM hiroba_tag
+                SELECT id, id FROM tag
                 UNION ALL
                 SELECT tc.tag_id, t.parent_tag_id
                 FROM tag_closure tc
-                JOIN hiroba_tag t ON t.id = tc.closure_id
+                JOIN tag t ON t.id = tc.closure_id
                 WHERE t.parent_tag_id IS NOT NULL
             ),
             input_closure AS (
                 SELECT COALESCE(array_agg(DISTINCT tc.closure_id), ARRAY[]::integer[]) AS closure
                 FROM tag_closure tc
-                WHERE tc.tag_id IN (SELECT id FROM hiroba_tag WHERE name = ANY(%(tag_names)s))
+                WHERE tc.tag_id IN (SELECT id FROM tag WHERE name = ANY(%(tag_names)s))
             )
             SELECT
                 hiroba_qa_original.uuid AS qa_id,
@@ -105,7 +92,7 @@ class QARepository:
                 hiroba_qa_original.answer_text AS answer,
                 hiroba_category.name AS category_name,
                 COALESCE(
-                    (SELECT array_agg(hiroba_tag.name) FROM hiroba_qa_tag JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+                    (SELECT array_agg(tag.name) FROM hiroba_qa_tag JOIN tag ON tag.id = hiroba_qa_tag.tag_id
                      WHERE hiroba_qa_tag.qa_id = hiroba_qa_original.uuid),
                     ARRAY[]::text[]
                 ) AS tag_names,

@@ -14,6 +14,8 @@ import QaFormPage from "./feature/qa_admin/QaFormPage";
 import QuestionAlteredListPage from "./feature/question_altered/QuestionAlteredListPage";
 import QuestionAlteredFormPage from "./feature/question_altered/QuestionAlteredFormPage";
 import TagTreePage from "./feature/tag_admin/TagTreePage";
+import TroubleshootingListPage from "./feature/troubleshooting_admin/TroubleshootingListPage";
+import TroubleshootingFormPage from "./feature/troubleshooting_admin/TroubleshootingFormPage";
 import ExportPage from "./feature/export/ExportPage";
 import VerificationListPage from "./feature/verification/VerificationListPage";
 import VerificationFormPage from "./feature/verification/VerificationFormPage";
@@ -81,21 +83,33 @@ function AdminLayout() {
     <div className="admin-shell">
       <nav className="admin-nav">
         <span className="admin-nav-brand">QA・タグ管理</span>
-        <NavLink to="/admin/qa" className="admin-nav-link">
-          QA
-        </NavLink>
-        <NavLink to="/admin/hiroba_question_altered" className="admin-nav-link">
-          言い換え
-        </NavLink>
-        <NavLink to="/admin/tags" className="admin-nav-link">
-          タグ
-        </NavLink>
-        <NavLink to="/admin/verification" className="admin-nav-link">
-          検証
-        </NavLink>
-        <NavLink to="/admin/export" className="admin-nav-link">
-          エクスポート
-        </NavLink>
+        <div className="admin-nav-row">
+          <NavLink to="/admin/tags" className="admin-nav-link">
+            タグ
+          </NavLink>
+          <NavLink to="/admin/verification" className="admin-nav-link">
+            検証
+          </NavLink>
+          <NavLink to="/admin/export" className="admin-nav-link">
+            エクスポート
+          </NavLink>
+        </div>
+        <div className="admin-nav-row">
+          <NavLink to="/admin/qa" className="admin-nav-link">
+            広場QA
+          </NavLink>
+          <NavLink
+            to="/admin/hiroba_question_altered"
+            className="admin-nav-link"
+          >
+            広場言い換え
+          </NavLink>
+        </div>
+        <div className="admin-nav-row">
+          <NavLink to="/admin/troubleshooting" className="admin-nav-link">
+            トラブルシューティング
+          </NavLink>
+        </div>
       </nav>
       <Outlet />
     </div>
@@ -133,6 +147,14 @@ export default function AppRoutes() {
               element={<QuestionAlteredFormPage mode="edit" />}
             />
             <Route path="tags" element={<TagTreePage />} />
+            <Route
+              path="troubleshooting"
+              element={<TroubleshootingListPage />}
+            />
+            <Route
+              path="troubleshooting/:id"
+              element={<TroubleshootingFormPage mode="edit" />}
+            />
             <Route path="verification" element={<VerificationListPage />} />
             <Route
               path="verification/new"

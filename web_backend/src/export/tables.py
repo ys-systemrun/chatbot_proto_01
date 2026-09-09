@@ -2,9 +2,9 @@
 
 対象は chatbot データベース7テーブル・conversation データベース6テーブルの計13テーブル。
 カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0008 および
-migrations_conversation/0001〜0003）に基づく（0006 で hiroba_tag_folder / hiroba_tag.folder_id 追加, ADR-0072、
-0007 で hiroba_tag_folder.parent_folder_id 追加・name UNIQUE 撤廃, ADR-0073、
-0008 で hiroba_tag / hiroba_tag_folder に display_order 追加, ADR-0074）。
+migrations_conversation/0001〜0003）に基づく（0006 で tag_folder / tag.folder_id 追加, ADR-0072、
+0007 で tag_folder.parent_folder_id 追加・name UNIQUE 撤廃, ADR-0073、
+0008 で tag / tag_folder に display_order 追加, ADR-0074）。
 各テーブルについて次を保持する:
 
   - db          : データベース種別（"chatbot" / "conversation"）
@@ -17,6 +17,7 @@ migrations_conversation/0001〜0003）に基づく（0006 で hiroba_tag_folder 
 SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の CHATBOT_TABLES /
 CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
   - chatbot     : category → qa_original → tag_folder → tag → question_altered → tag_alias → qa_tag
+                  → troubleshooting_article → troubleshooting_article_tag（ADR-0076）
   - conversation: conversation → message → verification_question → verification_run
                   → verification_run_tag → verification_run_source
 
@@ -94,26 +95,26 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     # タグフォルダマスタ（ADR-0072、ADR-0073 で階層化、ADR-0074 で display_order 追加）。
-    # hiroba_tag.folder_id の参照先のため hiroba_tag より前に置く。parent_folder_id は自己参照。
+    # tag.folder_id の参照先のため tag より前に置く。parent_folder_id は自己参照。
     # name の UNIQUE は撤廃済み（ADR-0073 決定1: name は表示用ラベルで重複可）。
     TableSpec(
         db="chatbot",
-        name="hiroba_tag_folder",
+        name="tag_folder",
         columns=["id", "name", "description", "parent_folder_id", "display_order"],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS hiroba_tag_folder (\n"
+            "CREATE TABLE IF NOT EXISTS tag_folder (\n"
             "    id SERIAL PRIMARY KEY,\n"
             "    name TEXT NOT NULL,\n"
             "    description TEXT,\n"
-            "    parent_folder_id INTEGER REFERENCES hiroba_tag_folder(id),\n"
+            "    parent_folder_id INTEGER REFERENCES tag_folder(id),\n"
             "    display_order DOUBLE PRECISION NOT NULL\n"
             ");"
         ),
     ),
     TableSpec(
         db="chatbot",
-        name="hiroba_tag",
+        name="tag",
         columns=[
             "id",
             "name",
@@ -124,12 +125,12 @@ CHATBOT_TABLES: list[TableSpec] = [
         ],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS hiroba_tag (\n"
+            "CREATE TABLE IF NOT EXISTS tag (\n"
             "    id SERIAL PRIMARY KEY,\n"
             "    name TEXT NOT NULL UNIQUE,\n"
-            "    parent_tag_id INTEGER REFERENCES hiroba_tag(id),\n"
+            "    parent_tag_id INTEGER REFERENCES tag(id),\n"
             "    description TEXT,\n"
-            "    folder_id INTEGER REFERENCES hiroba_tag_folder(id),\n"
+            "    folder_id INTEGER REFERENCES tag_folder(id),\n"
             "    display_order DOUBLE PRECISION NOT NULL\n"
             ");"
         ),
@@ -152,13 +153,13 @@ CHATBOT_TABLES: list[TableSpec] = [
     ),
     TableSpec(
         db="chatbot",
-        name="hiroba_tag_alias",
+        name="tag_alias",
         columns=["id", "tag_id", "alias"],
         order_by=["id"],
         _create_ddl=(
-            "CREATE TABLE IF NOT EXISTS hiroba_tag_alias (\n"
+            "CREATE TABLE IF NOT EXISTS tag_alias (\n"
             "    id SERIAL PRIMARY KEY,\n"
-            "    tag_id INTEGER NOT NULL REFERENCES hiroba_tag(id),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
             "    alias TEXT NOT NULL UNIQUE\n"
             ");"
         ),
@@ -171,8 +172,76 @@ CHATBOT_TABLES: list[TableSpec] = [
         _create_ddl=(
             "CREATE TABLE IF NOT EXISTS hiroba_qa_tag (\n"
             "    qa_id TEXT NOT NULL REFERENCES hiroba_qa_original(uuid),\n"
-            "    tag_id INTEGER NOT NULL REFERENCES hiroba_tag(id),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
             "    PRIMARY KEY (qa_id, tag_id)\n"
+            ");"
+        ),
+    ),
+    # トラブルシューティング記事（ADR-0076 / migrations 0009）。tag（共有タグマスタ）の後に置く。
+    # troubleshooting_article_tag は troubleshooting_article と tag の両方を参照するため両者より後。
+    TableSpec(
+        db="chatbot",
+        name="troubleshooting_article",
+        columns=[
+            "id",
+            "source_key",
+            "title",
+            "subtitle",
+            "symptom",
+            "operation_history",
+            "error_code",
+            "error_message",
+            "system_environment",
+            "hardware_environment",
+            "version_info",
+            "guidance",
+            "cause",
+            "notes",
+            "keyword_raw",
+            "body_html",
+            "source_updated_at",
+            "embedding",
+            "created_at",
+            "updated_at",
+        ],
+        order_by=["id"],
+        csv_exclude={"embedding"},
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS troubleshooting_article (\n"
+            "    id SERIAL PRIMARY KEY,\n"
+            "    source_key TEXT NOT NULL,\n"
+            "    title TEXT NOT NULL,\n"
+            "    subtitle TEXT,\n"
+            "    symptom TEXT,\n"
+            "    operation_history TEXT,\n"
+            "    error_code TEXT,\n"
+            "    error_message TEXT,\n"
+            "    system_environment TEXT,\n"
+            "    hardware_environment TEXT,\n"
+            "    version_info TEXT,\n"
+            "    guidance TEXT NOT NULL,\n"
+            "    cause TEXT,\n"
+            "    notes TEXT,\n"
+            "    keyword_raw TEXT,\n"
+            "    body_html TEXT NOT NULL,\n"
+            "    source_updated_at TIMESTAMP,\n"
+            f"    embedding VECTOR({EMBEDDING_DIM_PLACEHOLDER}),\n"
+            "    created_at TIMESTAMP NOT NULL DEFAULT now(),\n"
+            "    updated_at TIMESTAMP NOT NULL DEFAULT now(),\n"
+            "    UNIQUE (source_key, title)\n"
+            ");"
+        ),
+    ),
+    TableSpec(
+        db="chatbot",
+        name="troubleshooting_article_tag",
+        columns=["article_id", "tag_id"],
+        order_by=["article_id", "tag_id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS troubleshooting_article_tag (\n"
+            "    article_id INTEGER NOT NULL REFERENCES troubleshooting_article(id),\n"
+            "    tag_id INTEGER NOT NULL REFERENCES tag(id),\n"
+            "    PRIMARY KEY (article_id, tag_id)\n"
             ");"
         ),
     ),

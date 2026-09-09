@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期・サポート知識DB基盤化に伴うDB名再編とテーブル接頭辞付与・タグ管理画面/タグ選択UI改修（検索絞り込み・類似候補チェック・タグフォルダ新設・タグフォルダ階層化・タグ/タグフォルダの表示順序導入）・マイグレーション専用実行モードの新設に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期・サポート知識DB基盤化に伴うDB名再編とテーブル接頭辞付与・タグ管理画面/タグ選択UI改修（検索絞り込み・類似候補チェック・タグフォルダ新設・タグフォルダ階層化・タグ/タグフォルダの表示順序導入）・マイグレーション専用実行モードの新設・トラブルシューティング情報源の追加（同一実DB内へのテーブル新設、タグマスタの中立名称化とDB再改名、search_knowledge統合、管理UI新設）・タグエイリアス管理機能の追加（追加・編集・削除UI、CSV列追加、類似候補チェック適用範囲の拡張）・運用者向けアドホックSQL実行機能の追加（query.bat/query.sql、既存db_hiroba_qa_initタスクの環境変数分岐によるバッチ実行）に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -79,6 +79,14 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0073](./0073-tag-folder-hierarchy.md) | タグフォルダの階層化（フォルダ間の親子関係新設、ADR-0072の限定的な見直し） | Accepted |
 | [0074](./0074-tag-and-tag-folder-display-order.md) | タグ・タグフォルダへの表示順序（display_order）導入（間隔採番＋中間値挿入方式、上下ボタンによる並べ替え） | Accepted |
 | [0075](./0075-migration-only-execution-mode.md) | マイグレーション専用実行モードの新設（シードスキップ対応、既存db_hiroba_qa_initイメージ再利用） | Accepted |
+| [0076](./0076-troubleshooting-knowledge-source-same-database-shared-tag.md) | トラブルシューティング情報源の追加方式（同一実DB内新設・単一テーブル＋出自列・共有タグマスタ参照） | Accepted |
+| [0077](./0077-db-hiroba-qa-rename-to-chatbot-knowledge-base-and-tag-neutralization.md) | 実DB名の再改名（db_hiroba_qa→db_chatbot_knowledge_base）とタグマスタの中立名称化（hiroba_tag系→tag系） | Accepted |
+| [0078](./0078-troubleshooting-search-knowledge-integration.md) | トラブルシューティング記事のsearch_knowledge統合方式（新規Repository追加によるマルチソース検索、記事単位の単一embedding方式） | Accepted |
+| [0079](./0079-troubleshooting-admin-ui.md) | トラブルシューティング記事管理UI（front_dev/web_backend CRUD）の実装方式 | Accepted |
+| [0080](./0080-tag-alias-crud-management.md) | タグエイリアスの追加・編集・削除機能の実装方式（update_tag_alias新設、既存タグCRUDと同一の権限・ログ方針を踏襲） | Accepted |
+| [0081](./0081-tag-csv-alias-column-addition.md) | タグCSV一括インポート/エクスポートへのエイリアス列追加（ADR-0065のエイリアス対象外方針の見直し、パイプ区切り・追加専用方式） | Accepted |
+| [0082](./0082-tag-alias-similar-candidate-check.md) | タグエイリアス追加・編集時の重複・類似候補チェック適用（ADR-0071の適用範囲拡張） | Accepted |
+| [0083](./0083-adhoc-sql-execution-via-query-bat.md) | 運用者向けアドホックSQL実行機能（query.bat/query.sql）の実行方式（既存db_hiroba_qa_initタスクの環境変数分岐によるバッチ実行、実行前タイプ確認あり） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -108,3 +116,5 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202609021102_タグ管理画面・タグ選択UI改修要件定義書.md`（タグ管理画面・タグ選択UI改修: 検索・絞り込み機能、新規作成時の類似候補チェック、タグフォルダの新設）
 - `docs/requirement/202609030857_タグフォルダ階層化要件定義書.md`（タグフォルダ階層化: `hiroba_tag_folder`への`parent_folder_id`追加によるフォルダ間親子関係の新設、フォルダ名一意性制約の撤廃、フォルダ削除時の子フォルダ繰り上げ）
 - `docs/requirement/202609031501_タグ・タグフォルダ表示順序導入要件定義書.md`（タグ・タグフォルダ表示順序導入: `hiroba_tag`・`hiroba_tag_folder`へのdisplay_order列追加、間隔採番＋中間値挿入方式による1つ上へ／1つ下へボタンでの並べ替え）
+- `docs/requirement/202609071337_トラブルシューティング情報源追加要件定義書.md`（トラブルシューティング情報源追加: trouble_shooting.html／trouble_shooting_netauth.html由来の記事を同一実DB内に新設するtroubleshooting_articleテーブルで管理し、hiroba_tag系を中立名称（tag/tag_alias/tag_folder）にリネームして維津美の広場QAとタグを共有。実DB名をdb_hiroba_qa→db_chatbot_knowledge_baseへ再改名、search_knowledgeへのマルチソース統合、管理UI新設を含む）
+- `docs/requirement/202609091119_タグエイリアス管理機能要件定義書.md`（タグエイリアス管理機能: タグ管理画面でのエイリアス追加・編集・削除UI、Knowledge MCPへのupdate_tag_alias新設、タグCSV一括インポート/エクスポートへのエイリアス列追加、新規作成時の類似候補チェックのエイリアス入力への適用拡大）

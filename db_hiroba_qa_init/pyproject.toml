@@ -10,6 +10,8 @@ dependencies = [
     "yoyo-migrations",
     # AWS 環境（EMBEDDING_PROVIDER=bedrock）で Bedrock InvokeModel API を呼び出すため（IMPL-202608101616）。
     "boto3",
+    # トラブルシューティング記事 HTML のパース（ADR-0076 / REQ-202609071337 10章）。
+    "beautifulsoup4",
 ]
 
 [build-system]

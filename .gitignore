@@ -18,3 +18,6 @@ web_backend/chatbot_invitro.egg-info/
 **/.terraform/
 # デプロイの環境固有設定（terraform/.env）は上記グローバルの ".env" 無視で対象。
 # .env.example は名前が異なるため追跡される。
+# アドホック SQL 実行（ADR-0083）: query.sql は運用者が都度書き換える環境固有の実行内容のため
+# Git 管理外とする（terraform/.env と同じ性質）。テンプレート query.sql.example は追跡される。
+terraform/query.sql

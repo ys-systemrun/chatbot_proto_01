@@ -86,9 +86,9 @@ class QaManagementRepository:
                 hiroba_category.name AS category_name,
                 COALESCE(
                     (
-                        SELECT array_agg(hiroba_tag.name ORDER BY hiroba_tag.name)
+                        SELECT array_agg(tag.name ORDER BY tag.name)
                         FROM hiroba_qa_tag
-                        JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+                        JOIN tag ON tag.id = hiroba_qa_tag.tag_id
                         WHERE hiroba_qa_tag.qa_id = hiroba_qa_original.uuid
                     ),
                     ARRAY[]::text[]
@@ -393,11 +393,11 @@ class QaManagementRepository:
 
         cur.execute(
             """
-            SELECT hiroba_tag.id, hiroba_tag.name
+            SELECT tag.id, tag.name
             FROM hiroba_qa_tag
-            JOIN hiroba_tag ON hiroba_tag.id = hiroba_qa_tag.tag_id
+            JOIN tag ON tag.id = hiroba_qa_tag.tag_id
             WHERE hiroba_qa_tag.qa_id = %s
-            ORDER BY hiroba_tag.name
+            ORDER BY tag.name
             """,
             (qa_id,),
         )
@@ -434,7 +434,7 @@ class QaManagementRepository:
     def _assert_tags_exist(cur, tag_ids: Optional[List[int]]) -> None:
         if not tag_ids:
             return
-        cur.execute("SELECT id FROM hiroba_tag WHERE id = ANY(%s)", (list(tag_ids),))
+        cur.execute("SELECT id FROM tag WHERE id = ANY(%s)", (list(tag_ids),))
         found = {r[0] for r in cur.fetchall()}
         missing = [tid for tid in tag_ids if tid not in found]
         if missing:

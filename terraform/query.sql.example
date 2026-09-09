@@ -1,0 +1,24 @@
+-- ADR-0083: アドホック SQL 実行（query.bat / QUERY_MODE）のテンプレート。
+--
+-- このファイルをコピーして terraform/query.sql を作成し、実行したい SQL を書く。
+-- （query.sql は環境固有・実行内容が流動的なため .gitignore で Git 管理外）
+--
+-- 実行: terraform/query.bat をダブルクリック（既定 target=chatbot）
+--        または  query.bat --target conversation / --target both
+--
+-- 注意（ADR-0083）:
+--   * query.sql はマスターロール権限で実行される（DROP/DELETE/TRUNCATE 等も可能）。
+--   * セミコロン区切りで複数文を書けるが、画面に表示される結果セットは「最終文」のみ。
+--     途中の SELECT 結果は表示されない。
+--   * SELECT 以外（UPDATE/DELETE/DDL 等）は影響行数のみ表示される。
+--   * 全体が1トランザクションで実行され、エラー時は自動 rollback される。
+--   * 短いアドホック SQL 向け（数KB程度まで）。大規模な一括投入・全消去上書きは import-data を使う。
+
+-- 例1: スキーマ確認（SELECT）
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+ORDER BY table_name;
+
+-- 例2: ピンポイントの更新（コメントアウトを外して使う。最終文の影響行数のみ表示される）
+-- UPDATE tag SET description = '更新後の説明' WHERE name = 'サンプルタグ';

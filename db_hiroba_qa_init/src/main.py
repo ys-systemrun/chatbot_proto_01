@@ -3,7 +3,8 @@
 処理順序:
   1. chatbot ロール分離: migrator / app ロールを作成（マスター接続, ADR-0052）。
   2. chatbot マイグレーション適用（yoyo, migrator 接続, ADR-0017）。
-  3. chatbot シード（hiroba_category / hiroba_qa_original / hiroba_question_altered / backfill / hiroba_tag 説明, migrator 接続）。
+  3. chatbot シード（hiroba_category / hiroba_qa_original / hiroba_question_altered / backfill / tag 説明 /
+     トラブルシューティング記事 HTML インポート, migrator 接続）。
   4. chatbot app ロールへ DML 権限を付与（全テーブル作成後, マスター接続）。
   5. conversation データベースの作成（AWS のみ）→ ロール作成 → yoyo マイグレーション → app 権限付与。
   6. エクスポート専用読み取りロールの作成（AWS のみ, ADR-0046）。
@@ -25,6 +26,9 @@
     手順1・2・4・5・6は通常どおり実行する。スキーマ変更のみを反映したいとき（データ投入は後日
     import-data で行う）に使う。非破壊的。
   - IMPORT_MODE=true（ADR-0066）: 通常フローを実行せず、全消去→上書き投入バッチのみを実行する。
+  - QUERY_MODE=true（ADR-0083）: 通常フローを実行せず、QUERY_SQL に渡されたアドホック SQL を
+    QUERY_TARGET_DB（chatbot / conversation / both）へマスター接続で1トランザクション実行する。
+    SELECT 結果（最終文のみ）または影響行数を標準出力へ出力する。
 """
 
 from __future__ import annotations
@@ -43,6 +47,7 @@ from yoyo import get_backend, read_migrations
 import backfill_title_and_tags
 import import_data
 import seed_description_and_aliases
+import troubleshooting_import
 from db import DB
 from embedding import get_embedding
 from seed_helpers import (
@@ -59,7 +64,7 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 CONVERSATION_DB_NAME = os.environ.get("CONVERSATION_DB_NAME", "conversation")
 CONVERSATION_DB_URL = os.environ.get("CONVERSATION_DB_URL", "")
 # エクスポート専用読み取りロール（ADR-0046 / IMPL-202608241600 T1）。
-CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "db_hiroba_qa")
+CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "db_chatbot_knowledge_base")
 EXPORT_READER_ROLE_NAME = os.environ.get("EXPORT_READER_ROLE_NAME", "chatbot_export_reader")
 EXPORT_READER_PASSWORD = os.environ.get("EXPORT_READER_PASSWORD", "")
 
@@ -87,6 +92,14 @@ IMPORT_MODE = os.environ.get("IMPORT_MODE", "").strip().lower() in ("1", "true",
 # のみをスキップし、ロール作成・マイグレーション適用・権限付与・エクスポート専用ロール作成は
 # 通常どおり実行する。IMPORT_MODE と同じ真偽値判定方式を踏襲する。
 MIGRATE_ONLY = os.environ.get("MIGRATE_ONLY", "").strip().lower() in ("1", "true", "yes")
+# アドホック SQL 実行モード（ADR-0083）。run-task の environment オーバーライドで QUERY_MODE=true と
+# QUERY_TARGET_DB / QUERY_SQL を注入されたときのみ有効になる。通常起動（未設定）では一切実行されない。
+# IMPORT_MODE / MIGRATE_ONLY と同じ真偽値判定方式を踏襲する。
+QUERY_MODE = os.environ.get("QUERY_MODE", "").strip().lower() in ("1", "true", "yes")
+# 実行対象データベース（chatbot | conversation | both）。既定は chatbot（QA・タグ等の参照・保守が主用途）。
+QUERY_TARGET_DB = os.environ.get("QUERY_TARGET_DB", "chatbot").strip()
+# 実行する SQL 本文（全文）。セミコロン区切りで複数文を含みうる。
+QUERY_SQL = os.environ.get("QUERY_SQL", "")
 IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
 IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
 IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
@@ -108,6 +121,13 @@ CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
 CATEGORY_FILE = os.environ["CATEGORY_FILE"]
+
+# トラブルシューティング記事の HTML ソース（ADR-0076 / REQ-202609071337 10章）。
+# (ファイル名, source_key)。ADR-0034 に従いイメージ同梱の /data から読み込む。
+TROUBLESHOOTING_SOURCES = [
+    ("trouble_shooting.html", "trouble_shooting"),
+    ("trouble_shooting_netauth.html", "trouble_shooting_netauth"),
+]
 
 MIGRATIONS_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "migrations"
@@ -488,12 +508,70 @@ def seed_tag_descriptions_and_aliases(url: str):
     )
 
 
+def _troubleshooting_embed_fn():
+    """トラブルシューティング記事の embedding 計算関数（question_altered と同一の embed 設定）。"""
+
+    def embed(text: str) -> list[float]:
+        return get_embedding(
+            EMBEDDING_PROVIDER,
+            EMBEDDING_URL,
+            EMBEDDING_MODEL,
+            text,
+            BEDROCK_REGION,
+        )
+
+    return embed
+
+
+def seed_troubleshooting_articles(url: str):
+    """トラブルシューティング記事 HTML を冪等投入する（ADR-0076 / ADR-0078 / 10章）。
+
+    (source_key, title) の存在チェックで既存レコードは上書きしない。未投入の記事だけに
+    embedding を計算して INSERT する。HTML ファイルが無い環境（開発用最小構成等）はスキップする。
+    """
+    print(f"{_now()} ====== Start seeding troubleshooting articles...")
+    articles = []
+    for filename, source_key in TROUBLESHOOTING_SOURCES:
+        path = os.path.join(CSV_DATA_DIR, filename)
+        if not os.path.exists(path):
+            print(
+                f"{_now()} troubleshooting source not found, skipping: {path}"
+            )
+            continue
+        with open(path, "r", encoding="utf-8") as f:
+            html = f.read()
+        parsed = troubleshooting_import.parse_articles(html, source_key)
+        print(f"{_now()} parsed {len(parsed)} article(s) from {filename}.")
+        articles.extend(parsed)
+
+    if not articles:
+        print(f"{_now()} no troubleshooting articles to seed. Skipping.")
+        return
+
+    conn = psycopg2.connect(url)
+    try:
+        stats = troubleshooting_import.import_articles(
+            conn, articles, _troubleshooting_embed_fn()
+        )
+    finally:
+        conn.close()
+    for warning in stats["warnings"]:
+        print(f"{_now()} WARNING: {warning}")
+    print(
+        f"{_now()} troubleshooting seed done: "
+        f"inserted={stats['inserted']}, "
+        f"backfilled_embeddings={stats['backfilled_embeddings']}, "
+        f"skipped_existing={stats['skipped_existing']}."
+    )
+
+
 def seed_if_empty(url: str):
     seed_category(url)
     seed_qa_original(url)
     seed_question_altered(url)
     backfill_titles_and_tags(url)
     seed_tag_descriptions_and_aliases(url)
+    seed_troubleshooting_articles(url)
 
 
 def _resolve_import_work_urls() -> "tuple[str, str]":
@@ -541,7 +619,95 @@ def run_import_mode():
     sys.exit(0)
 
 
+# ---------------------------------------------------------------------------
+# アドホック SQL 実行モード（ADR-0083, QUERY_MODE）
+# ---------------------------------------------------------------------------
+def _query_targets() -> "list[tuple[str, str]]":
+    """QUERY_TARGET_DB に対応する (ラベル, マスター接続 URL) の実行順リストを返す。
+
+    both 指定時は chatbot -> conversation の順で返す（同一 SQL を逐次実行する, ADR-0083）。
+    """
+    if QUERY_TARGET_DB == "chatbot":
+        return [("chatbot", DATABASE_URL)]
+    if QUERY_TARGET_DB == "conversation":
+        if not CONVERSATION_DB_URL:
+            raise RuntimeError(
+                "QUERY_TARGET_DB=conversation ですが CONVERSATION_DB_URL が未設定です。"
+            )
+        return [("conversation", CONVERSATION_DB_URL)]
+    if QUERY_TARGET_DB == "both":
+        if not CONVERSATION_DB_URL:
+            raise RuntimeError(
+                "QUERY_TARGET_DB=both ですが CONVERSATION_DB_URL が未設定です。"
+            )
+        return [("chatbot", DATABASE_URL), ("conversation", CONVERSATION_DB_URL)]
+    raise RuntimeError(
+        f"QUERY_TARGET_DB は chatbot / conversation / both のいずれか（指定: {QUERY_TARGET_DB!r}）。"
+    )
+
+
+def _run_query_on(label: str, url: str) -> None:
+    """1つのデータベースへ QUERY_SQL を1トランザクションで実行し、結果を標準出力へ整形出力する。
+
+    psycopg2 はパラメータなしの execute() では単純クエリプロトコルを使うため複数文を実行できるが、
+    cursor.description（結果セットの有無・列情報）は最後の文のもののみが残る。よって画面に表示する
+    結果セットは最終文が返した行のみとする（ADR-0083）。正常終了時に commit、例外時は rollback する。
+    """
+    print(f"{_now()} ====== [{label}] QUERY 実行開始")
+    conn = psycopg2.connect(url)
+    conn.autocommit = False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(QUERY_SQL)
+            if cur.description is not None:
+                # 最終文が結果セットを持つ（SELECT 等）。ヘッダ行＋各行をタブ区切りで出力する。
+                columns = [d[0] for d in cur.description]
+                rows = cur.fetchall()
+                print("\t".join(columns))
+                for row in rows:
+                    print("\t".join("" if v is None else str(v) for v in row))
+                print(f"{_now()} [{label}] {len(rows)} row(s) returned.")
+            else:
+                # 結果セットを持たない（UPDATE/DELETE/DDL 等）。影響行数（最終文）のみ出力する。
+                print(f"{_now()} [{label}] no result set (rowcount={cur.rowcount}).")
+        conn.commit()
+        print(f"{_now()} [{label}] committed.")
+    except Exception:
+        conn.rollback()
+        print(f"{_now()} [{label}] rolled back due to error.", file=sys.stderr)
+        raise
+    finally:
+        conn.close()
+
+
+def run_query_mode():
+    """アドホック SQL を実行して終了する（ADR-0083, QUERY_MODE）。
+
+    QUERY_TARGET_DB で指定されたデータベースへ、対応するマスター接続で QUERY_SQL を実行する。
+    both 指定時は chatbot -> conversation の順に同一 SQL を逐次実行し、対象ごとに区切って結果を出力する。
+    いずれかの対象で例外が発生した場合、rollback の上、ログ出力して非0終了する。
+    """
+    print(
+        f"{_now()} ====== db_hiroba_qa_init start (QUERY MODE, ADR-0083). "
+        f"target={QUERY_TARGET_DB}"
+    )
+    try:
+        if not QUERY_SQL.strip():
+            raise RuntimeError("QUERY_MODE では QUERY_SQL（実行する SQL 本文）が必須です。")
+        for label, url in _query_targets():
+            _run_query_on(label, url)
+    except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
+        print(f"{_now()} ERROR: db_hiroba_qa_init query failed: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+    print(f"{_now()} ====== db_hiroba_qa_init query completed successfully.")
+    sys.exit(0)
+
+
 def main():
+    if QUERY_MODE:
+        run_query_mode()
+        return  # run_query_mode は sys.exit する（保険で return）
     if IMPORT_MODE:
         run_import_mode()
         return  # run_import_mode は sys.exit する（保険で return）

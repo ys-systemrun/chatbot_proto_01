@@ -68,7 +68,8 @@ module "db_init_task" {
     # conversation データベースの作成・スキーマ適用（ADR-0044 / IMPL-202608241104 T29）。
     CONVERSATION_DB_NAME = var.conversation_db_name
     # エクスポート専用ロールの GRANT CONNECT ON DATABASE の対象名（ADR-0046 / IMPL-202608241600 T10）。
-    # db_hiroba_qa_init 側デフォルト "db_hiroba_qa"（ADR-0069）と一致する module.database.db_name を渡す。
+    # db_hiroba_qa_init 側デフォルト "db_chatbot_knowledge_base"（ADR-0077）と一致する
+    # module.database.db_name を渡す。
     CHATBOT_DB_NAME = module.database.db_name
     # 全データインポート（全消去→上書き）バッチ用の S3 バケット名（ADR-0066）。IMPORT_MODE の
     # コンテナがここから投入ダンプ（import/）を取得し、退避バックアップ（rollback/）を保存する。

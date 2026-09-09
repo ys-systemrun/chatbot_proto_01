@@ -170,6 +170,53 @@ def task_exit_code(task: dict):
     return containers[0].get("exitCode") if containers else None
 
 
+def get_task_log_events(
+    log_group: str,
+    stream_prefix: str,
+    container_name: str,
+    task_arn: str,
+    region: str,
+    limit: int = 10000,
+) -> "list[str]":
+    """指定タスクの CloudWatch Logs イベント（メッセージ本文）を古い順に取得して返す（ADR-0083）。
+
+    awslogs ドライバのログストリーム名は規約により <stream_prefix>/<container_name>/<task-id>。
+    task-id は task ARN の末尾セグメント（例: arn:...:task/<cluster>/<task-id>）。GetLogEvents を
+    nextForwardToken でページングし、全メッセージ（末尾改行は除去済み）を収集する。ストリーム未生成
+    （ResourceNotFoundException）の場合は空リストを返す（ログ未反映を呼び出し側で警告できるようにする）。
+    """
+    from botocore.exceptions import ClientError
+
+    task_id = task_arn.rsplit("/", 1)[-1]
+    stream = f"{stream_prefix}/{container_name}/{task_id}"
+    logs = _client("logs", region_name=region)
+    messages: list[str] = []
+    next_token = None
+    try:
+        while True:
+            kwargs = {
+                "logGroupName": log_group,
+                "logStreamName": stream,
+                "startFromHead": True,
+                "limit": limit,
+            }
+            if next_token:
+                kwargs["nextToken"] = next_token
+            resp = logs.get_log_events(**kwargs)
+            events = resp.get("events", [])
+            messages.extend((e.get("message", "") or "").rstrip("\n") for e in events)
+            token = resp.get("nextForwardToken")
+            # GetLogEvents は末尾に達すると同じ nextForwardToken を返す（無限ループ防止）。
+            if not token or token == next_token:
+                break
+            next_token = token
+    except ClientError as exc:
+        if exc.response.get("Error", {}).get("Code") == "ResourceNotFoundException":
+            return []
+        raise
+    return messages
+
+
 def wait_services_stable(cluster: str, services: list[str], region: str) -> None:
     """ECS サービスが steady state（desired 数のタスクが RUNNING で安定）になるまで待つ。"""
     ecs = _client("ecs", region_name=region)

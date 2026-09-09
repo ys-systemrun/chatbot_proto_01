@@ -20,6 +20,10 @@ from ..repository.qa_management_repository import QaManagementRepository
 from ..repository.qa_repository import QARepository
 from ..repository.question_altered_repository import QuestionAlteredRepository
 from ..repository.tag_repository import TagRepository
+from ..repository.troubleshooting_management_repository import (
+    TroubleshootingManagementRepository,
+)
+from ..repository.troubleshooting_repository import TroubleshootingRepository
 from ..services.search_service import SearchService
 from .tools import register_tools
 
@@ -106,11 +110,23 @@ def create_server() -> FastMCP:
         tag_similarity_weight=tag_similarity_weight,
         candidate_pool_size=candidate_pool_size,
     )
+    # ADR-0078: トラブルシューティング記事を search_knowledge のマルチソース検索へ統合する。
+    # QARepository と同一スコアリング設定（TAG_SIMILARITY_WEIGHT・候補プールサイズ）を共用する。
+    troubleshooting_repository = TroubleshootingRepository(
+        db,
+        embed_fn,
+        tag_similarity_weight=tag_similarity_weight,
+        candidate_pool_size=candidate_pool_size,
+    )
     tag_repository = TagRepository(db)
     qa_management_repository = QaManagementRepository(db, embed_fn)
     question_altered_repository = QuestionAlteredRepository(db, embed_fn)
-    # MVP では QARepository のみ。将来 PDF/Manual Repository を append すれば拡張可能。
-    search_service = SearchService([qa_repository])
+    troubleshooting_management_repository = TroubleshootingManagementRepository(
+        db, embed_fn
+    )
+    # ADR-0078: QARepository と TroubleshootingRepository を登録するだけでマルチソース統合が
+    # 完了する（SearchService 自体は変更不要）。score 降順で統合された結果を返す。
+    search_service = SearchService([qa_repository, troubleshooting_repository])
 
     mcp = FastMCP(
         name="knowledge-mcp",
@@ -124,6 +140,7 @@ def create_server() -> FastMCP:
         tag_repository=tag_repository,
         qa_management_repository=qa_management_repository,
         question_altered_repository=question_altered_repository,
+        troubleshooting_management_repository=troubleshooting_management_repository,
         default_top_k=default_top_k,
     )
 

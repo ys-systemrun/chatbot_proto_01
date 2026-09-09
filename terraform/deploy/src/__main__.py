@@ -42,6 +42,14 @@ def build_parser() -> argparse.ArgumentParser:
     imp.add_argument(
         "--conversation-sql", default=None, help="conversation 投入ダンプのパス（既定: conversation.sql）"
     )
+    qry = add("query")
+    qry.add_argument(
+        "--target",
+        choices=["chatbot", "conversation", "both"],
+        default="chatbot",
+        help="アドホック SQL の実行対象データベース（既定: chatbot, ADR-0083）",
+    )
+    qry.add_argument("--sql-file", default=None, help="実行する SQL ファイルのパス（既定: query.sql）")
     add("destroy-app")
     add("destroy-database")
     add("shell")
@@ -69,6 +77,8 @@ def main(argv=None) -> None:
                 chatbot_sql=args.chatbot_sql,
                 conversation_sql=args.conversation_sql,
             )
+        elif args.command == "query":
+            commands.cmd_query(target=args.target, sql_file=args.sql_file)
         elif args.command == "destroy-app":
             commands.cmd_destroy_app()
         elif args.command == "destroy-database":

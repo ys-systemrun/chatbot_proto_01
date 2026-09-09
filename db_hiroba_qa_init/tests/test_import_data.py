@@ -22,16 +22,19 @@ def test_parse_targets():
         import_data.parse_targets("nope")
 
 
-def test_tables_for_covers_13_tables():
-    # ADR-0072: hiroba_tag_folder を追加（hiroba_tag.folder_id の参照先のため hiroba_tag より前）。
+def test_tables_for_covers_chatbot_tables():
+    # ADR-0072/0077: tag_folder を追加（tag.folder_id の参照先のため tag より前）。
+    # ADR-0076: troubleshooting_article / troubleshooting_article_tag を末尾に追加。
     assert import_data.tables_for("chatbot") == [
         "hiroba_category",
         "hiroba_qa_original",
-        "hiroba_tag_folder",
-        "hiroba_tag",
+        "tag_folder",
+        "tag",
         "hiroba_question_altered",
-        "hiroba_tag_alias",
+        "tag_alias",
         "hiroba_qa_tag",
+        "troubleshooting_article",
+        "troubleshooting_article_tag",
     ]
     # ADR-0066: conversation は検証4テーブルを含む計6テーブル。
     assert import_data.tables_for("conversation") == [
@@ -107,10 +110,10 @@ def test_truncate_and_apply_rolls_back_on_failure():
 
 
 def test_resync_sequences_setval_for_serial_columns():
-    # hiroba_tag.id はシーケンス依存、name は非依存として introspection 結果を返す。
-    conn = _FakeConn(seq_rows=[("id", "public.hiroba_tag_id_seq"), ("name", None)])
+    # tag.id はシーケンス依存、name は非依存として introspection 結果を返す。
+    conn = _FakeConn(seq_rows=[("id", "public.tag_id_seq"), ("name", None)])
     with conn.cursor() as cur:
-        import_data.resync_sequences(cur, ["hiroba_tag"])
+        import_data.resync_sequences(cur, ["tag"])
     # setval を含む文が発行され（id 列のみ）、name 列には発行されない。
     setvals = [s for s in conn.executed if "setval" in s]
     assert len(setvals) == 1

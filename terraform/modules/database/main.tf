@@ -52,10 +52,12 @@ variable "allocated_storage" {
 
 variable "db_name" {
   type    = string
-  # ADR-0069: 維津美の広場由来QAデータの実データベース名。以前は "chatbot" だったが、
-  # サポート知識基盤化に伴い実DB名を "db_hiroba_qa" へ再編した（サーバ名 db_support_knowledge、
+  # ADR-0069/0077: サポート知識基盤の実データベース名。ADR-0077 で複数データソース
+  # （維津美の広場QA＋トラブルシューティング記事）を保持する実態に合わせ
+  # "db_chatbot_knowledge_base" へ再改名した（サーバ名 db_support_knowledge、
   # ロール/シークレット/環境変数名 chatbot_*/CHATBOT_* は据え置き）。
-  default = "db_hiroba_qa"
+  # 注意: この変更は RDS の初期データベース名の変更＝aws_db_instance の置換を伴う（ADR-0077 §7.2）。
+  default = "db_chatbot_knowledge_base"
 }
 
 # 会話評価用データベース名（ADR-0044 / IMPL-202608241104 T20）。同一 RDS インスタンス上に

@@ -13,6 +13,9 @@ import type {
   QaUpdateRequest,
 } from "./domain/admin/qa";
 import type {
+  TagAlias,
+  TagAliasCreateRequest,
+  TagAliasUpdateRequest,
   TagCreateRequest,
   TagFolder,
   TagFolderCreateRequest,
@@ -31,6 +34,13 @@ import type {
   QaAlteredListResponse,
   QaAlteredUpdateRequest,
 } from "./domain/admin/question_altered";
+import type {
+  SourceKeyListResponse,
+  TroubleshootingDetail,
+  TroubleshootingListParams,
+  TroubleshootingListResponse,
+  TroubleshootingUpdateRequest,
+} from "./domain/admin/troubleshooting";
 import type {
   VerificationEvaluationRequest,
   VerificationImportResponse,
@@ -179,6 +189,49 @@ export async function getQa(id: string): Promise<QaDetail> {
   return jsonFetch<QaDetail>(`/api/qa/${encodeURIComponent(id)}`);
 }
 
+// --- トラブルシューティング記事管理（ADR-0079）。一覧・詳細・更新のみ。 ---
+export async function listTroubleshootingArticles(
+  params: TroubleshootingListParams,
+): Promise<TroubleshootingListResponse> {
+  const q = new URLSearchParams();
+  if (params.keyword) q.set("keyword", params.keyword);
+  if (params.source_key) q.set("source_key", params.source_key);
+  (params.tag_id ?? []).forEach((id) => q.append("tag_id", String(id)));
+  if (params.limit != null) q.set("limit", String(params.limit));
+  if (params.offset != null) q.set("offset", String(params.offset));
+  return jsonFetch<TroubleshootingListResponse>(
+    `/api/troubleshooting_articles?${q.toString()}`,
+  );
+}
+
+export async function getTroubleshootingArticle(
+  id: number,
+): Promise<TroubleshootingDetail> {
+  return jsonFetch<TroubleshootingDetail>(
+    `/api/troubleshooting_articles/${id}`,
+  );
+}
+
+export async function updateTroubleshootingArticle(
+  id: number,
+  body: TroubleshootingUpdateRequest,
+): Promise<TroubleshootingDetail> {
+  return jsonFetch<TroubleshootingDetail>(
+    `/api/troubleshooting_articles/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export async function listTroubleshootingSourceKeys(): Promise<string[]> {
+  const res = await jsonFetch<SourceKeyListResponse>(
+    "/api/troubleshooting_articles/source_keys",
+  );
+  return res.source_keys;
+}
+
 export async function createQa(body: QaCreateRequest): Promise<QaDetail> {
   return jsonFetch<QaDetail>("/api/qa", {
     method: "POST",
@@ -257,6 +310,40 @@ export async function importTagsCsv(file: File): Promise<TagImportResponse> {
 }
 
 // --------------------------------------------------------------------------- //
+// タグエイリアスの追加・編集・削除（ADR-0080）。tag_id は UI 上の文脈を表すパス要素。
+// alias 重複はサーバが 409 で拒否する。
+// --------------------------------------------------------------------------- //
+export async function addTagAlias(
+  tagId: number,
+  body: TagAliasCreateRequest,
+): Promise<TagAlias> {
+  return jsonFetch<TagAlias>(`/api/tags/${tagId}/aliases`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function updateTagAlias(
+  tagId: number,
+  aliasId: number,
+  body: TagAliasUpdateRequest,
+): Promise<TagAlias> {
+  return jsonFetch<TagAlias>(`/api/tags/${tagId}/aliases/${aliasId}`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+}
+
+export async function removeTagAlias(
+  tagId: number,
+  aliasId: number,
+): Promise<void> {
+  await jsonFetch<void>(`/api/tags/${tagId}/aliases/${aliasId}`, {
+    method: "DELETE",
+  });
+}
+
+// --------------------------------------------------------------------------- //
 // タグフォルダマスタ（分類表示専用メタデータ, ADR-0072）
 // --------------------------------------------------------------------------- //
 export async function listTagFolders(): Promise<TagFolder[]> {
@@ -309,8 +396,9 @@ export async function reorderTagFolder(
   });
 }
 
-// タグの CSV エクスポート（IMPL-202608281500 / ADR-0065）。
-// 全タグを name/parent_name/description の3列でダウンロードする（そのまま再インポート可能）。
+// タグの CSV エクスポート（IMPL-202608281500 / ADR-0065、ADR-0081 で aliases 列追加）。
+// 全タグを name/parent_name/description/aliases の4列でダウンロードする（そのまま再インポート可能。
+// aliases はパイプ「|」区切り）。
 export async function downloadTagsExport(): Promise<void> {
   await downloadBlob("/api/tags/export", "text/csv", "tags.csv");
 }

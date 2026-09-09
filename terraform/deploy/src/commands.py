@@ -458,6 +458,125 @@ def cmd_import_data(
     log.info(f"退避バックアップ: s3://{import_bucket}/rollback/<対象>/<時刻>/（復旧手段, §5）")
 
 
+# アドホック SQL 実行（ADR-0083）: query.sql プレビュー表示で出力する最大行数。
+_QUERY_PREVIEW_LINES = 50
+
+
+def _print_sql_preview(sql_text: str) -> None:
+    """query.sql の内容を確認用に表示する（長大な場合は先頭 N 行のみ, ADR-0083 §4）。"""
+    lines = sql_text.splitlines()
+    log.info(f"---- query.sql（全 {len(lines)} 行） ----")
+    for line in lines[:_QUERY_PREVIEW_LINES]:
+        print(line)
+    if len(lines) > _QUERY_PREVIEW_LINES:
+        log.info(f"... 残り {len(lines) - _QUERY_PREVIEW_LINES} 行を省略（実行時は全文が実行されます）")
+    log.info("------------------------------")
+
+
+def cmd_query(target: str = "chatbot", sql_file: str | None = None) -> None:
+    """アドホック SQL 実行（ADR-0083, QUERY_MODE）。
+
+    ローカルの terraform/query.sql（--sql-file で上書き可）を読み込み、db_hiroba_qa_init を
+    QUERY_MODE の environment オーバーライドで run-task 起動する。タスク終了後、CloudWatch Logs から
+    標準出力（SELECT 結果を含む）を取得して表示し、exitCode を確認する。query.sql には破壊的 SQL が
+    書かれうるため、実行前に対象データベース名のタイプ確認を必須とする（--yes バイパスなし, §4）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+    region = cfg.aws_region
+
+    if target not in ("chatbot", "conversation", "both"):
+        raise DeployError(f"--target は chatbot / conversation / both のいずれか（指定: {target!r}）。")
+
+    # query.sql（アドホックな実行内容, Git 管理外）の解決・読み込み。
+    sql_path = sql_file or "query.sql"
+    if not os.path.isfile(sql_path):
+        raise DeployError(
+            f"query.sql が見つかりません: {sql_path}\n"
+            "  terraform/query.sql に実行したい SQL を書くか、--sql-file でパスを指定してください。\n"
+            "  （テンプレート: terraform/query.sql.example）"
+        )
+    with open(sql_path, "r", encoding="utf-8") as f:
+        query_sql = f.read()
+    if not query_sql.strip():
+        raise DeployError(f"query.sql が空です: {sql_path}")
+
+    log.step("database / app 構成の apply 済み確認")
+    _require_database_applied(cfg)
+    _require_app_applied(cfg)
+    log.ok("両構成の state を確認")
+
+    db, app = paths.database_dir(), paths.app_dir()
+
+    log.step("database 構成 output 取得")
+    tf.init_backend(db, cfg.state_bucket, region, cfg.state_key_database)
+    subnets = tf.output_json(db, "private_subnet_ids")
+    sg = tf.output_raw(db, "sg_verification_task_id")
+    family = tf.output_raw(db, "db_init_task_family")
+    if not subnets or not sg or not family:
+        raise DeployError(
+            "database 構成の output（private_subnet_ids / sg_verification_task_id / "
+            "db_init_task_family）を取得できませんでした。"
+        )
+
+    log.step("app 構成 output 取得")
+    tf.init_backend(app, cfg.state_bucket, region, cfg.state_key_app)
+    cluster = tf.output_raw(app, "cluster_name")
+    if not cluster:
+        raise DeployError("app 構成の output（cluster_name）を取得できませんでした。")
+
+    log_group = f"/ecs/{family}"
+
+    # 実行前確認（内容表示 → 対象DB名のタイプ確認, §4）。--yes バイパスは設けない。
+    log.warn("=== アドホック SQL 実行（ADR-0083） ===")
+    log.warn(f"対象データベース: {target}")
+    log.warn(f"query.sql: {sql_path}")
+    _print_sql_preview(query_sql)
+    log.warn(
+        "この SQL はマスターロール権限で実行されます（DROP/DELETE/TRUNCATE 等の破壊的操作も可能）。"
+        "内容を十分に確認してください。複数文の場合、画面に表示される結果は最終文のみです。"
+    )
+    prompts.confirm_typed(
+        f"実行する場合は対象データベース名 '{target}' を入力してください: ", target
+    )
+
+    # QUERY_MODE の run-task を起動（IMPORT_MODE と同型の environment オーバーライド機構を再利用）。
+    env = {
+        "QUERY_MODE": "true",
+        "QUERY_TARGET_DB": target,
+        "QUERY_SQL": query_sql,
+    }
+    log.step(f"query run-task 起動（{family}, QUERY_MODE, target={target}）")
+    task_arn = aws.run_import_task(
+        cluster, family, subnets, sg, region, container_name=family, environment=env
+    )
+    log.info(f"task: {task_arn}")
+    task = aws.wait_task_stopped(cluster, task_arn, region)
+
+    # 実行結果（SELECT 結果を含む標準出力）を CloudWatch Logs から取得して表示する（§6）。
+    log.step("実行結果（CloudWatch Logs）")
+    try:
+        messages = aws.get_task_log_events(log_group, family, family, task_arn, region)
+        if messages:
+            for message in messages:
+                print(message)
+        else:
+            log.warn(
+                "ログイベントを取得できませんでした（反映前の可能性があります）。"
+                f" 必要なら CloudWatch Logs {log_group} を直接確認してください。"
+            )
+    except Exception as exc:  # noqa: BLE001 - ログ取得失敗でも exitCode 判定は行う
+        log.warn(f"CloudWatch Logs の取得に失敗しました: {exc}")
+
+    exit_code = aws.task_exit_code(task)
+    if str(exit_code) != "0":
+        raise DeployError(
+            f"query 実行が異常終了しました (exitCode={exit_code})。"
+            f" CloudWatch Logs {log_group} も確認してください。"
+        )
+    log.ok("query 実行完了（exitCode=0）")
+
+
 def cmd_apply_all(assume_yes: bool = False) -> None:
     cfg = config.load_config()
     prerequisites(cfg)

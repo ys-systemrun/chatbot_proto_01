@@ -67,7 +67,7 @@ def backfill(conn, items: list) -> dict:
         # 2-(a). ユニークなタグ名を投入
         for name in sorted(tag_names):
             cur.execute(
-                "INSERT INTO hiroba_tag (name, parent_tag_id) VALUES (%s, NULL) "
+                "INSERT INTO tag (name, parent_tag_id) VALUES (%s, NULL) "
                 "ON CONFLICT (name) DO NOTHING",
                 (name,),
             )
@@ -76,7 +76,7 @@ def backfill(conn, items: list) -> dict:
         name_to_id: dict[str, int] = {}
         if tag_names:
             cur.execute(
-                "SELECT id, name FROM hiroba_tag WHERE name = ANY(%s)",
+                "SELECT id, name FROM tag WHERE name = ANY(%s)",
                 (list(tag_names),),
             )
             for tag_id, name in cur.fetchall():

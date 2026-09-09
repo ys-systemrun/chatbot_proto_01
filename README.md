@@ -14,7 +14,7 @@
 ```bash
 # 実行前に LM Studio 等は不要（マイグレーション履歴の登録のみ）。既存の全ステップを適用済みとして記録する。
 docker compose run --rm db_hiroba_qa_init \
-  yoyo mark --batch --database "postgresql://postgres:postgres@db_support_knowledge:5432/db_hiroba_qa" ./migrations
+  yoyo mark --batch --database "postgresql://postgres:postgres@db_support_knowledge:5432/db_chatbot_knowledge_base" ./migrations
 ```
 
 #### DBロール分離に伴う接続情報の変更点（IMPL-202608261022 / ADR-0052）
@@ -116,7 +116,7 @@ rem   別パス指定: terraform\import-data.bat --chatbot-sql path\to\chatbot.s
 docker compose stop web_backend knowledge_mcp tag_selector_mcp agent_invitro
 
 # 2. 新規（空の）DBへSQLダンプを投入する（既存データがある状態は非対応）
-docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_hiroba_qa < chatbot.sql
+docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_chatbot_knowledge_base < chatbot.sql
 docker compose exec -T conversation_db psql -U conversation_migrator -d conversation < conversation.sql
 
 # 3. サービスを再開する
@@ -126,7 +126,7 @@ docker compose start web_backend knowledge_mcp tag_selector_mcp agent_invitro
 > **PowerShell（Windows）での注意**: PowerShell では `<`（入力リダイレクト）が使えません。手順2は `Get-Content` からのパイプに置き換えてください。CP932 環境での文字化けを避けるため、SQLダンプが UTF-8 の場合は `-Encoding utf8` を明示するのが安全です。
 >
 > ```powershell
-> Get-Content -Encoding utf8 chatbot.sql | docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_hiroba_qa
+> Get-Content -Encoding utf8 chatbot.sql | docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_chatbot_knowledge_base
 > Get-Content -Encoding utf8 conversation.sql | docker compose exec -T conversation_db psql -U conversation_migrator -d conversation
 > ```
 
@@ -181,7 +181,7 @@ aws s3 cp s3://<import-bucket>/import/chatbot.sql      /tmp/chatbot.sql
 aws s3 cp s3://<import-bucket>/import/conversation.sql /tmp/conversation.sql
 
 # 既存データがある場合は、投入前に対象テーブルを手動で全消去する（バッチ方式の TRUNCATE 相当）。
-#   例（chatbot）: psql "$DATABASE_URL" -c 'TRUNCATE hiroba_category, hiroba_qa_original, hiroba_tag, hiroba_question_altered, hiroba_tag_alias, hiroba_qa_tag RESTART IDENTITY CASCADE;'
+#   例（chatbot）: psql "$DATABASE_URL" -c 'TRUNCATE hiroba_category, hiroba_qa_original, tag, hiroba_question_altered, tag_alias, hiroba_qa_tag RESTART IDENTITY CASCADE;'
 #   例（conversation）: psql "$CONVERSATION_DB_URL" -c 'TRUNCATE conversation, message, verification_question, verification_run, verification_run_tag, verification_run_source RESTART IDENTITY CASCADE;'
 # 全消去の前に、必要ならエクスポート機能で退避バックアップを取得しておくこと（誤操作時の復旧手段, ADR-0066 §5）。
 
@@ -359,13 +359,13 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 - トランスポート: Streamable HTTP（MCP エンドポイントは `/mcp`、ヘルスチェックは `/health`）
 - 提供ツール:
   - `search_knowledge` … クエリの意味検索。`tags` / `category` フィルタ、`min_score` に対応
-  - `list_tags` / `create_tag` / `rename_tag` / `move_tag` / `delete_tag` … タグマスタ管理（`hiroba_tag` / `hiroba_qa_tag` テーブル）
-  - `set_tag_description` / `add_tag_alias` / `remove_tag_alias` … タグの説明文・同義語管理（IMPL-202608060837 / `hiroba_tag_alias` テーブル）。`create_tag` / `rename_tag` は任意の `description` パラメータに対応。`list_tags` は `description` / `aliases` を含む
+  - `list_tags` / `create_tag` / `rename_tag` / `move_tag` / `delete_tag` … タグマスタ管理（`tag` / `hiroba_qa_tag` テーブル）
+  - `set_tag_description` / `add_tag_alias` / `remove_tag_alias` … タグの説明文・同義語管理（IMPL-202608060837 / `tag_alias` テーブル）。`create_tag` / `rename_tag` は任意の `description` パラメータに対応。`list_tags` は `description` / `aliases` を含む
   - `list_qa` / `get_qa` / `create_qa` / `update_qa` / `list_categories` … QA管理（IMPL-202608060837 / ADR-0014）。`create_qa` は `question_text` から embedding を計算し、主となる `hiroba_question_altered`（`is_primary=true`）を1件生成する
 
 ### 事前準備（DBスキーマ移行）
 
-`title` 列・`hiroba_tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
+`title` 列・`tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
 
 > 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_hiroba_qa_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
 
@@ -388,7 +388,7 @@ curl -f http://localhost:${KNOWLEDGE_MCP_PORT:-8100}/health
 
 ## Tag Selector MCP サーバ
 
-`tag_selector_mcp/` は、質問文に最も関連する既存タグを選択するための独立サービスです（IMPL-202608051712 / ADR-0007〜0012）。Knowledge MCP が管理する `hiroba_tag` テーブルを正本とし、`hiroba_tag_alias`（同義語）と `hiroba_tag.description` を用いて選択します。
+`tag_selector_mcp/` は、質問文に最も関連する既存タグを選択するための独立サービスです（IMPL-202608051712 / ADR-0007〜0012）。Knowledge MCP が管理する `tag` テーブルを正本とし、`tag_alias`（同義語）と `tag.description` を用いて選択します。
 
 - トランスポート: Streamable HTTP（MCP エンドポイントは `/mcp`、ヘルスチェックは `/health`）
 - タグ選択方式（MVP, ADR-0009）: Alias 辞書によるルールベース照合 ＋ ローカルLLM（LM Studio）による一段階選択。Embedding 層・階層探索は未実装。
@@ -441,7 +441,7 @@ curl -f http://localhost:${TAG_SELECTOR_MCP_PORT:-8200}/health
 - BFF API（`web_backend`、`/api` プロキシ経由）:
   - `GET/POST /api/qa`, `GET/PUT /api/qa/{id}`, `GET /api/categories`
   - `GET/POST /api/tags`, `PUT/DELETE /api/tags/{id}`
-- タグ削除は、`hiroba_qa_tag` 参照・子タグ存在時は拒否され、削除可能な場合は紐づく `hiroba_tag_alias` も連動削除されます。
+- タグ削除は、`hiroba_qa_tag` 参照・子タグ存在時は拒否され、削除可能な場合は紐づく `tag_alias` も連動削除されます。
 
 ### 事前準備
 

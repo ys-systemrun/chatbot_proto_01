@@ -43,7 +43,7 @@ def seed(conn) -> dict:
         # タグ名 -> id を引き当て
         target_names = sorted(set(SEED_DESCRIPTIONS) | set(SEED_ALIASES))
         cur.execute(
-            "SELECT id, name FROM hiroba_tag WHERE name = ANY(%s)",
+            "SELECT id, name FROM tag WHERE name = ANY(%s)",
             (target_names,),
         )
         id_by_name: Dict[str, int] = {name: tid for tid, name in cur.fetchall()}
@@ -58,7 +58,7 @@ def seed(conn) -> dict:
             if tag_id is None:
                 continue
             cur.execute(
-                "UPDATE hiroba_tag SET description = %s WHERE id = %s",
+                "UPDATE tag SET description = %s WHERE id = %s",
                 (description, tag_id),
             )
             updated_descriptions += cur.rowcount
@@ -70,7 +70,7 @@ def seed(conn) -> dict:
                 continue
             for alias in aliases:
                 cur.execute(
-                    "INSERT INTO hiroba_tag_alias (tag_id, alias) VALUES (%s, %s) "
+                    "INSERT INTO tag_alias (tag_id, alias) VALUES (%s, %s) "
                     "ON CONFLICT (alias) DO NOTHING",
                     (tag_id, alias),
                 )

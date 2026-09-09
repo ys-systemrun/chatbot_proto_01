@@ -470,17 +470,25 @@ body.page-admin {
 
 .admin-nav {
   display: flex;
-  align-items: center;
-  gap: 16px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
   padding: 14px 4px;
   border-bottom: 1px solid #d9e0e6;
   margin-bottom: 20px;
 }
 
+.admin-nav-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
 .admin-nav-brand {
   font-weight: 700;
   font-size: 1.05rem;
-  margin-right: 8px;
+  margin-bottom: 4px;
 }
 
 .admin-nav-link {
@@ -746,6 +754,55 @@ body.page-admin {
   color: #3a4652;
 }
 
+/* タグエイリアスの追加・編集・削除UI（ADR-0080） */
+.admin-alias-area {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.admin-alias-btn {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.72rem;
+  line-height: 1;
+  padding: 0 1px;
+  color: #6b7784;
+}
+
+.admin-alias-btn:hover {
+  color: #2b3742;
+}
+
+.admin-alias-btn.admin-danger:hover {
+  color: #c0392b;
+}
+
+.admin-alias-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.admin-alias-input {
+  font-size: 0.8rem;
+  min-width: 10rem;
+}
+
+.admin-alias-add {
+  font-size: 0.78rem;
+}
+
+/* エイリアス入力中の類似候補（ADR-0082）。行内に収まるよう幅を確保する。 */
+.admin-alias-similar {
+  flex-basis: 100%;
+  margin-top: 6px;
+  margin-bottom: 0;
+}
+
 .admin-tagrow-actions {
   display: flex;
   align-items: center;
@@ -885,6 +942,14 @@ body.page-admin {
   margin: 4px 0 0;
   padding-left: 20px;
   color: #c0392b;
+  font-size: 0.85rem;
+}
+
+/* エイリアス追加専用の警告（行自体は成功, ADR-0081） */
+.admin-import-warnings {
+  margin: 4px 0 0;
+  padding-left: 20px;
+  color: #8a6d3b;
   font-size: 0.85rem;
 }
 

@@ -31,8 +31,8 @@ class FakeCursor:
         self._result = []
 
         # --- 書き込み系（SELECT の部分一致に横取りされないよう先に判定） --- #
-        # タグフォルダ（hiroba_tag_folder）は hiroba_tag のプレフィックスに一致するため先に判定する。
-        if q.startswith("INSERT INTO hiroba_tag_folder"):
+        # タグフォルダ（tag_folder）は tag のプレフィックスに一致するため先に判定する。
+        if q.startswith("INSERT INTO tag_folder"):
             new_id = self.s["next_folder_id"]
             self.s["next_folder_id"] += 1
             self.s["folders"][new_id] = {
@@ -44,7 +44,7 @@ class FakeCursor:
             }
             self._result = [(new_id,)]
             return
-        if q.startswith("UPDATE hiroba_tag_folder SET name"):
+        if q.startswith("UPDATE tag_folder SET name"):
             if "description" in q:
                 name, description, fid = p
                 self.s["folders"][fid]["name"] = name
@@ -53,7 +53,7 @@ class FakeCursor:
                 name, fid = p
                 self.s["folders"][fid]["name"] = name
             return
-        if q.startswith("UPDATE hiroba_tag_folder SET parent_folder_id"):
+        if q.startswith("UPDATE tag_folder SET parent_folder_id"):
             # 繰り上げ（子フォルダを削除対象の親へ）と、単純な移動の2種類がある（ADR-0073）。
             # 移動時は display_order も同時更新する（ADR-0074、末尾へ再採番）。
             if "SELECT parent_folder_id" in q:
@@ -67,20 +67,24 @@ class FakeCursor:
                 self.s["folders"][fid]["parent"] = new_parent
                 self.s["folders"][fid]["order"] = new_order
             return
-        if q.startswith("UPDATE hiroba_tag_folder SET display_order"):
+        if q.startswith("UPDATE tag_folder SET display_order"):
             new_order, fid = p
             self.s["folders"][fid]["order"] = new_order
             return
-        if q.startswith("DELETE FROM hiroba_tag_folder"):
+        if q.startswith("DELETE FROM tag_folder"):
             self.s["folders"].pop(p[0], None)
             return
-        if q.startswith("INSERT INTO hiroba_tag_alias"):
+        if q.startswith("INSERT INTO tag_alias"):
             new_id = self.s["next_alias_id"]
             self.s["next_alias_id"] += 1
             self.s["aliases"][new_id] = {"tag_id": p[0], "alias": p[1]}
             self._result = [(new_id,)]
             return
-        if q.startswith("INSERT INTO hiroba_tag"):
+        if q.startswith("UPDATE tag_alias SET alias"):
+            alias, aid = p
+            self.s["aliases"][aid]["alias"] = alias
+            return
+        if q.startswith("INSERT INTO tag"):
             new_id = self.s["next_tag_id"]
             self.s["next_tag_id"] += 1
             self.s["tags"][new_id] = {
@@ -93,7 +97,7 @@ class FakeCursor:
             }
             self._result = [(new_id,)]
             return
-        if q.startswith("UPDATE hiroba_tag SET name"):
+        if q.startswith("UPDATE tag SET name"):
             if "description" in q:
                 name, description, tid = p
                 self.s["tags"][tid]["name"] = name
@@ -102,25 +106,25 @@ class FakeCursor:
                 name, tid = p
                 self.s["tags"][tid]["name"] = name
             return
-        if q.startswith("UPDATE hiroba_tag SET description"):
+        if q.startswith("UPDATE tag SET description"):
             description, tid = p
             self.s["tags"][tid]["description"] = description
             return
-        if q.startswith("UPDATE hiroba_tag SET parent_tag_id"):
+        if q.startswith("UPDATE tag SET parent_tag_id"):
             # 移動時は display_order も同時更新する（ADR-0074、新しい兄弟集合の末尾へ再採番）。
             parent, new_order, tid = p
             self.s["tags"][tid]["parent"] = parent
             self.s["tags"][tid]["order"] = new_order
             return
-        if q.startswith("UPDATE hiroba_tag SET display_order"):
+        if q.startswith("UPDATE tag SET display_order"):
             new_order, tid = p
             self.s["tags"][tid]["order"] = new_order
             return
-        if q.startswith("UPDATE hiroba_tag SET folder_id"):
+        if q.startswith("UPDATE tag SET folder_id"):
             folder, tid = p
             self.s["tags"][tid]["folder"] = folder
             return
-        if q.startswith("DELETE FROM hiroba_tag_alias"):
+        if q.startswith("DELETE FROM tag_alias"):
             tid = p[0]
             # WHERE tag_id = %s（cascade）か WHERE id = %s（単体削除）かを区別
             if "WHERE tag_id" in q:
@@ -131,13 +135,13 @@ class FakeCursor:
             else:
                 self.s["aliases"].pop(tid, None)
             return
-        if q.startswith("DELETE FROM hiroba_tag"):
+        if q.startswith("DELETE FROM tag"):
             self.s["tags"].pop(p[0], None)
             return
 
         # --- display_order 採番・並べ替え（ADR-0074）。汎用SELECTに横取りされる前に判定する。 --- #
-        # フォルダ（hiroba_tag_folder）はタグ（hiroba_tag）のプレフィックスに一致するため先に判定する。
-        if "SELECT MAX(display_order) FROM hiroba_tag_folder" in q:
+        # フォルダ（tag_folder）はタグ（tag）のプレフィックスに一致するため先に判定する。
+        if "SELECT MAX(display_order) FROM tag_folder" in q:
             if "IS NULL" in q:
                 vals = [
                     f["order"]
@@ -152,7 +156,7 @@ class FakeCursor:
                 ]
             self._result = [(max(vals) if vals else None,)]
             return
-        if "SELECT MAX(display_order) FROM hiroba_tag" in q:
+        if "SELECT MAX(display_order) FROM tag" in q:
             if "IS NULL" in q:
                 vals = [
                     t["order"]
@@ -167,7 +171,7 @@ class FakeCursor:
                 ]
             self._result = [(max(vals) if vals else None,)]
             return
-        if "SELECT id, display_order FROM hiroba_tag_folder" in q:
+        if "SELECT id, display_order FROM tag_folder" in q:
             if "IS NULL" in q:
                 items = [
                     (fid, f["order"])
@@ -182,7 +186,7 @@ class FakeCursor:
                 ]
             self._result = sorted(items, key=lambda x: (x[1], x[0]))
             return
-        if "SELECT id, display_order FROM hiroba_tag" in q:
+        if "SELECT id, display_order FROM tag" in q:
             if "IS NULL" in q:
                 items = [
                     (tid, t["order"])
@@ -197,7 +201,7 @@ class FakeCursor:
                 ]
             self._result = sorted(items, key=lambda x: (x[1], x[0]))
             return
-        if "SELECT parent_folder_id FROM hiroba_tag_folder WHERE id = %s" in q:
+        if "SELECT parent_folder_id FROM tag_folder WHERE id = %s" in q:
             f = self.s["folders"].get(p[0])
             self._result = [(f["parent"],)] if f else []
             return
@@ -214,24 +218,24 @@ class FakeCursor:
                 anc.add(cur)
                 cur = store.get(cur, {}).get("parent")
             self._result = [(1,)] if target_id in anc else []
-        # --- タグフォルダ（hiroba_tag のプレフィックスと衝突するため先に判定） --- #
-        elif "FROM hiroba_tag WHERE folder_id = %s" in q:
+        # --- タグフォルダ（tag のプレフィックスと衝突するため先に判定） --- #
+        elif "FROM tag WHERE folder_id = %s" in q:
             self._result = [
                 (1,) for t in self.s["tags"].values() if t.get("folder") == p[0]
             ][:1]
-        elif "FROM hiroba_tag_folder WHERE name = %s AND id <> %s" in q:
+        elif "FROM tag_folder WHERE name = %s AND id <> %s" in q:
             self._result = [
                 (1,)
                 for fid, f in self.s["folders"].items()
                 if f["name"] == p[0] and fid != p[1]
             ][:1]
-        elif "FROM hiroba_tag_folder WHERE name = %s" in q:
+        elif "FROM tag_folder WHERE name = %s" in q:
             self._result = [
                 (1,) for f in self.s["folders"].values() if f["name"] == p[0]
             ][:1]
-        elif "SELECT 1 FROM hiroba_tag_folder WHERE id = %s" in q:
+        elif "SELECT 1 FROM tag_folder WHERE id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["folders"] else []
-        elif "FROM hiroba_tag_folder ORDER BY display_order, id" in q:
+        elif "FROM tag_folder ORDER BY display_order, id" in q:
             # 実DBと同じく (display_order, id) 昇順で返す（ADR-0074）。order 未設定は先頭扱い。
             self._result = [
                 (fid, f["name"], f["description"], f.get("parent"), f.get("order"))
@@ -243,7 +247,7 @@ class FakeCursor:
                     ),
                 )
             ]
-        elif "FROM hiroba_tag_folder WHERE id = %s" in q:
+        elif "FROM tag_folder WHERE id = %s" in q:
             if p[0] in self.s["folders"]:
                 f = self.s["folders"][p[0]]
                 self._result = [
@@ -251,23 +255,41 @@ class FakeCursor:
                 ]
         elif "FROM hiroba_qa_tag WHERE tag_id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["qa_tag"] else []
-        elif "FROM hiroba_tag WHERE parent_tag_id = %s" in q:
+        elif "FROM tag WHERE parent_tag_id = %s" in q:
             self._result = [
                 (1,) for t in self.s["tags"].values() if t["parent"] == p[0]
             ][:1]
-        elif "FROM hiroba_tag_alias WHERE alias = %s" in q:
+        elif "SELECT tag_id FROM tag_alias WHERE id = %s" in q:
+            # update_tag_alias: 対象エイリアスの所属タグを取得（ADR-0080）。
+            a = self.s["aliases"].get(p[0])
+            self._result = [(a["tag_id"],)] if a else []
+        elif "SELECT tag_id FROM tag_alias WHERE alias = %s" in q:
+            # import_tag_batch の追加専用ロジック: エイリアス文字列の所属タグを取得（ADR-0081）。
+            self._result = [
+                (a["tag_id"],)
+                for a in self.s["aliases"].values()
+                if a["alias"] == p[0]
+            ][:1]
+        elif "FROM tag_alias WHERE alias = %s AND id <> %s" in q:
+            # update_tag_alias の重複チェック（自分自身を除外, ADR-0080）。
+            self._result = [
+                (1,)
+                for aid, a in self.s["aliases"].items()
+                if a["alias"] == p[0] and aid != p[1]
+            ][:1]
+        elif "FROM tag_alias WHERE alias = %s" in q:
             self._result = [
                 (1,) for a in self.s["aliases"].values() if a["alias"] == p[0]
             ][:1]
-        elif "FROM hiroba_tag_alias WHERE id = %s" in q:
+        elif "FROM tag_alias WHERE id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["aliases"] else []
-        elif "SELECT id, alias FROM hiroba_tag_alias WHERE tag_id = %s" in q:
+        elif "SELECT id, alias FROM tag_alias WHERE tag_id = %s" in q:
             self._result = [
                 (aid, a["alias"])
                 for aid, a in sorted(self.s["aliases"].items())
                 if a["tag_id"] == p[0]
             ]
-        elif "SELECT id, tag_id, alias FROM hiroba_tag_alias" in q:
+        elif "SELECT id, tag_id, alias FROM tag_alias" in q:
             self._result = [
                 (aid, a["tag_id"], a["alias"])
                 for aid, a in sorted(self.s["aliases"].items())
@@ -278,13 +300,20 @@ class FakeCursor:
                 for tid, t in self.s["tags"].items()
                 if t["name"] == p[0] and tid != p[1]
             ][:1]
-        elif "FROM hiroba_tag WHERE name = %s" in q:
+        elif "FROM tag WHERE name = %s" in q:
+            # create_tag の存在チェック（SELECT 1）と find_by_name（SELECT id）の両方が通る。
+            # 実 id を返すことで、存在判定（fetchone is not None）と id 取得の双方に対応する。
             self._result = [
-                (1,) for t in self.s["tags"].values() if t["name"] == p[0]
+                (tid,) for tid, t in self.s["tags"].items() if t["name"] == p[0]
             ][:1]
-        elif "SELECT 1 FROM hiroba_tag WHERE id = %s" in q:
+        elif "SELECT 1 FROM tag WHERE id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["tags"] else []
-        elif "FROM hiroba_tag ORDER BY display_order, id" in q:
+        elif "SELECT name, id FROM tag" in q:
+            # import_tag_batch の初期解決テーブル（name -> id）。ADR-0061/0081。
+            self._result = [
+                (t["name"], tid) for tid, t in self.s["tags"].items()
+            ]
+        elif "FROM tag ORDER BY display_order, id" in q:
             # 実DBと同じく (display_order, id) 昇順で返す（ADR-0074）。order 未設定は先頭扱い。
             self._result = [
                 (
@@ -303,7 +332,7 @@ class FakeCursor:
                     ),
                 )
             ]
-        elif "FROM hiroba_tag WHERE id = %s" in q:
+        elif "FROM tag WHERE id = %s" in q:
             if p[0] in self.s["tags"]:
                 t = self.s["tags"][p[0]]
                 self._result = [
@@ -405,6 +434,43 @@ def test_remove_alias(repo):
     added = repo.add_tag_alias(a.id, "x")
     repo.remove_tag_alias(added["id"])
     assert repo.list_tags()[0].aliases == []
+
+
+# --------------------------------------------------------------------------- #
+# update_tag_alias（ADR-0080）
+# --------------------------------------------------------------------------- #
+def test_update_alias_rewrites_in_place(repo):
+    """alias_id を保ったまま文字列だけを書き換える（削除→追加ではない, ADR-0080 決定）。"""
+    a = repo.create_tag("認証")
+    added = repo.add_tag_alias(a.id, "ログイン")
+    updated = repo.update_tag_alias(added["id"], "サインイン")
+    assert updated == {"id": added["id"], "tag_id": a.id, "alias": "サインイン"}
+    node = repo.list_tags()[0]
+    assert [al["alias"] for al in node.aliases] == ["サインイン"]
+    assert node.aliases[0]["id"] == added["id"]  # id は不変
+
+
+def test_update_alias_to_same_value_ok(repo):
+    """自分自身と同じ文字列への更新は重複扱いにしない（id <> self, ADR-0080）。"""
+    a = repo.create_tag("A")
+    added = repo.add_tag_alias(a.id, "同義")
+    updated = repo.update_tag_alias(added["id"], "同義")
+    assert updated["alias"] == "同義"
+
+
+def test_update_alias_to_existing_other_rejected(repo):
+    """他のエイリアスと重複する文字列への更新は TagError（UNIQUE 制約由来）。"""
+    a = repo.create_tag("A")
+    b = repo.create_tag("B")
+    added = repo.add_tag_alias(a.id, "x")
+    repo.add_tag_alias(b.id, "y")
+    with pytest.raises(TagError):
+        repo.update_tag_alias(added["id"], "y")
+
+
+def test_update_missing_alias_rejected(repo):
+    with pytest.raises(TagError):
+        repo.update_tag_alias(999, "何か")
 
 
 # --------------------------------------------------------------------------- #
@@ -511,20 +577,83 @@ def test_export_tags_flattens_tree_in_hierarchy_order(repo):
     assert by_name["ログイン"]["parent_name"] == "サポート"
     assert by_name["パスワード再設定"]["parent_name"] == "ログイン"
     assert by_name["サポート"]["description"] == "最上位"
-    # CSV は id を出力しないが、ツールの戻り値には含む（web_backend が参照しない）
-    assert set(items[0].keys()) == {"id", "name", "parent_name", "description"}
+    # CSV は id を出力しないが、ツールの戻り値には含む（web_backend が参照しない）。
+    # ADR-0081 で aliases（文字列配列）をエクスポート対象に追加した。
+    assert set(items[0].keys()) == {
+        "id",
+        "name",
+        "parent_name",
+        "description",
+        "aliases",
+    }
 
 
-def test_export_tags_excludes_aliases(repo):
-    """エイリアスはエクスポート対象に含めない（ADR-0065 決定3）。"""
+def test_export_tags_includes_aliases(repo):
+    """エイリアスは文字列配列としてエクスポートに含める（ADR-0081 でADR-0065の除外方針を見直し）。"""
     a = repo.create_tag("認証")
     repo.add_tag_alias(a.id, "ログイン認証")
+    repo.add_tag_alias(a.id, "サインイン")
 
     items = repo.export_tags()
 
     assert len(items) == 1
-    assert "aliases" not in items[0]
+    assert items[0]["aliases"] == ["ログイン認証", "サインイン"]
     assert "children" not in items[0]
+
+
+# --------------------------------------------------------------------------- #
+# import_tag_batch のエイリアス列（追加専用, ADR-0081）
+# --------------------------------------------------------------------------- #
+def test_import_adds_aliases_to_new_tag(repo):
+    """新規作成タグに aliases を追加専用で登録する。"""
+    results = repo.import_tag_batch(
+        [{"name": "認証", "aliases": ["ログイン", "サインイン"]}]
+    )
+    assert results[0]["status"] == "success"
+    assert "alias_warnings" not in results[0]
+    node = repo.find_by_name("認証")
+    assert sorted(al["alias"] for al in node.aliases) == ["サインイン", "ログイン"]
+
+
+def test_import_alias_is_additive_and_idempotent(repo):
+    """既に対象タグに登録済みのエイリアスは重複追加せず、警告も出さない（追加専用）。"""
+    a = repo.create_tag("認証")
+    repo.add_tag_alias(a.id, "ログイン")
+    results = repo.import_tag_batch(
+        [{"name": "認証", "aliases": ["ログイン", "サインイン"]}]
+    )
+    assert results[0]["status"] == "success"
+    assert "alias_warnings" not in results[0]
+    node = repo.find_by_name("認証")
+    assert sorted(al["alias"] for al in node.aliases) == ["サインイン", "ログイン"]
+
+
+def test_import_alias_belonging_to_other_tag_warns_but_continues(repo):
+    """別タグに既存のエイリアスはその1件のみ警告とし、行本体・他エイリアスは成功する（決定3）。"""
+    other = repo.create_tag("ネットワーク認証")
+    repo.add_tag_alias(other.id, "ネット認証")
+
+    results = repo.import_tag_batch(
+        [{"name": "認証", "aliases": ["ネット認証", "サインイン"]}]
+    )
+    # 行自体は成功（タグ作成＋別エイリアス登録）だが、警告を伴う。
+    assert results[0]["status"] == "success"
+    assert results[0]["alias_warnings"]
+    assert "ネット認証" in results[0]["alias_warnings"][0]
+    node = repo.find_by_name("認証")
+    # 競合したエイリアスは付かず、競合しなかったものだけ登録される。
+    assert [al["alias"] for al in node.aliases] == ["サインイン"]
+    # 別タグ側のエイリアスは奪われない。
+    assert [al["alias"] for al in repo.find_by_name("ネットワーク認証").aliases] == [
+        "ネット認証"
+    ]
+
+
+def test_import_without_aliases_key_still_succeeds(repo):
+    """aliases 列が無い旧形式の行もエイリアス操作なしで成功する（後方互換, 決定5）。"""
+    results = repo.import_tag_batch([{"name": "認証"}])
+    assert results[0]["status"] == "success"
+    assert repo.find_by_name("認証").aliases == []
 
 
 # --------------------------------------------------------------------------- #

@@ -74,6 +74,7 @@ terraform/
 ├── apply-all.bat        フルパイプライン（database → app閉 → seed → app開）
 ├── seed.bat             シード run-task のみ実行（再シード用途。要: 両構成 apply 済み）
 ├── migrate.bat          マイグレーション専用 run-task（シード投入をスキップ。ADR-0075。要: 両構成 apply 済み）
+├── query.bat            アドホック SQL 実行 run-task（query.sql を実行。ADR-0083。対象DB名入力の確認あり）
 ├── destroy-app.bat      app 構成のみ破棄（RDS は残す。'destroy-app' 入力の確認あり）
 ├── destroy-database.bat database 構成を破棄（RDS 削除。'destroy-database' 入力の確認あり）
 ├── deploy/                 コンテナ内 Python オーケストレータ（ADR-0040。*.bat の実体）
@@ -196,6 +197,34 @@ aws ecs describe-tasks --cluster $CLUSTER --tasks <task-arn> --query 'tasks[].co
 > ロール作成・両DBのマイグレーション適用・権限付与・エクスポート専用ロール作成は通常どおり実行する。
 > 非破壊的・冪等（何度実行しても未適用分のみ適用）で確認プロンプトなし。使い分け:
 > スキーマ反映=`migrate`、データ投入・更新=`import-data`、初回や再シード=`seed`（オプションなし）。
+
+### アドホック SQL 実行（query.bat / ADR-0083）
+RDS（`db_chatbot_knowledge_base` / conversation）に対し、運用者がその場で任意の SQL（確認 SELECT、
+ピンポイントの UPDATE/DELETE/ALTER 等）を実行する手段。RDS は private サブネットにあり端末から直接接続
+できないため、`seed`/`import-data` と同じ `db_init_task_family` を **`QUERY_MODE=true`** の environment
+オーバーライドで一時 run-task 起動して実行する（新規インフラなし）。
+
+使い方:
+1. `terraform/query.sql.example` をコピーして **`terraform/query.sql`**（Git 管理外）を作り、実行する SQL を書く。
+2. `query.bat` をダブルクリック（既定 `--target chatbot`）。対象を変えるなら
+   `query.bat --target conversation` / `query.bat --target both`。別ファイルなら `--sql-file <path>`。
+3. 実行前に **query.sql の内容** と対象が表示され、**対象データベース名（`chatbot`/`conversation`/`both`）の
+   タイプ入力**を求められる（一致しなければ中止）。`import-data` と同じ `confirm_typed` 方式で、`--yes`
+   バイパスは無い。
+4. タスク終了後、標準出力（SELECT 結果を含む）を CloudWatch Logs `/ecs/db-hiroba-qa-init` から取得して表示し、
+   exitCode=0 を確認する。
+
+注意点（README 明記事項, ADR-0083）:
+- **マスターロール権限**で実行される。`query.sql` には DROP/TRUNCATE/DELETE 等の破壊的操作も書けてしまう。
+  確認は「対象DB名のタイプ入力」であり、`query.sql` の内容そのものの妥当性は検証しない（内容確認は運用者の責任）。
+- 全体が **1トランザクション**で実行され、エラー時は自動 rollback して exit 非0。
+- 複数文（セミコロン区切り）を書けるが、画面に表示される結果セットは **最終文のみ**（途中の SELECT 結果は
+  表示されない）。SELECT 以外は影響行数のみ表示。
+- **短いアドホック SQL 向け**（数KB程度まで。ECS RunTask の環境変数サイズ上限による）。大規模な一括投入・
+  全消去上書きは引き続き `import-data`（S3 経由）を使う。
+- **IAM**: `query` を実行する運用者の AWS 認証情報（`terraform/.env` の `AWS_ACCESS_KEY_ID` 等）に、
+  ロググループ `/ecs/db-hiroba-qa-init` に対する `logs:GetLogEvents` 権限が必要（結果表示のため）。
+- データ喪失が心配な操作の前は、エクスポート機能でのバックアップ取得を推奨（運用ルール。本機能の対象外）。
 
 ### Phase 5: app 構成 再 apply（ゲート開）
 **exitCode=0 を確認してから** knowledge_mcp サービスを稼働させる:

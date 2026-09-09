@@ -81,7 +81,7 @@ class FakeCursor:
         # --- 参照系 --- #
         if "FROM hiroba_category WHERE id = %s" in q:
             self._result = [(1,)] if p[0] in self.s["categories"] else []
-        elif "SELECT id FROM hiroba_tag WHERE id = ANY(%s)" in q:
+        elif "SELECT id FROM tag WHERE id = ANY(%s)" in q:
             wanted = set(p[0])
             self._result = [(tid,) for tid in self.s["tags"] if tid in wanted]
         elif "FROM hiroba_category ORDER BY id" in q:
@@ -112,7 +112,7 @@ class FakeCursor:
                 )
                 rows.append((uuid, r["title"], cname, tags, cnt))
             self._result = rows[offset : offset + limit]
-        elif "FROM hiroba_qa_tag JOIN hiroba_tag" in q:
+        elif "FROM hiroba_qa_tag JOIN tag" in q:
             qa_id = p[0]
             self._result = sorted(
                 (

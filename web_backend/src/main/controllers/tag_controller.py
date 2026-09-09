@@ -21,13 +21,27 @@ from src.main import config
 
 _client = KnowledgeMcpClient(config.KNOWLEDGE_MCP_URL)
 
-# CSV 一括インポートで受け付ける列（IMPL-202608261630 T3 / ADR-0061）。
-_TAG_IMPORT_COLUMNS = ["name", "parent_name", "description"]
+# CSV 一括インポートで受け付ける列（IMPL-202608261630 T3 / ADR-0061、ADR-0081 で aliases 追加）。
+# aliases はパイプ「|」区切りの複数エイリアスを1セルにまとめた列（任意列、追加専用）。
+_TAG_IMPORT_COLUMNS = ["name", "parent_name", "description", "aliases"]
 
-# CSV エクスポートの列（IMPL-202608281500 / ADR-0065）。
-# import_tag_batch（ADR-0061）と完全一致させ、そのまま再インポートできる形式にする。
+# CSV エクスポートの列（IMPL-202608281500 / ADR-0065、ADR-0081 で aliases 追加）。
+# import_tag_batch（ADR-0061/0081）と完全一致させ、そのまま再インポートできる形式にする。
 # export_tags は id も返すが、CSV には出力しない（upsertキーが name のため誤解防止）。
-_TAG_EXPORT_COLUMNS = ["name", "parent_name", "description"]
+_TAG_EXPORT_COLUMNS = ["name", "parent_name", "description", "aliases"]
+
+# aliases セル内の区切り文字（ADR-0081 決定1）。日本語同義語に含まれにくいパイプを採用する。
+_ALIAS_DELIMITER = "|"
+
+
+def _parse_alias_cell(raw: str | None) -> list[str]:
+    """パイプ区切りの aliases セルを文字列配列へ分割する（空要素・重複を除去, ADR-0081）。"""
+    result: list[str] = []
+    for part in (raw or "").split(_ALIAS_DELIMITER):
+        alias = part.strip()
+        if alias and alias not in result:
+            result.append(alias)
+    return result
 
 
 class TagCreateRequest(BaseModel):
@@ -50,6 +64,15 @@ class TagUpdateRequest(BaseModel):
 class TagReorderRequest(BaseModel):
     # 兄弟集合内での並べ替え方向（ADR-0074）。"up"=1つ上へ、"down"=1つ下へ。
     direction: str
+
+
+# タグエイリアスの追加・編集（ADR-0080）。tag_id はパス上の文脈で、追加時のみ MCP へ渡す。
+class TagAliasCreateRequest(BaseModel):
+    alias: str
+
+
+class TagAliasUpdateRequest(BaseModel):
+    alias: str
 
 
 class TagListResponse(BaseModel):
@@ -84,6 +107,8 @@ class TagImportRowResult(BaseModel):
     status: str
     tag_id: int | None = None
     error: str | None = None
+    # 追加専用エイリアス登録での警告（別タグに既存 等）。1行内のエイリアス単位（ADR-0081 決定3）。
+    alias_warnings: list[str] | None = None
 
 
 class TagImportResponse(BaseModel):
@@ -158,6 +183,35 @@ async def reorder_tag(tag_id: int, body: TagReorderRequest) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# タグエイリアス CRUD（ADR-0080）
+# 既存の create_tag / update_tag と同じく、MCP ツール呼び出し + log_admin_operation の
+# 薄い BFF（ADR-0013）。tag_id は UI 上の文脈を表すパス要素で、update/remove では使わない
+# （alias_id だけで一意に解決できるため）。重複 alias は MCP 側の TagError→409。
+# --------------------------------------------------------------------------- #
+async def add_tag_alias(tag_id: int, body: TagAliasCreateRequest) -> dict:
+    alias = await _client.call_tool(
+        "add_tag_alias", {"tag_id": tag_id, "alias": body.alias}
+    )
+    log_admin_operation("create", "tag_alias", alias.get("id"), body.model_dump())
+    return alias
+
+
+async def update_tag_alias(
+    tag_id: int, alias_id: int, body: TagAliasUpdateRequest
+) -> dict:
+    alias = await _client.call_tool(
+        "update_tag_alias", {"alias_id": alias_id, "new_alias": body.alias}
+    )
+    log_admin_operation("update", "tag_alias", alias_id, body.model_dump())
+    return alias
+
+
+async def remove_tag_alias(tag_id: int, alias_id: int) -> None:
+    await _client.call_tool("remove_tag_alias", {"alias_id": alias_id})
+    log_admin_operation("delete", "tag_alias", alias_id, {})
+
+
+# --------------------------------------------------------------------------- #
 # タグフォルダマスタ（分類表示専用メタデータ, ADR-0072）
 # tag と同様に Knowledge MCP のツール経由で処理する。
 # --------------------------------------------------------------------------- #
@@ -215,7 +269,8 @@ def _parse_tag_import_csv(csv_bytes: bytes) -> list[dict]:
 
     列の機械的なバリデーション（必須列の存在チェック）のみをここで行い、業務バリデーション
     （name必須・循環参照チェック等）は Knowledge MCP に委ねる（ADR-0061）。
-    列: name（必須）, parent_name（任意）, description（任意）。
+    列: name（必須）, parent_name（任意）, description（任意）, aliases（任意, パイプ区切り・
+    追加専用, ADR-0081）。aliases 列が無い旧形式の CSV も引き続き受け付ける（後方互換）。
     """
     try:
         text = csv_bytes.decode("utf-8-sig")
@@ -229,10 +284,18 @@ def _parse_tag_import_csv(csv_bytes: bytes) -> list[dict]:
     fields = {f.strip() for f in reader.fieldnames if f}
     if "name" not in fields:
         raise HTTPException(status_code=422, detail="CSV に必要な列がありません: name")
-    return [
-        {col: (raw.get(col) or "").strip() for col in _TAG_IMPORT_COLUMNS}
-        for raw in reader
-    ]
+
+    rows: list[dict] = []
+    for raw in reader:
+        row: dict = {}
+        for col in _TAG_IMPORT_COLUMNS:
+            if col == "aliases":
+                # パイプ区切りを配列へ（ADR-0081）。他の列と異なり list として渡す。
+                row[col] = _parse_alias_cell(raw.get(col))
+            else:
+                row[col] = (raw.get(col) or "").strip()
+        rows.append(row)
+    return rows
 
 
 async def import_tags_csv(csv_bytes: bytes) -> TagImportResponse:
@@ -254,8 +317,9 @@ def _timestamp() -> str:
 async def build_export_csv() -> tuple[bytes, str]:
     """全タグを CSV（UTF-8 BOM付き）に組み立て、(bytes, filename) を返す。
 
-    列は name/parent_name/description（import_tag_batch と完全一致）で、そのまま再インポートできる。
-    export_tags ツールは id も返すが CSV には出力しない。エイリアスは対象外（ADR-0065）。
+    列は name/parent_name/description/aliases（import_tag_batch と完全一致）で、そのまま
+    再インポートできる（ADR-0081）。aliases はパイプ「|」区切りの文字列に整形する。
+    export_tags ツールは id も返すが CSV には出力しない。
     既存の全データエクスポート（chatbot_invitro_export_*）と混同しないファイル名にする（要件12章#5）。
     """
     result = await _client.call_tool("export_tags", {})
@@ -266,7 +330,12 @@ async def build_export_csv() -> tuple[bytes, str]:
     writer.writeheader()
     for item in items:
         writer.writerow(
-            {col: (item.get(col) or "") for col in _TAG_EXPORT_COLUMNS}
+            {
+                "name": item.get("name") or "",
+                "parent_name": item.get("parent_name") or "",
+                "description": item.get("description") or "",
+                "aliases": _ALIAS_DELIMITER.join(item.get("aliases") or []),
+            }
         )
 
     # Excel 互換のため UTF-8 BOM を付与する（既存の import は utf-8-sig で読めるため往復可能）。

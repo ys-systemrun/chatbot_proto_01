@@ -70,12 +70,23 @@ export interface TagFolderMoveRequest {
   new_parent_folder_id: number | null;
 }
 
+// タグエイリアスの追加・編集（ADR-0080）。alias 文字列のみを送る。
+export interface TagAliasCreateRequest {
+  alias: string;
+}
+
+export interface TagAliasUpdateRequest {
+  alias: string;
+}
+
 // タグ一括インポートの結果（IMPL-202608261630 T4 / ADR-0061）
 export interface TagImportRowResult {
   row: number;
   status: "success" | "error";
   tag_id?: number;
   error?: string;
+  // 追加専用エイリアス登録での警告（別タグに既存 等, ADR-0081 決定3）。
+  alias_warnings?: string[];
 }
 
 export interface TagImportResponse {

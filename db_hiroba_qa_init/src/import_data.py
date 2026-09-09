@@ -38,11 +38,15 @@ INSERT_BATCH_SIZE = 500
 CHATBOT_TABLES = [
     "hiroba_category",
     "hiroba_qa_original",
-    "hiroba_tag_folder",  # ADR-0072: hiroba_tag.folder_id の参照先のため hiroba_tag より前
-    "hiroba_tag",
+    "tag_folder",  # ADR-0072/0077: tag.folder_id の参照先のため tag より前
+    "tag",
     "hiroba_question_altered",
-    "hiroba_tag_alias",
+    "tag_alias",
     "hiroba_qa_tag",
+    # ADR-0076: トラブルシューティング記事（troubleshooting_article_tag は
+    # troubleshooting_article と tag の両方を参照するため両者より後に置く）。
+    "troubleshooting_article",
+    "troubleshooting_article_tag",
 ]
 CONVERSATION_TABLES = [
     "conversation",

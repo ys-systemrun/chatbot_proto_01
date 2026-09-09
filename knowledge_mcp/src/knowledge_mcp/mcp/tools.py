@@ -2,7 +2,7 @@
 
 search_knowledge（読み取り系）、
 タグ管理ツール list_tags / create_tag / rename_tag / move_tag / delete_tag /
-set_tag_description / add_tag_alias / remove_tag_alias（書き込み系, ADR-0006）、
+set_tag_description / add_tag_alias / update_tag_alias / remove_tag_alias（書き込み系, ADR-0006/0080）、
 QA管理ツール list_qa / get_qa / create_qa / update_qa / list_categories（書き込み系, ADR-0014）
 を FastMCP インスタンスへ登録する。
 """
@@ -16,8 +16,12 @@ from mcp.server.fastmcp.exceptions import ToolError
 
 from ..repository.qa_management_repository import QaManagementRepository
 from ..repository.question_altered_repository import QuestionAlteredRepository
+from ..repository.troubleshooting_management_repository import (
+    TroubleshootingManagementRepository,
+)
 from ..models.qa import QaError
 from ..models.question_altered import QuestionAlteredError
+from ..models.troubleshooting import TroubleshootingError
 from ..repository.tag_repository import TagRepository, TagError
 from ..services.search_service import SearchService
 
@@ -28,6 +32,9 @@ def register_tools(
     tag_repository: TagRepository,
     qa_management_repository: QaManagementRepository,
     question_altered_repository: QuestionAlteredRepository,
+    troubleshooting_management_repository: Optional[
+        TroubleshootingManagementRepository
+    ] = None,
     default_top_k: int = 5,
 ) -> None:
     # -------------------------------------------------------------- #
@@ -119,6 +126,16 @@ def register_tools(
             raise ToolError(str(e))
 
     @mcp.tool(
+        name="update_tag_alias",
+        description="alias を id 指定で書き換える。new_alias が他のエイリアスと重複する場合はエラーを返す（ADR-0080）。",
+    )
+    def update_tag_alias(alias_id: int, new_alias: str) -> dict:
+        try:
+            return tag_repository.update_tag_alias(alias_id, new_alias)
+        except TagError as e:
+            raise ToolError(str(e))
+
+    @mcp.tool(
         name="remove_tag_alias",
         description="alias を id 指定で削除する。",
     )
@@ -166,7 +183,8 @@ def register_tools(
     @mcp.tool(
         name="import_tag_batch",
         description="複数件のタグをCSV由来の行データからまとめて登録・更新する。name一致でupsertし、"
-                    "parent_nameで階層（親タグ）を指定する。",
+                    "parent_nameで階層（親タグ）を指定する。aliases（文字列配列）は追加専用で登録し、"
+                    "別タグに既存のエイリアスは警告として結果に含める（ADR-0081）。",
     )
     def import_tag_batch(rows: List[dict]) -> dict:
         results = tag_repository.import_tag_batch(rows)
@@ -178,8 +196,8 @@ def register_tools(
 
     @mcp.tool(
         name="export_tags",
-        description="全タグを id/name/parent_name/description のフラットな配列で返す"
-                    "（親が子より先の階層順、エイリアス除外。CSV組み立ては web_backend 側で行う）。",
+        description="全タグを id/name/parent_name/description/aliases のフラットな配列で返す"
+                    "（親が子より先の階層順、aliases は文字列配列。CSV組み立ては web_backend 側で行う, ADR-0081）。",
     )
     def export_tags() -> dict:
         return {"items": tag_repository.export_tags()}
@@ -265,7 +283,7 @@ def register_tools(
 
     @mcp.tool(
         name="delete_tag_folder",
-        description="タグフォルダを削除する。hiroba_tag から参照されている場合は拒否する。"
+        description="タグフォルダを削除する。tag から参照されている場合は拒否する。"
                     "子フォルダを持つ場合は、その子フォルダを削除対象の親（祖父母フォルダ）へ繰り上げる（ADR-0073）。",
     )
     def delete_tag_folder(folder_id: int) -> dict:
@@ -386,6 +404,79 @@ def register_tools(
     )
     def list_categories() -> dict:
         return {"categories": qa_management_repository.list_categories()}
+
+    # -------------------------------------------------------------- #
+    # トラブルシューティング記事 管理ツール（書き込み系, ADR-0079）
+    # 一覧・詳細・更新・タグ付けのみ（新規作成・削除は初期スコープ外, ADR-0079 決定3）。
+    # troubleshooting_management_repository 未注入時（旧構成・一部テスト）は登録しない。
+    # -------------------------------------------------------------- #
+    if troubleshooting_management_repository is not None:
+
+        @mcp.tool(
+            name="list_troubleshooting_articles",
+            description=(
+                "トラブルシューティング記事を一覧する。keyword(部分一致)/source_key(出自)/"
+                "tag_ids(AND)で絞り込み、limit/offsetでページングする。"
+            ),
+        )
+        def list_troubleshooting_articles(
+            keyword: Optional[str] = None,
+            source_key: Optional[str] = None,
+            tag_ids: Optional[List[int]] = None,
+            limit: int = 20,
+            offset: int = 0,
+        ) -> dict:
+            limit = max(1, min(limit, 100))
+            offset = max(0, offset)
+            items, total = troubleshooting_management_repository.list_articles(
+                keyword=keyword,
+                source_key=source_key,
+                tag_ids=tag_ids,
+                limit=limit,
+                offset=offset,
+            )
+            return {"items": [i.to_dict() for i in items], "total": total}
+
+        @mcp.tool(
+            name="get_troubleshooting_article",
+            description="トラブルシューティング記事の詳細を取得する。",
+        )
+        def get_troubleshooting_article(article_id: int) -> dict:
+            try:
+                detail = troubleshooting_management_repository.get_article(article_id)
+            except TroubleshootingError as e:
+                raise ToolError(str(e))
+            return detail.to_dict()
+
+        @mcp.tool(
+            name="update_troubleshooting_article",
+            description=(
+                "トラブルシューティング記事を部分更新する。fields に含めた構造化フィールドのみ"
+                "更新（title/guidance は空不可）。tag_ids=Noneで変更なし、[]で全解除。"
+                "埋め込み元フィールド（title/subtitle/symptom/cause/guidance）変更時は embedding を再計算する。"
+            ),
+        )
+        def update_troubleshooting_article(
+            article_id: int,
+            fields: Optional[dict] = None,
+            tag_ids: Optional[List[int]] = None,
+        ) -> dict:
+            try:
+                detail = troubleshooting_management_repository.update_article(
+                    article_id, fields=fields, tag_ids=tag_ids
+                )
+            except TroubleshootingError as e:
+                raise ToolError(str(e))
+            return detail.to_dict()
+
+        @mcp.tool(
+            name="list_troubleshooting_source_keys",
+            description="投入済みのトラブルシューティング出自(source_key)一覧を返す（絞り込み用）。",
+        )
+        def list_troubleshooting_source_keys() -> dict:
+            return {
+                "source_keys": troubleshooting_management_repository.list_source_keys()
+            }
 
     # -------------------------------------------------------------- #
     # 言い換え質問文（question_altered）管理ツール（書き込み系, ADR-0064）
