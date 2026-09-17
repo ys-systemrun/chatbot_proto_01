@@ -1,6 +1,6 @@
 # ADR一覧（Architecture Decision Records）
 
-Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期・サポート知識DB基盤化に伴うDB名再編とテーブル接頭辞付与・タグ管理画面/タグ選択UI改修（検索絞り込み・類似候補チェック・タグフォルダ新設・タグフォルダ階層化・タグ/タグフォルダの表示順序導入）・マイグレーション専用実行モードの新設・トラブルシューティング情報源の追加（同一実DB内へのテーブル新設、タグマスタの中立名称化とDB再改名、search_knowledge統合、管理UI新設）・タグエイリアス管理機能の追加（追加・編集・削除UI、CSV列追加、類似候補チェック適用範囲の拡張）・運用者向けアドホックSQL実行機能の追加（query.bat/query.sql、既存db_hiroba_qa_initタスクの環境変数分岐によるバッチ実行）に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
+Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front_dev/web_backend拡張）・db_hiroba_qa_init（DBマイグレーション・シード分離）・agent_invitro（Conversation Agent実験）・MCPサーバー/クライアントのAWSデプロイ・Terraform構成再編・AWS環境向け管理UIのブラウザアクセス・AWS環境向けChatbotUI・会話評価機能有効化・全データエクスポート機能・検索精度検証機能・DBマイグレーション/データインポート機能・会話タグ管理機能・タグ階層展開とタグ構成類似度スコアリング・検証機能の既存タグ入力・管理画面一覧ページの検索条件URL同期・サポート知識DB基盤化に伴うDB名再編とテーブル接頭辞付与・タグ管理画面/タグ選択UI改修（検索絞り込み・類似候補チェック・タグフォルダ新設・タグフォルダ階層化・タグ/タグフォルダの表示順序導入）・マイグレーション専用実行モードの新設・トラブルシューティング情報源の追加（同一実DB内へのテーブル新設、タグマスタの中立名称化とDB再改名、search_knowledge統合、管理UI新設）・タグエイリアス管理機能の追加（追加・編集・削除UI、CSV列追加、類似候補チェック適用範囲の拡張）・運用者向けアドホックSQL実行機能の追加（query.bat/query.sql、既存db_hiroba_qa_initタスクの環境変数分岐によるバッチ実行）・agent_invitroのAgentic回答生成エンドポイント新設とAPIレイヤ再構成（/ask-agentic、ルーター/ユースケース2層分離）・情報源レコード（QA／言い換え質問文／トラブルシューティング記事）の検索対象フラグ（is_searchable）の新設（検索除外の意味論、管理UIのトグル、CSV列追加）に関する設計判断の記録。各ファイルは Michael Nygard 形式（コンテキスト／決定／代替案／結果）に準拠。
 
 | No. | タイトル | ステータス |
 |---|---|---|
@@ -46,7 +46,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0040](./0040-deploy-orchestration-containerized-python.md) | デプロイオーケストレーションのコンテナ内Python化と設定の単一.env集約（PS5.1脱却） | Accepted |
 | [0041](./0041-admin-ui-aws-network-exposure.md) | 管理UI（admin_uiサービス）のAWSネットワーク配置とブラウザアクセス経路（ADR-0023の限定的な見直し） | Accepted |
 | [0042](./0042-admin-ui-static-asset-serving.md) | front_dev本番ビルド資産の配信方式（web_backendコンテナからの単一サービス配信） | Accepted |
-| [0043](./0043-agent-invitro-http-service-ask-sl.md) | agent_invitroの常駐HTTPサービス化とチャット生成（/ask-sl）機能の実装移管（AWS環境限定） | Accepted |
+| [0043](./0043-agent-invitro-http-service-ask-sl.md) | agent_invitroの常駐HTTPサービス化とチャット生成（/ask-pipeline）機能の実装移管（AWS環境限定） | Accepted |
 | [0044](./0044-conversation-db-aws-placement.md) | 会話履歴・評価データ（conversationデータベース）のAWS上の配置とスキーマ管理方式 | Accepted |
 | [0045](./0045-admin-ui-agent-invitro-integration-and-conversation-db-access.md) | admin_ui⇄agent_invitro間のチャット生成連携、およびconversationデータベースへの直接アクセス（ADR-0041の限定的な見直し） | Accepted |
 | [0046](./0046-chatbot-db-export-readonly-access.md) | chatbotデータベースのエクスポート専用読み取り経路の新設（ADR-0013・ADR-0041の限定的な見直し） | Accepted |
@@ -87,6 +87,17 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0081](./0081-tag-csv-alias-column-addition.md) | タグCSV一括インポート/エクスポートへのエイリアス列追加（ADR-0065のエイリアス対象外方針の見直し、パイプ区切り・追加専用方式） | Accepted |
 | [0082](./0082-tag-alias-similar-candidate-check.md) | タグエイリアス追加・編集時の重複・類似候補チェック適用（ADR-0071の適用範囲拡張） | Accepted |
 | [0083](./0083-adhoc-sql-execution-via-query-bat.md) | 運用者向けアドホックSQL実行機能（query.bat/query.sql）の実行方式（既存db_hiroba_qa_initタスクの環境変数分岐によるバッチ実行、実行前タイプ確認あり） | Accepted |
+| [0084](./0084-conversation-context-summary-unification.md) | 会話文脈管理の一本化（会話タグ機構の廃止、summary方式への統合） | Accepted |
+| [0085](./0085-agent-invitro-query-condensation.md) | 質問の言い換え（Query Condensation）ステップの新設（要約・未要約履歴・今回の発話からstandaloneな質問文を生成） | Accepted |
+| [0086](./0086-tag-selector-alias-deterministic-confirmation.md) | タグ選定におけるAlias確定タグの決定論的採用と対象範囲（select_tagsへのalias_match_text追加、確定タグの強制採用） | Accepted |
+| [0087](./0087-evaluated-messages-column-resize.md) | 評価済みメッセージページの列幅ドラッグ変更機能の実装方式 | Accepted |
+| [0088](./0088-agent-invitro-agentic-answer-generation.md) | /ask-agenticのAgentic回答生成方式（自前LangGraphループによる検索・十分性評価・クエリ再定式化、ReAct不採用） | Accepted |
+| [0089](./0089-agent-invitro-ask-agentic-endpoint-coexistence.md) | /ask-agenticの新設と既存/ask-pipelineとの併存（API契約は同一、traceはログのみ） | Accepted |
+| [0090](./0090-agent-invitro-api-layer-router-usecase-split.md) | agent_invitro APIレイヤのルーター・ユースケース2層分離（server.pyの薄いアプリ組み立て役への縮退） | Accepted |
+| [0091](./0091-agent-invitro-llm-tasks-package-and-assessor-interface.md) | agent_invitroのLLM機能モジュールの`src/llm_tasks/<機能>/`配下への再編と十分性評価インターフェース（抽象基底クラス）の導入 | Accepted |
+| [0092](./0092-knowledge-source-is-searchable-flag.md) | 情報源レコードの検索対象フラグ（is_searchable）の新設と検索除外の意味論（3テーブルへBOOLEAN NOT NULL DEFAULT true、候補取得SQLの述語による除外、QAを親スイッチとするAND合成） | Accepted |
+| [0093](./0093-is-searchable-admin-ui-toggle.md) | 検索対象フラグの切り替え方式（専用ツール・専用エンドポイントを新設せず既存の部分更新を使用、一覧は楽観的更新による即時保存、編集ページはフォーム保存、一覧に3値の絞り込み） | Accepted |
+| [0094](./0094-is-searchable-csv-column-addition.md) | CSV一括インポート／エクスポートへのis_searchable列追加（省略時は「新規はtrue・既存は変更なし」、タグCSVは対象外） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
@@ -118,3 +129,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202609031501_タグ・タグフォルダ表示順序導入要件定義書.md`（タグ・タグフォルダ表示順序導入: `hiroba_tag`・`hiroba_tag_folder`へのdisplay_order列追加、間隔採番＋中間値挿入方式による1つ上へ／1つ下へボタンでの並べ替え）
 - `docs/requirement/202609071337_トラブルシューティング情報源追加要件定義書.md`（トラブルシューティング情報源追加: trouble_shooting.html／trouble_shooting_netauth.html由来の記事を同一実DB内に新設するtroubleshooting_articleテーブルで管理し、hiroba_tag系を中立名称（tag/tag_alias/tag_folder）にリネームして維津美の広場QAとタグを共有。実DB名をdb_hiroba_qa→db_chatbot_knowledge_baseへ再改名、search_knowledgeへのマルチソース統合、管理UI新設を含む）
 - `docs/requirement/202609091119_タグエイリアス管理機能要件定義書.md`（タグエイリアス管理機能: タグ管理画面でのエイリアス追加・編集・削除UI、Knowledge MCPへのupdate_tag_alias新設、タグCSV一括インポート/エクスポートへのエイリアス列追加、新規作成時の類似候補チェックのエイリアス入力への適用拡大）
+- `docs/requirement/202609091730_タグ選定・会話文脈管理再設計要件定義書.md`（タグ選定・会話文脈管理再設計: ContainerNotFoundタグ誤選定の原因分析、会話タグ機構の廃止、質問の言い換え（Query Condensation）ステップ新設、tag_selector_mcpにおけるAlias確定タグの決定論的採用）
+- `docs/requirement/202609141030_評価済みメッセージページ列幅ドラッグ変更機能要件定義書.md`（評価済みメッセージページ列幅ドラッグ変更機能: 一覧テーブルの列幅をドラッグで変更できるようにする）
+- `docs/requirement/202609141415_Agentic回答生成エンドポイント新設・APIレイヤ再構成要件定義書.md`（Agentic回答生成エンドポイント新設・agent_invitro APIレイヤ再構成: 検索結果の十分性をLLMが評価しクエリを再定式化して探し直す/ask-agenticの新設、既存/ask-pipelineとの併存、server.pyの薄いルーター化とユースケース層の分離）
+- `docs/requirement/202609160930_情報源レコード検索対象フラグ（is_searchable）機能要件定義書.md`（情報源レコードの検索対象フラグ: QA・言い換え質問文・トラブルシューティング記事へのis_searchable列追加、search_knowledgeでの完全除外、管理UI一覧のトグルスイッチによる即時切り替えと絞り込み、CSV一括インポート/エクスポートへの列追加）

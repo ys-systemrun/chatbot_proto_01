@@ -6,6 +6,8 @@ export interface QaSummary {
   category: string | null;
   tags: string[];
   hiroba_question_altered_count: number;
+  // 検索対象フラグ（ADR-0092）。false のとき search_knowledge の結果に現れない。
+  is_searchable: boolean;
 }
 
 export interface QaTagRef {
@@ -26,6 +28,7 @@ export interface QaDetail {
   category: QaCategoryRef | null;
   tags: QaTagRef[];
   hiroba_question_altered_count: number;
+  is_searchable: boolean;
 }
 
 export interface QaListResponse {
@@ -37,6 +40,8 @@ export interface QaListParams {
   keyword?: string;
   category?: string;
   tag_id?: number[];
+  // 未指定＝すべて / true＝検索可のみ / false＝検索不可のみ（ADR-0093 決定7）。
+  is_searchable?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -47,6 +52,7 @@ export interface QaCreateRequest {
   answer_text: string;
   category_id?: number | null;
   tag_ids?: number[];
+  is_searchable?: boolean; // 省略時は true（検索対象）
 }
 
 // 未指定フィールドは「変更なし」。tag_ids は [] で全解除。
@@ -56,6 +62,8 @@ export interface QaUpdateRequest {
   answer_text?: string;
   category_id?: number | null;
   tag_ids?: number[];
+  // 一覧のトグルは本項目のみを含むボディを送る（ADR-0093 決定1・決定3）。
+  is_searchable?: boolean;
 }
 
 export interface Category {

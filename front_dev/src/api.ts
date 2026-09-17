@@ -1,5 +1,6 @@
 import type { AskRequest, AskResponse } from "./domain/statefull/types";
 import { Request } from "./domain/stateless/request";
+import { ASK_MODE_PATH, DEFAULT_ASK_MODE, type AskMode } from "./domain/stateless/ask_mode";
 import { Response } from "./domain/stateless/response";
 import type { Message } from "./domain/stateless/message";
 import type { EvaluatedConversation } from "./domain/evaluated";
@@ -81,8 +82,16 @@ export async function deleteSession(sessionId: string): Promise<void> {
   });
 }
 
-export async function askStateless(req: Request): Promise<Response> {
-  const res = await fetch("/api/ask-sl", {
+/**
+ * 回答生成を依頼する。mode により web_backend のエンドポイントを切り替える
+ * （パイプライン方式 = /api/ask-pipeline、エージェント方式 = /api/ask-agentic, ADR-0089 決定5）。
+ * リクエスト・レスポンスの形式は両方式で同一のため、呼び出し側は mode 以外を変える必要がない。
+ */
+export async function askStateless(
+  req: Request,
+  mode: AskMode = DEFAULT_ASK_MODE,
+): Promise<Response> {
+  const res = await fetch(ASK_MODE_PATH[mode], {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(req),
@@ -180,6 +189,9 @@ export async function listQa(params: QaListParams): Promise<QaListResponse> {
   if (params.keyword) q.set("keyword", params.keyword);
   if (params.category) q.set("category", params.category);
   (params.tag_id ?? []).forEach((id) => q.append("tag_id", String(id)));
+  // 未指定（すべて）のときはクエリを付けない（ADR-0093 決定7）。
+  if (params.is_searchable != null)
+    q.set("is_searchable", String(params.is_searchable));
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
   return jsonFetch<QaListResponse>(`/api/qa?${q.toString()}`);
@@ -197,6 +209,8 @@ export async function listTroubleshootingArticles(
   if (params.keyword) q.set("keyword", params.keyword);
   if (params.source_key) q.set("source_key", params.source_key);
   (params.tag_id ?? []).forEach((id) => q.append("tag_id", String(id)));
+  if (params.is_searchable != null)
+    q.set("is_searchable", String(params.is_searchable));
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));
   return jsonFetch<TroubleshootingListResponse>(
@@ -543,6 +557,9 @@ export async function listQuestionAltered(
 ): Promise<QaAlteredListResponse> {
   const q = new URLSearchParams();
   if (params.qa_id) q.set("qa_id", params.qa_id);
+  // 行自身の値で絞り込む（未指定＝すべて, ADR-0093 決定7）。
+  if (params.is_searchable != null)
+    q.set("is_searchable", String(params.is_searchable));
   if (params.keyword) q.set("keyword", params.keyword);
   if (params.limit != null) q.set("limit", String(params.limit));
   if (params.offset != null) q.set("offset", String(params.offset));

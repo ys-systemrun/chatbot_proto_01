@@ -6,7 +6,7 @@
 
 ## コンテキスト
 
-ADR-0057（2026-08-26）は、`agent_invitro`の`POST /ask-sl`（`main/api/server.py`）における情報源検索方式として、「マージタグ1件につき1回`search_knowledge`を呼び出し＋タグ指定なしのフォールバック呼び出し1回＋結果をQA単位で最大スコア統合する」というワークアラウンド（`agent_invitro/src/tags.py`の`search_with_merged_tags`）を採用した。この決定は、当時`knowledge_mcp`の`search_knowledge`の`tags`引数が完全一致AND条件であり、マージタグ全件を1回の`tags`引数にまとめると、タグ数が増えるほど検索結果が0件に近づくリスクがあったことに基づく（ADR-0057コンテキスト2節）。
+ADR-0057（2026-08-26）は、`agent_invitro`の`POST /ask-pipeline`（`main/api/server.py`）における情報源検索方式として、「マージタグ1件につき1回`search_knowledge`を呼び出し＋タグ指定なしのフォールバック呼び出し1回＋結果をQA単位で最大スコア統合する」というワークアラウンド（`agent_invitro/src/tags.py`の`search_with_merged_tags`）を採用した。この決定は、当時`knowledge_mcp`の`search_knowledge`の`tags`引数が完全一致AND条件であり、マージタグ全件を1回の`tags`引数にまとめると、タグ数が増えるほど検索結果が0件に近づくリスクがあったことに基づく（ADR-0057コンテキスト2節）。
 
 同日付のADR-0058（祖先タグの動的展開）・ADR-0059（タグ構成類似度と埋め込み類似度を統合したスコアリング方式）により、`search_knowledge`の`tags`引数は完全一致AND条件から「タグ類似度によるソフトなランキングシグナル」へ変更された。これにより、ADR-0057が対応していた0件化リスクは解消された（`docs/requirement/202608261450_タグ階層展開・タグ構成類似度スコアリング機能要件定義書.md`12章 Open Issue #1に、この変更後はADR-0057のワークアラウンドを単純化できる可能性が高いと明記されている一方、実装変更自体はスコープ外として見送られていた）。
 

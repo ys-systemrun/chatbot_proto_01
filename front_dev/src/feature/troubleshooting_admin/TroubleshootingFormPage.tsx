@@ -96,6 +96,9 @@ export default function TroubleshootingFormPage({
   const [sourceUpdatedAt, setSourceUpdatedAt] = useState<string | null>(null);
   const [bodyHtml, setBodyHtml] = useState("");
   const [tagIds, setTagIds] = useState<number[]>([]);
+  // 検索対象フラグ（ADR-0092）。編集ページでは即時保存せず、保存ボタン押下時に
+  // 他項目とまとめて送る（ADR-0093 決定4）。
+  const [isSearchable, setIsSearchable] = useState(true);
 
   const [tags, setTags] = useState<TagNode[]>([]);
   const [folders, setFolders] = useState<TagFolder[]>([]);
@@ -134,6 +137,7 @@ export default function TroubleshootingFormPage({
         setSourceUpdatedAt(a.source_updated_at);
         setBodyHtml(a.body_html);
         setTagIds(a.tags.map((t) => t.id));
+        setIsSearchable(a.is_searchable);
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
@@ -149,7 +153,10 @@ export default function TroubleshootingFormPage({
     setSaving(true);
     setError(null);
     // 任意フィールドの空文字は null として送る（DB 上 NULL に戻す）。必須は空文字のまま送らない。
-    const body: TroubleshootingUpdateRequest = { tag_ids: tagIds };
+    const body: TroubleshootingUpdateRequest = {
+      tag_ids: tagIds,
+      is_searchable: isSearchable,
+    };
     (Object.keys(form) as FieldKey[]).forEach((key) => {
       const value = form[key];
       if (REQUIRED_FIELDS.includes(key)) {
@@ -219,6 +226,25 @@ export default function TroubleshootingFormPage({
             )}
           </label>
         ))}
+
+        <div className="admin-field">
+          <span className="admin-label">検索対象</span>
+          <label className="admin-switch">
+            <input
+              type="checkbox"
+              checked={isSearchable}
+              onChange={(e) => setIsSearchable(e.target.checked)}
+            />
+            <span className="admin-switch-track" aria-hidden="true" />
+            <span className="admin-switch-label">
+              {isSearchable ? "検索可" : "検索不可"}
+            </span>
+          </label>
+          <span className="admin-hint">
+            検索不可にすると、この記事がチャットの情報源検索にヒットしなくなります。
+            保存ボタンで反映されます（埋め込みは再計算されません）。
+          </span>
+        </div>
 
         <div className="admin-field">
           <span className="admin-label">タグ</span>

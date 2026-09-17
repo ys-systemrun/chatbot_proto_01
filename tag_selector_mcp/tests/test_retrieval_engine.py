@@ -15,11 +15,13 @@ class FakeTagRepository:
     def __init__(self, tags, alias_matches):
         self._tags = tags
         self._alias_matches = alias_matches
+        self.last_alias_query = None
 
     def all_tags(self):
         return list(self._tags)
 
     def find_tags_by_alias_match(self, query):
+        self.last_alias_query = query
         return list(self._alias_matches)
 
 
@@ -47,3 +49,21 @@ def test_candidates_always_all_tags():
     result = engine.retrieve("何か")
     assert result.confirmed == []
     assert sorted(t.id for t in result.candidates) == [1, 2, 3]
+
+
+def test_alias_match_text_used_for_alias_when_given():
+    # alias_match_text を渡した場合、Alias 一致は query ではなくそのテキストに対して行う（ADR-0086）
+    tags = _tags()
+    repo = FakeTagRepository(tags, alias_matches=[tags[0]])
+    engine = RetrievalEngine(repo)
+    engine.retrieve("言い換え質問", alias_match_text="固定エラー文言")
+    assert repo.last_alias_query == "固定エラー文言"
+
+
+def test_alias_match_text_falls_back_to_query():
+    # alias_match_text 省略時は query にフォールバックする（後方互換, ADR-0086）
+    tags = _tags()
+    repo = FakeTagRepository(tags, alias_matches=[])
+    engine = RetrievalEngine(repo)
+    engine.retrieve("query only")
+    assert repo.last_alias_query == "query only"

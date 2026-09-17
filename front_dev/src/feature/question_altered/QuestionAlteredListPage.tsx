@@ -7,12 +7,20 @@ import {
   getQa,
   importQuestionAlteredCsv,
   listQuestionAltered,
+  updateQuestionAltered,
 } from "../../api";
 import type {
   QaAlteredImportResponse,
   QaAlteredItem,
 } from "../../domain/admin/question_altered";
 import { QaPicker } from "../common/QaPicker";
+import {
+  SearchableFilterSelect,
+  SearchableToggle,
+  parseSearchableParam,
+  searchableFilterToParam,
+} from "../common/SearchableToggle";
+import type { SearchableFilter } from "../common/SearchableToggle";
 
 const PAGE_SIZE = 20;
 
@@ -40,6 +48,13 @@ export default function QuestionAlteredListPage() {
   const [keyword, setKeyword] = useState(() => searchParams.get("keyword") ?? "");
   const [qaId, setQaId] = useState(() => searchParams.get("qa_id") ?? "");
   const [qaLabel, setQaLabel] = useState("");
+  // 検索対象フラグでの絞り込み。行自身の値のみを対象とする（ADR-0093 決定7）。
+  const [searchableFilter, setSearchableFilter] = useState<SearchableFilter>(() =>
+    parseSearchableParam(searchParams.get("is_searchable")),
+  );
+
+  // 検索対象トグルを更新中の行 id（1行あたり同時に1要求まで, ADR-0093 決定3）
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,6 +72,8 @@ export default function QuestionAlteredListPage() {
     const next = new URLSearchParams();
     if (keyword) next.set("keyword", keyword);
     if (qaId) next.set("qa_id", qaId);
+    // 既定「すべて」は URL から省略する（ADR-0068 の方針を踏襲）。
+    if (searchableFilter !== "all") next.set("is_searchable", searchableFilter);
     const page = Math.floor(nextOffset / PAGE_SIZE) + 1;
     if (page > 1) next.set("page", String(page));
     setSearchParams(next, { replace: true });
@@ -68,6 +85,7 @@ export default function QuestionAlteredListPage() {
     listQuestionAltered({
       qa_id: qaId || undefined,
       keyword: keyword || undefined,
+      is_searchable: searchableFilterToParam(searchableFilter),
       limit: PAGE_SIZE,
       offset: nextOffset,
     })
@@ -105,6 +123,36 @@ export default function QuestionAlteredListPage() {
   function clearQaFilter() {
     setQaId("");
     setQaLabel("");
+  }
+
+  // 検索対象トグル（ADR-0093 決定3）。楽観的更新 → 失敗時はロールバックしてエラー表示。
+  // is_searchable のみを送るため embedding は再計算されない（ADR-0093 決定2）。
+  async function onToggleSearchable(item: QaAlteredItem, next: boolean) {
+    const previous = item.is_searchable;
+    setTogglingId(item.id);
+    setError(null);
+    setItems((prev) =>
+      prev.map((r) => (r.id === item.id ? { ...r, is_searchable: next } : r)),
+    );
+    try {
+      const updated = await updateQuestionAltered(item.id, {
+        is_searchable: next,
+      });
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === item.id ? { ...r, is_searchable: updated.is_searchable } : r,
+        ),
+      );
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === item.id ? { ...r, is_searchable: previous } : r,
+        ),
+      );
+      setError(String(e));
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   async function onImport() {
@@ -186,6 +234,10 @@ export default function QuestionAlteredListPage() {
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
         />
+        <SearchableFilterSelect
+          value={searchableFilter}
+          onChange={setSearchableFilter}
+        />
         <button className="admin-btn" type="submit">
           検索
         </button>
@@ -222,14 +274,38 @@ export default function QuestionAlteredListPage() {
           <tr>
             <th>対象QA</th>
             <th>言い換え質問文</th>
+            <th className="admin-td-toggle">検索対象</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {items.map((item) => (
-            <tr key={item.id}>
-              <td>{item.qa_title ?? "－"}</td>
+            <tr
+              key={item.id}
+              className={
+                item.is_searchable && item.qa_is_searchable
+                  ? undefined
+                  : "admin-row-unsearchable"
+              }
+            >
+              <td>
+                {item.qa_title ?? "－"}
+                {/* 行自身が検索可でも親QAが検索対象外なら実際には検索されない（ADR-0093 決定6）。 */}
+                {!item.qa_is_searchable && (
+                  <span className="admin-badge" title="親QAが検索対象外のため、この行は検索されません">
+                    親QAが検索対象外
+                  </span>
+                )}
+              </td>
               <td>{item.text}</td>
+              <td className="admin-td-toggle">
+                <SearchableToggle
+                  checked={item.is_searchable}
+                  disabled={togglingId === item.id}
+                  onChange={(next) => onToggleSearchable(item, next)}
+                  label={`検索対象: ${item.text}`}
+                />
+              </td>
               <td>
                 <Link
                   className="admin-link"
@@ -249,7 +325,7 @@ export default function QuestionAlteredListPage() {
           ))}
           {!loading && items.length === 0 && (
             <tr>
-              <td colSpan={3} className="admin-muted">
+              <td colSpan={4} className="admin-muted">
                 該当する言い換え質問文がありません
               </td>
             </tr>
@@ -283,8 +359,10 @@ export default function QuestionAlteredListPage() {
         <div className="admin-import">
           <p className="admin-hint">
             列: <code>id</code>（空=新規/既存=更新）, <code>qa_id</code>
-            （新規時必須）, <code>text</code>（必須）, <code>is_primary</code>
-            （入力は無視）。UTF-8 で保存してください。エクスポートしたCSVはそのまま再インポート
+            （新規時必須）, <code>text</code>（新規時必須。更新行で空欄なら変更なし）,{" "}
+            <code>is_primary</code>（入力は無視）, <code>is_searchable</code>
+            （<code>true</code>/<code>false</code>/<code>1</code>/<code>0</code>。
+            列なし・空欄は「新規は検索対象、既存は変更なし」）。UTF-8 で保存してください。エクスポートしたCSVはそのまま再インポート
             できます。<code>id</code> が主質問文行（is_primary=true）を指す行はエラーになります。
           </p>
           <div className="admin-csv-actions">

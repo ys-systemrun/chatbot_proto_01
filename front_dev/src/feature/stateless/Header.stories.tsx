@@ -5,28 +5,28 @@ const meta = {
   component: Header,
   title: 'Components/Header',
   args: {
-    onReset: () => {},
+    onChangeAskMode: () => {},
   },
 } satisfies Meta<typeof Header>
 
 export default meta
 type Story = StoryObj<typeof meta>
 
-export const NoSession: Story = {
+export const Pipeline: Story = {
   args: {
-    sessionId: null,
+    askMode: 'pipeline',
   },
 }
 
-export const WithSession: Story = {
+export const Agentic: Story = {
   args: {
-    sessionId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+    askMode: 'agentic',
   },
 }
 
 export const Disabled: Story = {
   args: {
-    sessionId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+    askMode: 'agentic',
     disabled: true,
   },
 }

@@ -8,6 +8,8 @@ export interface TroubleshootingSummary {
   subtitle: string | null;
   tags: string[];
   source_updated_at: string | null;
+  // 検索対象フラグ（ADR-0092）。
+  is_searchable: boolean;
 }
 
 export interface TroubleshootingTagRef {
@@ -36,6 +38,7 @@ export interface TroubleshootingDetail {
   created_at: string | null;
   updated_at: string | null;
   tags: TroubleshootingTagRef[];
+  is_searchable: boolean;
 }
 
 export interface TroubleshootingListResponse {
@@ -47,6 +50,8 @@ export interface TroubleshootingListParams {
   keyword?: string;
   source_key?: string;
   tag_id?: number[];
+  // 未指定＝すべて / true＝検索可のみ / false＝検索不可のみ（ADR-0093 決定7）。
+  is_searchable?: boolean;
   limit?: number;
   offset?: number;
 }
@@ -67,6 +72,8 @@ export interface TroubleshootingUpdateRequest {
   cause?: string | null;
   notes?: string | null;
   keyword_raw?: string | null;
+  // 一覧のトグルは本項目のみを含むボディを送る（ADR-0093 決定1・決定3）。
+  is_searchable?: boolean;
   tag_ids?: number[];
 }
 

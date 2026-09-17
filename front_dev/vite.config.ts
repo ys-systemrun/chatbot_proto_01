@@ -8,7 +8,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // stateless / 管理UI のデータAPIはすべて /api/ 名前空間へ揃えたため、この 1 ルールで
-      // /api/ask-sl・/api/evaluate_response・/api/evaluated_messages・/api/qa*・/api/tags* を
+      // /api/ask-pipeline・/api/evaluate_response・/api/evaluated_messages・/api/qa*・/api/tags* を
       // まとめて web_backend へ転送する。ページURL（/・/evaluated_messages・/admin*）は /api を
       // 含まないので Vite の SPA フォールバックが index.html を返す → 衝突しないため、以前の
       // /evaluated_messages に対する Accept ヘッダ bypass 分岐は不要になった（ADR-0042/ADR-0015）。

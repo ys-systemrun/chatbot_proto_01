@@ -27,6 +27,7 @@ class TroubleshootingSummary:
     subtitle: Optional[str] = None
     tags: List[str] = field(default_factory=list)
     source_updated_at: Optional[datetime] = None
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
     def to_dict(self) -> dict:
         return {
@@ -36,6 +37,7 @@ class TroubleshootingSummary:
             "subtitle": self.subtitle,
             "tags": list(self.tags),
             "source_updated_at": _iso(self.source_updated_at),
+            "is_searchable": self.is_searchable,
         }
 
 
@@ -61,6 +63,7 @@ class TroubleshootingDetail:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     tags: List[dict] = field(default_factory=list)  # [{"id": int, "name": str}, ...]
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
     def to_dict(self) -> dict:
         return {
@@ -84,4 +87,5 @@ class TroubleshootingDetail:
             "created_at": _iso(self.created_at),
             "updated_at": _iso(self.updated_at),
             "tags": list(self.tags),
+            "is_searchable": self.is_searchable,
         }

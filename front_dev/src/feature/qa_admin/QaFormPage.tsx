@@ -37,6 +37,9 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
   const [answerText, setAnswerText] = useState("");
   const [categoryId, setCategoryId] = useState<number | null>(null);
   const [tagIds, setTagIds] = useState<number[]>([]);
+  // 検索対象フラグ（ADR-0092）。新規作成の初期値は true（要件6.6.3）。
+  // 編集ページでは即時保存せず、保存ボタン押下時に他項目とまとめて送る（ADR-0093 決定4）。
+  const [isSearchable, setIsSearchable] = useState(true);
 
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
@@ -62,6 +65,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
           setAnswerText(qa.answer_text);
           setCategoryId(qa.category?.id ?? null);
           setTagIds(qa.tags.map((t) => t.id));
+          setIsSearchable(qa.is_searchable);
         })
         .catch((e) => setError(String(e)))
         .finally(() => setLoading(false));
@@ -80,6 +84,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
           answer_text: answerText,
           category_id: categoryId,
           tag_ids: tagIds,
+          is_searchable: isSearchable,
         });
       } else if (id) {
         await updateQa(id, {
@@ -88,6 +93,7 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
           answer_text: answerText,
           category_id: categoryId,
           tag_ids: tagIds,
+          is_searchable: isSearchable,
         });
       }
       navigate(backTo);
@@ -180,6 +186,25 @@ export default function QaFormPage({ mode }: { mode: "create" | "edit" }) {
             ))}
           </select>
         </label>
+
+        <div className="admin-field">
+          <span className="admin-label">検索対象</span>
+          <label className="admin-switch">
+            <input
+              type="checkbox"
+              checked={isSearchable}
+              onChange={(e) => setIsSearchable(e.target.checked)}
+            />
+            <span className="admin-switch-track" aria-hidden="true" />
+            <span className="admin-switch-label">
+              {isSearchable ? "検索可" : "検索不可"}
+            </span>
+          </label>
+          <span className="admin-hint">
+            検索不可にすると、このQA（主質問文・すべての言い換え質問文を含む）がチャットの
+            情報源検索にヒットしなくなります。保存ボタンで反映されます。
+          </span>
+        </div>
 
         <div className="admin-field">
           <span className="admin-label">タグ</span>

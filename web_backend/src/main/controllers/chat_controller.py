@@ -1,14 +1,16 @@
-"""/ask-sl のレスポンス生成ロジック（stateless 会話）。
+"""ローカル直接処理によるチャット応答生成（POST /api/ask-local）。
 
-旧 main/main_stateless.py の /ask-sl ハンドラ本体・関連スキーマ・LLM シングルトンを移設したもの。
-ルート定義（app.py）からは ask() を呼び出すだけにし、応答生成の責務を本 Controller に集約する。
+LM Studio（`FormatQueryToEmbed` → `get_embedding` → `DB.search_similar` → `GenerateAnswerLLM`）で
+完結する経路で、ローカル `docker-compose` 環境向けの実装である。MCP・タグ機構は使わない。
+
+agent_invitro への中継は `agent_controller` が担う。以前は本モジュール内で環境変数
+`AGENT_INVITRO_URL` の設定有無により両経路を出し分けていたが、ルート定義の時点でどちらの
+実装へ入るかが決まるよう、中継側を別コントローラへ分離した（`AGENT_INVITRO_URL` は廃止）。
+
+スキーマは中継側と共有するため `chat_schemas` にある（`agent_invitro` 側と同一契約）。
 """
 
 import uuid
-
-import httpx
-from fastapi import HTTPException
-from pydantic import BaseModel
 
 from src.embedding import get_embedding
 from src.db import DB
@@ -16,42 +18,12 @@ from src.llm import FormatQueryToEmbed, GenerateAnswerLLM, SummarizeLLM
 from src.log import log_format_query, log_generate, log_search
 from src.models.stateless.message import Message as ModelMessage
 from src.main import config
+from src.main.controllers.chat_schemas import Message, Request, Response, Summary
 
 
-class Message(BaseModel):
-    order: int
-    role: str
-    content: str
-    input: str | None = None        # assistant: LLM に渡したプロンプト
-    model: str | None = None        # assistant: 使用モデル名
-    evaluation: int | None = None   # user: null / assistant: 0=未評価 1=good 2=bad
-
-
-class Summary(BaseModel):
-    content: str
-    summarized_upto: int
-
-
-class ConversationTag(BaseModel):
-    id: int
-    name: str
-    score: float
-    missed_turns: int
-
-
-class Request(BaseModel):
-    conversation_id: str | None = None  # None の場合はサーバー側で新規発行
-    text: str
-    messages: list[Message]
-    summary: Summary
-    tags: list[ConversationTag] | None = None   # 会話タグ（IMPL-202608261345 T4 / ADR-0056）
-
-
-class Response(BaseModel):
-    conversation_id: str
-    messages: list[Message]
-    summary: Summary
-    tags: list[ConversationTag] | None = None   # 会話タグ（IMPL-202608261345 T4 / ADR-0056）
+# Message / Summary / Request / Response は chat_schemas から再エクスポートする
+# （agent_controller と同一のスキーマを共有するため）。
+__all__ = ["Message", "Summary", "Request", "Response", "ask"]
 
 
 _summarizer = SummarizeLLM(config.LMSTUDIO_CHAT_URL, config.MODEL_CHAT)
@@ -82,32 +54,7 @@ def _summarize_oldest(
 
 
 def ask(req: Request) -> Response:
-    # AWS 環境（AGENT_INVITRO_URL 設定時, ADR-0045）: リクエストをそのまま agent_invitro へ
-    # 中継し、レスポンスをそのまま返す。ローカル docker-compose（未設定時）は分岐に入らず、
-    # 下の既存の直接処理ロジック（LM Studio 経由）をそのまま実行する（T11/T13）。
-    if config.AGENT_INVITRO_URL:
-        try:
-            resp = httpx.post(
-                f"{config.AGENT_INVITRO_URL}/ask-sl",
-                json=req.model_dump(),
-                timeout=config.AGENT_INVITRO_TIMEOUT,
-            )
-        except httpx.RequestError as exc:
-            # 接続不可・タイムアウト等（agent_invitro 未起動/到達不可）。502 で明示する。
-            raise HTTPException(
-                status_code=502,
-                detail=f"agent_invitro への接続に失敗しました: {exc}",
-            )
-        # agent_invitro 側のエラー（500 等）を bare 500 で握りつぶさず、ステータスと
-        # detail（{"detail": ...} 形式想定）をそのまま透過してブラウザ/ログに原因を残す。
-        if resp.status_code >= 400:
-            try:
-                detail = resp.json().get("detail", resp.text)
-            except ValueError:
-                detail = resp.text
-            raise HTTPException(status_code=resp.status_code, detail=detail)
-        return Response(**resp.json())
-
+    """LM Studio と chatbot データベースを直接使って1ターン分の応答を返す。"""
     conversation_id = req.conversation_id or str(uuid.uuid4())
     messages = list(req.messages)
     summary = req.summary

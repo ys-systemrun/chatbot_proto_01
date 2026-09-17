@@ -298,12 +298,15 @@ def register_tools(
     # -------------------------------------------------------------- #
     @mcp.tool(
         name="list_qa",
-        description="QAを一覧する。keyword(部分一致)/category(名称)/tag_ids(AND)で絞り込み、limit/offsetでページングする。",
+        description="QAを一覧する。keyword(部分一致)/category(名称)/tag_ids(AND)/"
+                    "is_searchable(None=すべて, true=検索可のみ, false=検索不可のみ)で絞り込み、"
+                    "limit/offsetでページングする。",
     )
     def list_qa(
         keyword: Optional[str] = None,
         category: Optional[str] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
@@ -313,6 +316,7 @@ def register_tools(
             keyword=keyword,
             category=category,
             tag_ids=tag_ids,
+            is_searchable=is_searchable,
             limit=limit,
             offset=offset,
         )
@@ -328,7 +332,8 @@ def register_tools(
 
     @mcp.tool(
         name="create_qa",
-        description="QAを新規登録する。question_text から embedding を計算し、主となる question_altered を1件生成する。",
+        description="QAを新規登録する。question_text から embedding を計算し、主となる question_altered を1件生成する。"
+                    "is_searchable の既定は true（検索対象, ADR-0092）。",
     )
     def create_qa(
         title: str,
@@ -336,6 +341,7 @@ def register_tools(
         answer_text: str,
         category_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: bool = True,
     ) -> dict:
         try:
             detail = qa_management_repository.create_qa(
@@ -344,6 +350,7 @@ def register_tools(
                 answer_text=answer_text,
                 category_id=category_id,
                 tag_ids=tag_ids,
+                is_searchable=is_searchable,
             )
         except QaError as e:
             raise ToolError(str(e))
@@ -351,7 +358,10 @@ def register_tools(
 
     @mcp.tool(
         name="update_qa",
-        description="QAを部分更新する。指定フィールドのみ更新（None=変更なし、tag_ids=[]で全解除）。question_text変更時は主質問文行のembeddingのみ再計算する。",
+        description="QAを部分更新する。指定フィールドのみ更新（None=変更なし、tag_ids=[]で全解除）。"
+                    "question_text変更時は主質問文行のembeddingのみ再計算する。"
+                    "is_searchable=false でQA全体（配下の主質問文行・言い換え行を含む）を検索対象外にする"
+                    "（フラグのみの更新ではembeddingを再計算しない, ADR-0092/0093）。",
     )
     def update_qa(
         qa_id: str,
@@ -360,6 +370,7 @@ def register_tools(
         answer_text: Optional[str] = None,
         category_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: Optional[bool] = None,
     ) -> dict:
         try:
             detail = qa_management_repository.update_qa(
@@ -369,6 +380,7 @@ def register_tools(
                 answer_text=answer_text,
                 category_id=category_id,
                 tag_ids=tag_ids,
+                is_searchable=is_searchable,
             )
         except QaError as e:
             raise ToolError(str(e))
@@ -376,7 +388,10 @@ def register_tools(
 
     @mcp.tool(
         name="import_qa_batch",
-        description="複数件のQAをCSV由来の行データからまとめて登録・更新する。uuid空欄は新規、既存は部分更新。存在しないタグ名は自動作成する。行単位でエラーを許容する。",
+        description="複数件のQAをCSV由来の行データからまとめて登録・更新する。uuid空欄は新規、既存は部分更新。"
+                    "存在しないタグ名は自動作成する。is_searchable 列は true/false/1/0 を受理し、"
+                    "列なし・空欄は「新規はtrue・既存は変更なし」と解釈する（ADR-0094）。"
+                    "行単位でエラーを許容する。",
     )
     def import_qa_batch(rows: List[dict]) -> dict:
         results = qa_management_repository.import_qa_batch(rows, tag_repository)
@@ -416,13 +431,15 @@ def register_tools(
             name="list_troubleshooting_articles",
             description=(
                 "トラブルシューティング記事を一覧する。keyword(部分一致)/source_key(出自)/"
-                "tag_ids(AND)で絞り込み、limit/offsetでページングする。"
+                "tag_ids(AND)/is_searchable(None=すべて, true=検索可のみ, false=検索不可のみ)で"
+                "絞り込み、limit/offsetでページングする。"
             ),
         )
         def list_troubleshooting_articles(
             keyword: Optional[str] = None,
             source_key: Optional[str] = None,
             tag_ids: Optional[List[int]] = None,
+            is_searchable: Optional[bool] = None,
             limit: int = 20,
             offset: int = 0,
         ) -> dict:
@@ -432,6 +449,7 @@ def register_tools(
                 keyword=keyword,
                 source_key=source_key,
                 tag_ids=tag_ids,
+                is_searchable=is_searchable,
                 limit=limit,
                 offset=offset,
             )
@@ -454,6 +472,7 @@ def register_tools(
                 "トラブルシューティング記事を部分更新する。fields に含めた構造化フィールドのみ"
                 "更新（title/guidance は空不可）。tag_ids=Noneで変更なし、[]で全解除。"
                 "埋め込み元フィールド（title/subtitle/symptom/cause/guidance）変更時は embedding を再計算する。"
+                "fields に is_searchable（検索対象フラグ）を指定できる（embedding再計算の対象外, ADR-0092/0093）。"
             ),
         )
         def update_troubleshooting_article(
@@ -485,19 +504,26 @@ def register_tools(
     # -------------------------------------------------------------- #
     @mcp.tool(
         name="list_question_altered",
-        description="言い換え行（is_primary=false）を一覧する。qa_id(完全一致)/keyword(text部分一致)で"
-                    "絞り込み、limit/offsetでページングする。表示用に qa_original.title を結合して返す。",
+        description="言い換え行（is_primary=false）を一覧する。qa_id(完全一致)/keyword(text部分一致)/"
+                    "is_searchable(当該行自身の値で絞り込み。None=すべて)で絞り込み、"
+                    "limit/offsetでページングする。表示用に qa_original.title と、親QAの検索対象フラグ"
+                    "qa_is_searchable（読み取り専用）を結合して返す。",
     )
     def list_question_altered(
         qa_id: Optional[str] = None,
         keyword: Optional[str] = None,
+        is_searchable: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> dict:
         limit = max(1, min(limit, 100))
         offset = max(0, offset)
         items, total = question_altered_repository.list_question_altered(
-            qa_id=qa_id, keyword=keyword, limit=limit, offset=offset
+            qa_id=qa_id,
+            keyword=keyword,
+            is_searchable=is_searchable,
+            limit=limit,
+            offset=offset,
         )
         return {"items": [i.to_dict() for i in items], "total": total}
 
@@ -515,23 +541,35 @@ def register_tools(
     @mcp.tool(
         name="create_question_altered",
         description="言い換え行を新規作成する。qa_id(存在検証)・text から embedding を計算し、"
-                    "is_primary=false 固定で1件追加する。",
+                    "is_primary=false 固定で1件追加する。is_searchable の既定は true。",
     )
-    def create_question_altered(qa_id: str, text: str) -> dict:
+    def create_question_altered(
+        qa_id: str, text: str, is_searchable: bool = True
+    ) -> dict:
         try:
-            model = question_altered_repository.create_question_altered(qa_id, text)
+            model = question_altered_repository.create_question_altered(
+                qa_id, text, is_searchable=is_searchable
+            )
         except QuestionAlteredError as e:
             raise ToolError(str(e))
         return model.to_dict()
 
     @mcp.tool(
         name="update_question_altered",
-        description="言い換え行の text を更新し embedding を再計算する。対象が is_primary=true の"
+        description="言い換え行を部分更新する（None=変更なし）。text 指定時のみ embedding を再計算し、"
+                    "is_searchable のみの更新では再計算しない（ADR-0093 決定2）。"
+                    "text・is_searchable がともに未指定の場合はエラー。対象が is_primary=true の"
                     "場合はエラー。qa_id の付け替えは提供しない。",
     )
-    def update_question_altered(id: int, text: str) -> dict:
+    def update_question_altered(
+        id: int,
+        text: Optional[str] = None,
+        is_searchable: Optional[bool] = None,
+    ) -> dict:
         try:
-            model = question_altered_repository.update_question_altered(id, text)
+            model = question_altered_repository.update_question_altered(
+                id, text=text, is_searchable=is_searchable
+            )
         except QuestionAlteredError as e:
             raise ToolError(str(e))
         return model.to_dict()
@@ -551,7 +589,9 @@ def register_tools(
         name="import_question_altered_batch",
         description="複数件の言い換え行をCSV由来の行データからまとめて登録・更新する。id空欄は新規作成"
                     "（is_primary列は無視し常にfalse）、id一致は更新（is_primary=true行はエラー）。"
-                    "qa_id の付け替えは拒否する。行単位でエラーを許容する。",
+                    "qa_id の付け替えは拒否する。is_searchable 列は true/false/1/0 を受理し、"
+                    "列なし・空欄は「新規はtrue・既存は変更なし」と解釈する（ADR-0094）。"
+                    "行単位でエラーを許容する。",
     )
     def import_question_altered_batch(rows: List[dict]) -> dict:
         results = question_altered_repository.import_question_altered_batch(rows)
@@ -563,8 +603,8 @@ def register_tools(
 
     @mcp.tool(
         name="export_question_altered",
-        description="言い換え行（is_primary=false）全件を id/qa_id/text/is_primary の4項目で返す"
-                    "（ページングなし、embedding除外。CSV組み立ては web_backend 側で行う）。",
+        description="言い換え行（is_primary=false）全件を id/qa_id/text/is_primary/is_searchable の"
+                    "5項目で返す（ページングなし、embedding除外。CSV組み立ては web_backend 側で行う）。",
     )
     def export_question_altered() -> dict:
         return {"items": question_altered_repository.export_question_altered()}

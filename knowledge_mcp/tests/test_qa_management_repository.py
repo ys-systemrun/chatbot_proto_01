@@ -33,12 +33,13 @@ class FakeCursor:
         self.rowcount = 0
 
         if q.startswith("INSERT INTO hiroba_qa_original"):
-            uuid, question_text, answer_text, category_id, title = p
+            uuid, question_text, answer_text, category_id, title, is_searchable = p
             self.s["qa"][uuid] = {
                 "question_text": question_text,
                 "answer_text": answer_text,
                 "category_id": category_id,
                 "title": title,
+                "is_searchable": is_searchable,
             }
             return
         if q.startswith("INSERT INTO hiroba_question_altered"):
@@ -61,7 +62,13 @@ class FakeCursor:
         if q.startswith("UPDATE hiroba_qa_original"):
             cols = [
                 c
-                for c in ("title", "question_text", "answer_text", "category_id")
+                for c in (
+                    "title",
+                    "question_text",
+                    "answer_text",
+                    "category_id",
+                    "is_searchable",
+                )
                 if f"{c} = %s" in q
             ]
             uuid = p[-1]
@@ -110,7 +117,7 @@ class FakeCursor:
                     if r["category_id"] is not None
                     else None
                 )
-                rows.append((uuid, r["title"], cname, tags, cnt))
+                rows.append((uuid, r["title"], cname, tags, cnt, r["is_searchable"]))
             self._result = rows[offset : offset + limit]
         elif "FROM hiroba_qa_tag JOIN tag" in q:
             qa_id = p[0]
@@ -129,7 +136,15 @@ class FakeCursor:
                 cid = r["category_id"]
                 cname = self.s["categories"].get(cid) if cid is not None else None
                 self._result = [
-                    (uuid, r["title"], r["question_text"], r["answer_text"], cid, cname)
+                    (
+                        uuid,
+                        r["title"],
+                        r["question_text"],
+                        r["answer_text"],
+                        cid,
+                        cname,
+                        r["is_searchable"],
+                    )
                 ]
 
     def executemany(self, sql, seq):
@@ -302,3 +317,104 @@ def test_list_qa_paging(repo):
 def test_list_categories(repo):
     cats = repo.list_categories()
     assert {c["id"] for c in cats} == {1, 3}
+
+
+# --------------------------------------------------------------------------- #
+# 検索対象フラグ（ADR-0092 / ADR-0093 / ADR-0094）
+# --------------------------------------------------------------------------- #
+def test_create_qa_defaults_to_searchable(repo):
+    detail = repo.create_qa("t", "q", "a")
+    assert detail.is_searchable is True
+
+
+def test_create_qa_can_be_unsearchable(repo):
+    detail = repo.create_qa("t", "q", "a", is_searchable=False)
+    assert detail.is_searchable is False
+
+
+def test_update_qa_is_searchable_only_does_not_recompute_embedding(repo, embed):
+    """フラグのみの更新では embedding を再計算しない（ADR-0093 決定2）。"""
+    detail = repo.create_qa("t", "q", "a")
+    embed.calls.clear()
+
+    updated = repo.update_qa(detail.id, is_searchable=False)
+
+    assert updated.is_searchable is False
+    assert embed.calls == []
+
+
+def test_update_qa_is_searchable_none_keeps_current_value(repo):
+    detail = repo.create_qa("t", "q", "a", is_searchable=False)
+    updated = repo.update_qa(detail.id, title="t2")
+    assert updated.is_searchable is False  # None=変更なし
+
+
+def test_list_qa_returns_is_searchable(repo):
+    repo.create_qa("t", "q", "a", is_searchable=False)
+    items, _ = repo.list_qa()
+    assert items[0].is_searchable is False
+
+
+def test_import_qa_batch_omitted_column_keeps_existing_value(repo):
+    """列なし・空欄は「新規は true・既存は変更なし」（ADR-0094 決定3）。"""
+    detail = repo.create_qa("t", "q", "a", is_searchable=False)
+
+    # is_searchable 列を持たない旧形式のCSV行で更新しても、除外設定は解除されない。
+    results = repo.import_qa_batch(
+        [{"uuid": detail.id, "title": "更新後"}], _FakeTagRepository()
+    )
+    assert results[0]["status"] == "success"
+    assert repo.get_qa(detail.id).is_searchable is False
+
+    # 空欄も同じ扱い。
+    repo.import_qa_batch(
+        [{"uuid": detail.id, "title": "更新後2", "is_searchable": ""}],
+        _FakeTagRepository(),
+    )
+    assert repo.get_qa(detail.id).is_searchable is False
+
+
+def test_import_qa_batch_new_row_defaults_to_true(repo):
+    results = repo.import_qa_batch(
+        [{"uuid": "", "title": "t", "question_text": "q", "answer_text": "a"}],
+        _FakeTagRepository(),
+    )
+    assert results[0]["status"] == "success"
+    assert repo.get_qa(results[0]["qa_id"]).is_searchable is True
+
+
+@pytest.mark.parametrize(
+    "value,expected", [("true", True), ("TRUE", True), ("1", True),
+                       ("false", False), ("False", False), ("0", False)]
+)
+def test_import_qa_batch_accepts_true_false_1_0(repo, value, expected):
+    detail = repo.create_qa("t", "q", "a")
+    repo.import_qa_batch(
+        [{"uuid": detail.id, "is_searchable": value}], _FakeTagRepository()
+    )
+    assert repo.get_qa(detail.id).is_searchable is expected
+
+
+def test_import_qa_batch_invalid_value_is_row_error(repo):
+    detail = repo.create_qa("t", "q", "a")
+    results = repo.import_qa_batch(
+        [
+            {"uuid": detail.id, "is_searchable": "はい"},   # 不正値 → 当該行のみエラー
+            {"uuid": detail.id, "is_searchable": "false"},  # 他行は処理を継続する
+        ],
+        _FakeTagRepository(),
+    )
+    assert results[0]["status"] == "error"
+    assert "is_searchable" in results[0]["error"]
+    assert results[1]["status"] == "success"
+    assert repo.get_qa(detail.id).is_searchable is False
+
+
+class _FakeTagRepository:
+    """import_qa_batch がタグ解決に使う TagRepository のスタブ（tags 列は未使用）。"""
+
+    def find_by_name(self, name):  # pragma: no cover - tags 列を使うテストがないため
+        raise AssertionError("tags column is not used in these tests")
+
+    def create_tag(self, name):  # pragma: no cover
+        raise AssertionError("tags column is not used in these tests")

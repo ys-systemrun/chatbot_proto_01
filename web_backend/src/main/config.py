@@ -7,7 +7,7 @@
 import os
 from pathlib import Path
 
-# chat 系エンドポイント（/ask-sl）が使う環境変数。管理UIのみを AWS 上で /api/* + 静的配信で
+# chat 系エンドポイント（/ask-pipeline）が使う環境変数。管理UIのみを AWS 上で /api/* + 静的配信で
 # 稼働させる構成では未設定でよく、起動時 KeyError で落とさず空文字として扱う
 # （IMPL-202608211050 10章 Open Issue #2）。ローカル docker-compose では compose が値を供給する。
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
@@ -23,10 +23,15 @@ MODEL_CHAT = os.environ.get("MODEL_CHAT", "")
 EMBEDDING_URL = os.environ.get("LMSTUDIO_EMBEDDING_URL", "")
 EMBEDDING_MODEL = os.environ.get("MODEL_EMBEDDING", "")
 
-# AWS 環境（admin_ui）でのみ設定される中継先（IMPL-202608241104 T11, ADR-0045）。
-# 空文字（未設定, ローカル docker-compose）の場合は本プロセス内で直接処理する（LM Studio 直接呼び出し）。
-# 非空の場合は /ask-sl を agent_invitro へ丸ごと中継する。
-AGENT_INVITRO_URL = os.environ.get("AGENT_INVITRO_URL", "")
+# agent_invitro の接続先（ADR-0045 / ADR-0089 決定5）。KNOWLEDGE_MCP_URL 等と同じく
+# 「接続先アドレスの設定」であり、経路の切り替えスイッチではない（旧 AGENT_INVITRO_URL は、
+# 空文字か否かで中継／ローカル直接処理を出し分けるモードスイッチを兼ねていたため廃止した。
+# どちらの実装に入るかは app.py のルート定義で決まる）。
+# ローカル docker-compose・AWS のいずれも Service Connect 名は同じであるため既定値を持たせ、
+# 変更が必要な場合のみ環境変数で上書きする。
+AGENT_INVITRO_BASE_URL = os.environ.get(
+    "AGENT_INVITRO_BASE_URL", "http://agent_invitro:8300"
+)
 
 # admin_ui → agent_invitro の HTTP タイムアウト（秒, T12）。
 AGENT_INVITRO_TIMEOUT = float(os.environ.get("AGENT_INVITRO_TIMEOUT", "120"))

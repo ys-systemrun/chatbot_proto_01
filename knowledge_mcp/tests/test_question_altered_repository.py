@@ -219,8 +219,8 @@ def test_import_batch_create_and_update_and_errors():
 def test_export_returns_is_primary_false_rows():
     def responder(sql, params):
         return [
-            (1, "qa-1", "言い換えA", False),
-            (2, "qa-2", "言い換えB", False),
+            (1, "qa-1", "言い換えA", False, True),
+            (2, "qa-2", "言い換えB", False, False),
         ]
 
     db = FakeDatabase(responder)
@@ -228,7 +228,128 @@ def test_export_returns_is_primary_false_rows():
     items = repo.export_question_altered()
 
     assert items == [
-        {"id": 1, "qa_id": "qa-1", "text": "言い換えA", "is_primary": False},
-        {"id": 2, "qa_id": "qa-2", "text": "言い換えB", "is_primary": False},
+        {
+            "id": 1,
+            "qa_id": "qa-1",
+            "text": "言い換えA",
+            "is_primary": False,
+            "is_searchable": True,
+        },
+        {
+            "id": 2,
+            "qa_id": "qa-2",
+            "text": "言い換えB",
+            "is_primary": False,
+            "is_searchable": False,
+        },
     ]
     assert "WHERE is_primary = false" in db.log[0]["sql"]
+
+
+# --------------------------------------------------------------------------- #
+# 検索対象フラグ（ADR-0092 / ADR-0093 / ADR-0094）
+# --------------------------------------------------------------------------- #
+def _row(item_id=9, is_primary=False, is_searchable=True, qa_is_searchable=True):
+    return (item_id, "qa-orig", "T", "既存", is_primary, is_searchable, qa_is_searchable)
+
+
+def _responder_for(row):
+    def responder(sql, params):
+        if sql.strip().startswith("SELECT COUNT"):
+            return (1,)
+        if "LIMIT %s OFFSET %s" in sql:
+            return [row]  # 一覧SELECT（fetchall）
+        if "FROM hiroba_question_altered qa" in sql:
+            return row  # _load の単件SELECT（fetchone）
+        return None
+
+    return responder
+
+
+def test_list_filters_by_own_is_searchable_only():
+    """絞り込みは行自身の値のみを対象とし、親QAの値は条件に含めない（ADR-0093 決定7）。"""
+    db = FakeDatabase(_responder_for(_row()))
+    repo = QuestionAlteredRepository(db, _embed)
+    repo.list_question_altered(is_searchable=False)
+
+    count_entry = db.log[0]
+    assert "qa.is_searchable = %s" in count_entry["sql"]
+    assert "qo.is_searchable = %s" not in count_entry["sql"]
+    assert False in count_entry["params"]
+
+
+def test_list_returns_parent_qa_flag_for_display():
+    db = FakeDatabase(_responder_for(_row(is_searchable=True, qa_is_searchable=False)))
+    repo = QuestionAlteredRepository(db, _embed)
+    items, _ = repo.list_question_altered()
+
+    assert items[0].is_searchable is True
+    assert items[0].qa_is_searchable is False
+    # 実効検索可否は両者のAND（ADR-0092 決定3）。
+    assert (items[0].is_searchable and items[0].qa_is_searchable) is False
+
+
+def test_update_is_searchable_only_does_not_recompute_embedding():
+    """ADR-0093 決定2: フラグのみの更新で Bedrock の埋め込み呼び出しを発生させない。"""
+    calls = []
+
+    def spy(text):
+        calls.append(text)
+        return [0.1, 0.2, 0.3]
+
+    db = FakeDatabase(_responder_for(_row()))
+    repo = QuestionAlteredRepository(db, spy)
+    repo.update_question_altered(9, is_searchable=False)
+
+    assert calls == []
+    update_sqls = [e for e in db.log if "UPDATE hiroba_question_altered" in e["sql"]]
+    assert len(update_sqls) == 1
+    assert "is_searchable = %s" in update_sqls[0]["sql"]
+    assert "embedding = %s" not in update_sqls[0]["sql"]
+
+
+def test_update_requires_text_or_is_searchable():
+    db = FakeDatabase(_responder_for(_row()))
+    repo = QuestionAlteredRepository(db, _embed)
+    try:
+        repo.update_question_altered(9)
+        assert False, "expected QuestionAlteredError"
+    except QuestionAlteredError as e:
+        assert "text or is_searchable" in str(e)
+
+
+def test_update_text_still_recomputes_embedding():
+    calls = []
+
+    def spy(text):
+        calls.append(text)
+        return [0.1, 0.2, 0.3]
+
+    db = FakeDatabase(_responder_for(_row()))
+    repo = QuestionAlteredRepository(db, spy)
+    repo.update_question_altered(9, text="新本文")
+
+    assert calls == ["新本文"]
+    update_sqls = [e for e in db.log if "UPDATE hiroba_question_altered" in e["sql"]]
+    assert "text = %s" in update_sqls[0]["sql"]
+    assert "embedding = %s" in update_sqls[0]["sql"]
+
+
+def test_import_batch_is_searchable_value_interpretation():
+    """true/false/1/0 を受理し、空欄・列なしは「変更なし」、不正値は当該行のみエラー（ADR-0094）。"""
+    db = FakeDatabase(_responder_for(_row()))
+    repo = QuestionAlteredRepository(db, _embed)
+    rows = [
+        {"id": "9", "qa_id": "", "text": "", "is_searchable": "FALSE"},
+        {"id": "9", "qa_id": "", "text": "", "is_searchable": "1"},
+        {"id": "9", "qa_id": "", "text": "", "is_searchable": ""},  # 変更なし→更新内容なし
+        {"id": "9", "qa_id": "", "text": "", "is_searchable": "はい"},  # 不正値
+    ]
+    results = repo.import_question_altered_batch(rows)
+
+    assert results[0]["status"] == "success"
+    assert results[1]["status"] == "success"
+    # text も is_searchable も変更なしの行は更新内容が無いためエラーになる。
+    assert results[2]["status"] == "error"
+    assert results[3]["status"] == "error"
+    assert "is_searchable" in results[3]["error"]

@@ -128,12 +128,12 @@ def test_search_tag_similarity_scoring_and_sort_topk():
 # --------------------------------------------------------------------------- #
 # TroubleshootingManagementRepository（管理）
 # --------------------------------------------------------------------------- #
-def _detail_row(article_id=5):
-    # _load_detail の1本目 SELECT が返す19カラム。
+def _detail_row(article_id=5, is_searchable=True):
+    # _load_detail の1本目 SELECT が返す20カラム（末尾は is_searchable, ADR-0092）。
     return (
         article_id, "trouble_shooting", "旧タイトル", "sub", "現象", None,
         None, None, None, None, None, "旧案内", "原因", None, None, "<h2>旧タイトル</h2>",
-        None, None, None,
+        None, None, None, is_searchable,
     )
 
 
@@ -191,3 +191,44 @@ def test_update_replaces_tags():
     inserts = [e for e in db.log if "INSERT INTO troubleshooting_article_tag" in e["sql"]]
     assert len(deletes) == 1
     assert len(inserts) == 1
+
+
+def test_search_excludes_unsearchable_articles():
+    """検索対象フラグの述語が候補プールの LIMIT より前に適用される（ADR-0092 決定2）。"""
+    db = FakeDatabase([])
+    repo = TroubleshootingRepository(db, _embed)
+    repo.search("q")
+
+    sql = " ".join(db.log[0]["sql"].split())
+    assert "AND troubleshooting_article.is_searchable" in sql
+    assert sql.index("is_searchable") < sql.index("LIMIT %(pool_size)s")
+
+
+def test_management_list_filters_by_is_searchable():
+    db = FakeDatabase(fetchmany=[[(0,)], []])
+    repo = TroubleshootingManagementRepository(db, _embed)
+    repo.list_articles(is_searchable=False)
+
+    count_entry = db.log[0]
+    assert "troubleshooting_article.is_searchable = %s" in count_entry["sql"]
+    assert False in count_entry["params"]
+
+
+def test_management_update_is_searchable_only_skips_embedding():
+    """is_searchable のみの更新では embedding を再計算しない（ADR-0093 決定2）。"""
+    detail = _detail_row()
+    db = FakeDatabase(fetchmany=[[detail], [], [detail], []])
+    calls = []
+
+    def spy(text):
+        calls.append(text)
+        return [0.1, 0.2, 0.3]
+
+    repo = TroubleshootingManagementRepository(db, spy)
+    repo.update_article(5, fields={"is_searchable": False})
+
+    update_sqls = [e for e in db.log if "UPDATE troubleshooting_article SET" in e["sql"]]
+    assert len(update_sqls) == 1
+    assert "is_searchable = %s" in update_sqls[0]["sql"]
+    assert "embedding = %s" not in update_sqls[0]["sql"]
+    assert calls == []  # Bedrock の埋め込み呼び出しが発生しない

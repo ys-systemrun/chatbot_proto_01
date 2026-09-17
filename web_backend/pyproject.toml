@@ -14,7 +14,7 @@ dependencies = [
     "boto3",
     # MCPクライアント（Knowledge MCP 接続）に使用。2.0 系はパッケージ構成が変わるため 1.x 系に固定する。
     "mcp>=1.8.0,<2",
-    # AWS 環境で /ask-sl を agent_invitro へ中継するため（IMPL-202608241104 T10, ADR-0045）。
+    # AWS 環境で /ask-pipeline を agent_invitro へ中継するため（IMPL-202608241104 T10, ADR-0045）。
     "httpx",
 ]
 

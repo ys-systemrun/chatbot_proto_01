@@ -36,6 +36,9 @@ EDITABLE_FIELDS = [
     "cause",
     "notes",
     "keyword_raw",
+    # 検索対象フラグ（ADR-0092 / ADR-0093 決定1）。テキストではないが、専用ツールを設けず
+    # fields の部分更新で扱う。_EMBEDDING_SOURCE_FIELDS には含めない（再計算の対象外）。
+    "is_searchable",
 ]
 
 # NOT NULL 列（空文字での更新を拒否する）。
@@ -70,9 +73,11 @@ class TroubleshootingManagementRepository:
         keyword: Optional[str] = None,
         source_key: Optional[str] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> Tuple[List[TroubleshootingSummary], int]:
+        """is_searchable は None=すべて / True=検索可のみ / False=検索不可のみ（ADR-0093 決定7）。"""
         conditions: List[str] = []
         params: List = []
 
@@ -101,6 +106,10 @@ class TroubleshootingManagementRepository:
             params.append(list(tag_ids))
             params.append(len(set(tag_ids)))
 
+        if is_searchable is not None:
+            conditions.append("troubleshooting_article.is_searchable = %s")
+            params.append(is_searchable)
+
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         count_sql = f"SELECT COUNT(*) FROM troubleshooting_article {where_clause}"
@@ -120,7 +129,8 @@ class TroubleshootingManagementRepository:
                     ),
                     ARRAY[]::text[]
                 ) AS tags,
-                troubleshooting_article.source_updated_at
+                troubleshooting_article.source_updated_at,
+                troubleshooting_article.is_searchable
             FROM troubleshooting_article
             {where_clause}
             ORDER BY troubleshooting_article.source_key,
@@ -144,6 +154,7 @@ class TroubleshootingManagementRepository:
                 subtitle=row[3],
                 tags=list(row[4]) if row[4] else [],
                 source_updated_at=row[5],
+                is_searchable=row[6],
             )
             for row in rows
         ]
@@ -181,7 +192,8 @@ class TroubleshootingManagementRepository:
           NOT NULL 列（title / guidance）に空文字を指定した場合はエラー。
         - tag_ids: None=変更なし、[]=全解除、[...]=指定集合で置換。
         - 埋め込み元フィールド（title/subtitle/symptom/cause/guidance）が変わった場合は
-          embedding を同期再計算する。
+          embedding を同期再計算する。is_searchable は埋め込み元に含めないため、フラグのみの
+          更新では embedding を再計算しない（ADR-0093 決定2）。
         """
         fields = fields or {}
         unknown = set(fields) - set(EDITABLE_FIELDS)
@@ -256,7 +268,7 @@ class TroubleshootingManagementRepository:
                 id, source_key, title, subtitle, symptom, operation_history,
                 error_code, error_message, system_environment, hardware_environment,
                 version_info, guidance, cause, notes, keyword_raw, body_html,
-                source_updated_at, created_at, updated_at
+                source_updated_at, created_at, updated_at, is_searchable
             FROM troubleshooting_article
             WHERE id = %s
             """,
@@ -299,6 +311,7 @@ class TroubleshootingManagementRepository:
             created_at=row[17],
             updated_at=row[18],
             tags=tags,
+            is_searchable=row[19],
         )
 
     @staticmethod

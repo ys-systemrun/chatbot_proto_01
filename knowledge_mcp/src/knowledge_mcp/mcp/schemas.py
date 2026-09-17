@@ -121,7 +121,7 @@ LIST_TAG_FOLDERS_OUTPUT_SCHEMA = {
     "required": ["folders"],
 }
 
-# QA管理ツール（IMPL-202608060837 4.2） --------------------------------------
+# QA管理ツール（IMPL-202608060837 4.2、ADR-0092 で is_searchable 追加） -------
 QA_SUMMARY_SCHEMA = {
     "type": "object",
     "properties": {
@@ -130,8 +130,17 @@ QA_SUMMARY_SCHEMA = {
         "category": {"type": ["string", "null"]},
         "tags": {"type": "array", "items": {"type": "string"}},
         "hiroba_question_altered_count": {"type": "integer"},
+        # 検索対象フラグ（ADR-0092）。false のとき配下の質問文行も検索対象外になる。
+        "is_searchable": {"type": "boolean"},
     },
-    "required": ["id", "title", "category", "tags", "hiroba_question_altered_count"],
+    "required": [
+        "id",
+        "title",
+        "category",
+        "tags",
+        "hiroba_question_altered_count",
+        "is_searchable",
+    ],
 }
 
 QA_DETAIL_SCHEMA = {
@@ -144,6 +153,7 @@ QA_DETAIL_SCHEMA = {
         "category": {"type": ["object", "null"]},
         "tags": {"type": "array", "items": {"type": "object"}},
         "hiroba_question_altered_count": {"type": "integer"},
+        "is_searchable": {"type": "boolean"},
     },
     "required": [
         "id",
@@ -153,6 +163,7 @@ QA_DETAIL_SCHEMA = {
         "category",
         "tags",
         "hiroba_question_altered_count",
+        "is_searchable",
     ],
 }
 
@@ -162,6 +173,8 @@ LIST_QA_INPUT_SCHEMA = {
         "keyword": {"type": "string"},
         "category": {"type": "string"},
         "tag_ids": {"type": "array", "items": {"type": "integer"}},
+        # 検索対象フラグでの絞り込み（未指定＝すべて, ADR-0093 決定7）。
+        "is_searchable": {"type": "boolean"},
         "limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
         "offset": {"type": "integer", "default": 0, "minimum": 0},
     },
@@ -192,4 +205,43 @@ LIST_CATEGORIES_OUTPUT_SCHEMA = {
         }
     },
     "required": ["categories"],
+}
+
+# 言い換え質問文（question_altered）管理ツール（ADR-0064、ADR-0092/0093 で
+# is_searchable / qa_is_searchable を追加） ----------------------------------
+QUESTION_ALTERED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "integer"},
+        "qa_id": {"type": "string"},
+        "qa_title": {"type": ["string", "null"]},
+        "text": {"type": "string"},
+        "is_primary": {"type": "boolean"},
+        # 当該行自身の検索対象フラグ。
+        "is_searchable": {"type": "boolean"},
+        # 親QAの検索対象フラグ（読み取り専用の表示用項目）。実効検索可否は両者のAND。
+        "qa_is_searchable": {"type": "boolean"},
+    },
+    "required": ["id", "qa_id", "text", "is_primary", "is_searchable"],
+}
+
+LIST_QUESTION_ALTERED_INPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "qa_id": {"type": "string"},
+        "keyword": {"type": "string"},
+        # 当該行自身の値で絞り込む（親QAの値は条件に含めない, ADR-0093 決定7）。
+        "is_searchable": {"type": "boolean"},
+        "limit": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+        "offset": {"type": "integer", "default": 0, "minimum": 0},
+    },
+}
+
+LIST_QUESTION_ALTERED_OUTPUT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {"type": "array", "items": QUESTION_ALTERED_SCHEMA},
+        "total": {"type": "integer"},
+    },
+    "required": ["items", "total"],
 }

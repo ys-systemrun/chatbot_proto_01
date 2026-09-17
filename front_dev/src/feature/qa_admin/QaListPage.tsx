@@ -8,6 +8,7 @@ import {
   listQa,
   listTagFolders,
   listTags,
+  updateQa,
 } from "../../api";
 import type {
   Category,
@@ -16,6 +17,13 @@ import type {
 } from "../../domain/admin/qa";
 import type { TagFolder, TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
+import {
+  SearchableFilterSelect,
+  SearchableToggle,
+  parseSearchableParam,
+  searchableFilterToParam,
+} from "../common/SearchableToggle";
+import type { SearchableFilter } from "../common/SearchableToggle";
 import { QA_DELETE_CONFIRM } from "./deleteConfirm";
 
 const PAGE_SIZE = 20;
@@ -49,6 +57,11 @@ export default function QaListPage() {
       .filter((n) => Number.isInteger(n) && n > 0),
   );
 
+  // 検索対象フラグでの絞り込み（すべて／検索可のみ／検索不可のみ, ADR-0093 決定7）。
+  const [searchableFilter, setSearchableFilter] = useState<SearchableFilter>(() =>
+    parseSearchableParam(searchParams.get("is_searchable")),
+  );
+
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
   const [folders, setFolders] = useState<TagFolder[]>([]);
@@ -58,6 +71,9 @@ export default function QaListPage() {
 
   // 削除中の QA id（当該行の削除ボタンを無効化する, ADR-0067）
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // 検索対象トグルを更新中の QA id（1行あたり同時に1要求まで, ADR-0093 決定3）
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   // CSV インポート状態（IMPL-202608261022 T12）
   const fileRef = useRef<HTMLInputElement>(null);
@@ -79,6 +95,8 @@ export default function QaListPage() {
     if (keyword) next.set("keyword", keyword);
     if (category) next.set("category", category);
     tagIds.forEach((id) => next.append("tag_id", String(id)));
+    // 既定「すべて」は URL から省略する（ADR-0068 の方針を踏襲）。
+    if (searchableFilter !== "all") next.set("is_searchable", searchableFilter);
     const page = Math.floor(nextOffset / PAGE_SIZE) + 1;
     if (page > 1) next.set("page", String(page));
     setSearchParams(next, { replace: true });
@@ -91,6 +109,7 @@ export default function QaListPage() {
       keyword: keyword || undefined,
       category: category || undefined,
       tag_id: tagIds.length ? tagIds : undefined,
+      is_searchable: searchableFilterToParam(searchableFilter),
       limit: PAGE_SIZE,
       offset: nextOffset,
     })
@@ -128,6 +147,35 @@ export default function QaListPage() {
       setError(String(e));
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  // 検索対象トグル（ADR-0093 決定3）。楽観的更新 → 失敗時はロールバックしてエラー表示。
+  // 一覧全体の再取得は行わない（ページ位置・検索条件・スクロール位置を保つため）。
+  async function onToggleSearchable(qa: QaSummary, next: boolean) {
+    const previous = qa.is_searchable;
+    setTogglingId(qa.id);
+    setError(null);
+    setItems((prev) =>
+      prev.map((r) => (r.id === qa.id ? { ...r, is_searchable: next } : r)),
+    );
+    try {
+      // is_searchable のみを送る部分更新。embedding は再計算されない（ADR-0093 決定2）。
+      const updated = await updateQa(qa.id, { is_searchable: next });
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === qa.id ? { ...r, is_searchable: updated.is_searchable } : r,
+        ),
+      );
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === qa.id ? { ...r, is_searchable: previous } : r,
+        ),
+      );
+      setError(String(e));
+    } finally {
+      setTogglingId(null);
     }
   }
 
@@ -189,6 +237,10 @@ export default function QaListPage() {
             </option>
           ))}
         </select>
+        <SearchableFilterSelect
+          value={searchableFilter}
+          onChange={setSearchableFilter}
+        />
         <button className="admin-btn" type="submit">
           検索
         </button>
@@ -214,16 +266,28 @@ export default function QaListPage() {
             <th>カテゴリ</th>
             <th>タグ</th>
             <th className="admin-td-num">言い換え数</th>
+            <th className="admin-td-toggle">検索対象</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {items.map((qa) => (
-            <tr key={qa.id}>
+            <tr
+              key={qa.id}
+              className={qa.is_searchable ? undefined : "admin-row-unsearchable"}
+            >
               <td>{qa.title || "（無題）"}</td>
               <td>{qa.category ?? "－"}</td>
               <td>{qa.tags.length ? qa.tags.join(", ") : "－"}</td>
               <td className="admin-td-num">{qa.hiroba_question_altered_count}</td>
+              <td className="admin-td-toggle">
+                <SearchableToggle
+                  checked={qa.is_searchable}
+                  disabled={togglingId === qa.id}
+                  onChange={(next) => onToggleSearchable(qa, next)}
+                  label={`検索対象: ${qa.title || "（無題）"}`}
+                />
+              </td>
               <td className="admin-td-actions">
                 <Link
                   className="admin-link"
@@ -244,7 +308,7 @@ export default function QaListPage() {
           ))}
           {!loading && items.length === 0 && (
             <tr>
-              <td colSpan={5} className="admin-muted">
+              <td colSpan={6} className="admin-muted">
                 該当するQAがありません
               </td>
             </tr>
@@ -280,7 +344,9 @@ export default function QaListPage() {
             列: <code>uuid</code>（空=新規/既存=更新）, <code>title</code>,{" "}
             <code>question_text</code>, <code>answer_text</code>,{" "}
             <code>category_id</code>, <code>tags</code>（タグ名のカンマ区切り。
-            存在しないタグ名は自動作成）。UTF-8 で保存してください。
+            存在しないタグ名は自動作成）, <code>is_searchable</code>
+            （<code>true</code>/<code>false</code>/<code>1</code>/<code>0</code>。
+            列なし・空欄は「新規は検索対象、既存は変更なし」）。UTF-8 で保存してください。
           </p>
           <input ref={fileRef} type="file" accept=".csv" disabled={importing} />
           <button

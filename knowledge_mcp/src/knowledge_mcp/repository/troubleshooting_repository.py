@@ -96,6 +96,7 @@ class TroubleshootingRepository:
                 troubleshooting_article.embedding <=> %(query_vec)s::vector AS distance
             FROM troubleshooting_article
             WHERE troubleshooting_article.embedding IS NOT NULL
+              AND troubleshooting_article.is_searchable
             ORDER BY troubleshooting_article.embedding <=> %(query_vec)s::vector
             LIMIT %(pool_size)s
         """

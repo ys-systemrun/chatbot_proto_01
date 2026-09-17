@@ -6,10 +6,17 @@ import {
   listTags,
   listTroubleshootingArticles,
   listTroubleshootingSourceKeys,
+  updateTroubleshootingArticle,
 } from "../../api";
 import type { TroubleshootingSummary } from "../../domain/admin/troubleshooting";
 import type { TagFolder, TagNode } from "../../domain/admin/tag";
 import { TagPicker } from "../tag_admin/TagPicker";
+import {
+  SearchableFilterSelect,
+  SearchableToggle,
+  searchableFilterToParam,
+} from "../common/SearchableToggle";
+import type { SearchableFilter } from "../common/SearchableToggle";
 
 const PAGE_SIZE = 20;
 
@@ -40,6 +47,13 @@ export default function TroubleshootingListPage() {
       .map((v) => Number(v))
       .filter((n) => Number.isInteger(n) && n > 0),
   );
+
+  // 検索対象フラグでの絞り込み（ADR-0093 決定7）。本ページは現状 URL 同期を実装していないため、
+  // 本項目も URL には同期しない（画面内の状態のみ保持する）。
+  const [searchableFilter, setSearchableFilter] = useState<SearchableFilter>("all");
+
+  // 検索対象トグルを更新中の記事 id（1行あたり同時に1要求まで, ADR-0093 決定3）
+  const [togglingId, setTogglingId] = useState<number | null>(null);
 
   const [sourceKeys, setSourceKeys] = useState<string[]>([]);
   const [tags, setTags] = useState<TagNode[]>([]);
@@ -74,6 +88,7 @@ export default function TroubleshootingListPage() {
       keyword: keyword || undefined,
       source_key: sourceKey || undefined,
       tag_id: tagIds.length ? tagIds : undefined,
+      is_searchable: searchableFilterToParam(searchableFilter),
       limit: PAGE_SIZE,
       offset: nextOffset,
     })
@@ -95,6 +110,43 @@ export default function TroubleshootingListPage() {
   function onSearch(e: FormEvent) {
     e.preventDefault();
     load(0);
+  }
+
+  // 検索対象トグル（ADR-0093 決定3）。楽観的更新 → 失敗時はロールバックしてエラー表示。
+  // is_searchable は埋め込み元フィールドではないため embedding は再計算されない（決定2）。
+  async function onToggleSearchable(
+    article: TroubleshootingSummary,
+    next: boolean,
+  ) {
+    const previous = article.is_searchable;
+    setTogglingId(article.id);
+    setError(null);
+    setItems((prev) =>
+      prev.map((r) =>
+        r.id === article.id ? { ...r, is_searchable: next } : r,
+      ),
+    );
+    try {
+      const updated = await updateTroubleshootingArticle(article.id, {
+        is_searchable: next,
+      });
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === article.id
+            ? { ...r, is_searchable: updated.is_searchable }
+            : r,
+        ),
+      );
+    } catch (e) {
+      setItems((prev) =>
+        prev.map((r) =>
+          r.id === article.id ? { ...r, is_searchable: previous } : r,
+        ),
+      );
+      setError(String(e));
+    } finally {
+      setTogglingId(null);
+    }
   }
 
   const page = Math.floor(offset / PAGE_SIZE) + 1;
@@ -128,6 +180,10 @@ export default function TroubleshootingListPage() {
             </option>
           ))}
         </select>
+        <SearchableFilterSelect
+          value={searchableFilter}
+          onChange={setSearchableFilter}
+        />
         <button className="admin-btn" type="submit">
           検索
         </button>
@@ -155,16 +211,28 @@ export default function TroubleshootingListPage() {
             <th>サブ見出し</th>
             <th>出自</th>
             <th>タグ</th>
+            <th className="admin-td-toggle">検索対象</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
           {items.map((a) => (
-            <tr key={a.id}>
+            <tr
+              key={a.id}
+              className={a.is_searchable ? undefined : "admin-row-unsearchable"}
+            >
               <td>{a.title || "（無題）"}</td>
               <td>{a.subtitle ?? "－"}</td>
               <td>{a.source_key}</td>
               <td>{a.tags.length ? a.tags.join(", ") : "－"}</td>
+              <td className="admin-td-toggle">
+                <SearchableToggle
+                  checked={a.is_searchable}
+                  disabled={togglingId === a.id}
+                  onChange={(next) => onToggleSearchable(a, next)}
+                  label={`検索対象: ${a.title || "（無題）"}`}
+                />
+              </td>
               <td className="admin-td-actions">
                 <Link
                   className="admin-link"
@@ -177,7 +245,7 @@ export default function TroubleshootingListPage() {
           ))}
           {!loading && items.length === 0 && (
             <tr>
-              <td colSpan={5} className="admin-muted">
+              <td colSpan={6} className="admin-muted">
                 該当する記事がありません
               </td>
             </tr>

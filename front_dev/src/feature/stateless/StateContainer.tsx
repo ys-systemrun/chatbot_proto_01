@@ -2,15 +2,26 @@ import { useCallback, useState } from "react";
 import { LayoutContainer } from "./LayoutContainer";
 import { Message } from "../../domain/stateless/message";
 import { Summary } from "../../domain/stateless/summary";
-import { ConversationTag } from "../../domain/stateless/tag";
 import { askStateless, evaluateResponse } from "../../api";
+import {
+  loadAskMode,
+  saveAskMode,
+  type AskMode,
+} from "../../domain/stateless/ask_mode";
 
 export const StateContainer: React.FC<{}> = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [summary, setSummary] = useState<Summary | undefined>(undefined);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  const [tags, setTags] = useState<ConversationTag[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  // 回答生成方式（パイプライン方式 / エージェント方式, ADR-0089 決定5）。
+  // Header のトグルで切り替え、次に送信する質問から適用される。選択はブラウザに保存する。
+  const [askMode, setAskMode] = useState<AskMode>(loadAskMode);
+
+  const handleChangeAskMode = useCallback((mode: AskMode) => {
+    setAskMode(mode);
+    saveAskMode(mode);
+  }, []);
 
   const handleSubmit = useCallback(
     async (text: string) => {
@@ -27,8 +38,7 @@ export const StateContainer: React.FC<{}> = () => {
           text,
           messages: messages.filter((m) => m.order > currentSummary.summarized_upto),
           summary: currentSummary,
-          tags,
-        });
+        }, askMode);
 
         const displayMessages = res.messages.map((m) =>
           m.order === nextOrder && m.role === "user" ? { ...m, content: text } : m
@@ -36,9 +46,6 @@ export const StateContainer: React.FC<{}> = () => {
         setMessages(displayMessages);
         setSummary(res.summary);
         setConversationId(res.conversation_id);
-        if (res.tags) {
-          setTags(res.tags); // ローカル環境等 res.tags が無い場合は何もしない
-        }
       } catch (err) {
         setMessages((prev) => [
           ...prev,
@@ -52,7 +59,7 @@ export const StateContainer: React.FC<{}> = () => {
         setIsLoading(false);
       }
     },
-    [messages, summary, conversationId, tags],
+    [messages, summary, conversationId, askMode],
   );
 
   const handleEvaluate = useCallback(
@@ -81,6 +88,8 @@ export const StateContainer: React.FC<{}> = () => {
     <LayoutContainer
       messages={messages}
       isLoading={isLoading}
+      askMode={askMode}
+      onChangeAskMode={handleChangeAskMode}
       onSubmit={handleSubmit}
       onEvaluate={handleEvaluate}
     />

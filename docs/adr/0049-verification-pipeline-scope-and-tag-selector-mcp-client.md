@@ -29,7 +29,7 @@
 
 ## 検討した代替案
 
-- **`agent_invitro`経由での検証（案2）**: 実際の`/ask-sl`（AWS環境, ADR-0043）に近い経路で検証できる利点がある。しかし、ReActエージェントの自律的なツール選択（ADR-0022）により、「質問ごとに必ず1回の`select_tags`と1回の`search_knowledge`が対応する」という要件定義書が求める観測粒度を保証できない（エージェントが`select_tags`を呼ばずに`search_knowledge`のみを呼ぶ、複数回呼ぶ、あるいは全く別のクエリ文字列を組み立てて呼ぶ可能性がある）。加えて`agent_invitro`は現時点でALB非公開（VPC内部限定、ADR-0023）であり、`admin_ui`から`agent_invitro`への新規到達性（ADR-0043/0045と同様の中継構成）が必要になり、変更範囲が案1より大きい。発注者の回答（案1）とも合致しないため不採用とした。
+- **`agent_invitro`経由での検証（案2）**: 実際の`/ask-pipeline`（AWS環境, ADR-0043）に近い経路で検証できる利点がある。しかし、ReActエージェントの自律的なツール選択（ADR-0022）により、「質問ごとに必ず1回の`select_tags`と1回の`search_knowledge`が対応する」という要件定義書が求める観測粒度を保証できない（エージェントが`select_tags`を呼ばずに`search_knowledge`のみを呼ぶ、複数回呼ぶ、あるいは全く別のクエリ文字列を組み立てて呼ぶ可能性がある）。加えて`agent_invitro`は現時点でALB非公開（VPC内部限定、ADR-0023）であり、`admin_ui`から`agent_invitro`への新規到達性（ADR-0043/0045と同様の中継構成）が必要になり、変更範囲が案1より大きい。発注者の回答（案1）とも合致しないため不採用とした。
 - **両方式を実装し比較可能にする（案3）**: 将来的な価値はあるが、MVPの実装コストが2倍近くになる。発注者の回答は案1のみを求めており、過剰と判断し見送った。将来、`agent_invitro`側の実際の挙動（クエリ整形の有無等、ADR-0043「結果・影響」のOpen Issueにある検索精度確認）を検証したいニーズが生じた場合に、案2を追加する形で再検討する。
 - **`web_backend`から`tag_selector_mcp`を、既存の`KnowledgeMcpClient`を汎用化・共通化した単一クラスで呼び出す**（`TagSelectorMcpClient`を新設せず、`McpClient(url)`のような汎用クラスに統合する）: コードの重複を減らせる利点があるが、既存の`agent_invitro`側は`langchain-mcp-adapters`（ADR-0021）を使い、`web_backend`側は独自の薄いラッパー（`KnowledgeMcpClient`）を使うという、コンポーネントごとに実装を複製する既存方針（ADR-0016〜0018等で繰り返し採用されている「コンポーネント間でコードを共有しない」方針）と、`web_backend`内での2クライアントの統合は矛盾しないが、`KnowledgeMcpError`/`TagSelectorMcpError`のように呼び出し先ごとに例外型を分けている既存の設計（`app.py`の`@app.exception_handler(KnowledgeMcpError)`）との一貫性を優先し、既存コードに合わせて`KnowledgeMcpClient`と対になる`TagSelectorMcpClient`を新設する方式を採用した。
 

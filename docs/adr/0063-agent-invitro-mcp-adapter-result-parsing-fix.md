@@ -6,7 +6,7 @@
 
 ## コンテキスト
 
-実チャット（`agent_invitro`の`POST /ask-sl`）の情報源検索が検証ページと食い違う不具合について、ADR-0062は根本原因を「`agent_invitro/src/tags.py`の`search_with_merged_tags`がタグ別複数回呼び出し＋フォールバック＋最大スコア統合という旧ワークアラウンド（ADR-0057）のまま残っていること」と結論し、検証機能（ADR-0060）と同じ単一`search_knowledge`呼び出し方式へ単純化した。しかしこの変更をAWSへデプロイ後も事象は解消しなかった。
+実チャット（`agent_invitro`の`POST /ask-pipeline`）の情報源検索が検証ページと食い違う不具合について、ADR-0062は根本原因を「`agent_invitro/src/tags.py`の`search_with_merged_tags`がタグ別複数回呼び出し＋フォールバック＋最大スコア統合という旧ワークアラウンド（ADR-0057）のまま残っていること」と結論し、検証機能（ADR-0060）と同じ単一`search_knowledge`呼び出し方式へ単純化した。しかしこの変更をAWSへデプロイ後も事象は解消しなかった。
 
 AWS実機（CloudWatch Logs `/ecs/agent_invitro`、ECSタスク定義）を直接確認し、次を特定した。
 

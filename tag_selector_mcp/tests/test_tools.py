@@ -19,8 +19,10 @@ class FakeUseCase:
         self._error = error
         self.calls = []
 
-    def execute(self, query, max_tags=3, confidence_threshold=0.0):
-        self.calls.append((query, max_tags, confidence_threshold))
+    def execute(
+        self, query, max_tags=3, confidence_threshold=0.0, alias_match_text=None
+    ):
+        self.calls.append((query, max_tags, confidence_threshold, alias_match_text))
         if self._error is not None:
             raise self._error
         return self._selected
@@ -61,9 +63,21 @@ def test_select_tags_returns_serialized():
     )
     mcp = _register(use_case, FakeRepo())
     tool = mcp._tool_manager.get_tool("select_tags")
-    out = tool.fn(query="積算", max_tags=2, confidence_threshold=0.1)
+    out = tool.fn(
+        query="積算", alias_match_text="生テキスト", max_tags=2, confidence_threshold=0.1
+    )
     assert out == {"selected": [{"id": 1, "name": "A", "score": 0.9, "path": ["A"]}]}
-    assert use_case.calls == [("積算", 2, 0.1)]
+    assert use_case.calls == [("積算", 2, 0.1, "生テキスト")]
+
+
+def test_select_tags_alias_match_text_defaults_to_none():
+    pytest.importorskip("mcp")
+    use_case = FakeUseCase(selected=[])
+    mcp = _register(use_case, FakeRepo())
+    tool = mcp._tool_manager.get_tool("select_tags")
+    tool.fn(query="積算")
+    # alias_match_text 省略時は None として渡り、UseCase 側で query にフォールバックする。
+    assert use_case.calls == [("積算", 3, 0.0, None)]
 
 
 def test_select_tags_error_becomes_tool_error():

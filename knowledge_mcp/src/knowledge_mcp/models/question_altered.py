@@ -26,6 +26,11 @@ class QuestionAltered:
     text: str
     is_primary: bool
     qa_title: Optional[str] = None  # 表示用（qa_original.title を結合）
+    # 当該行自身の検索対象フラグ（ADR-0092）。
+    is_searchable: bool = True
+    # 親QAの検索対象フラグ（読み取り専用の表示用項目, ADR-0093 決定6）。
+    # 実効検索可否は is_searchable AND qa_is_searchable（AND合成, ADR-0092 決定3）。
+    qa_is_searchable: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -34,4 +39,6 @@ class QuestionAltered:
             "qa_title": self.qa_title,
             "text": self.text,
             "is_primary": self.is_primary,
+            "is_searchable": self.is_searchable,
+            "qa_is_searchable": self.qa_is_searchable,
         }

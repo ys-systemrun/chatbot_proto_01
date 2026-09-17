@@ -20,6 +20,8 @@ class QaSummary:
     category: Optional[str]
     tags: List[str] = field(default_factory=list)
     hiroba_question_altered_count: int = 0
+    # 検索対象フラグ（ADR-0092）。false のとき配下の主質問文行・言い換え行も検索対象外になる。
+    is_searchable: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -28,6 +30,7 @@ class QaSummary:
             "category": self.category,
             "tags": list(self.tags),
             "hiroba_question_altered_count": self.hiroba_question_altered_count,
+            "is_searchable": self.is_searchable,
         }
 
 
@@ -40,6 +43,7 @@ class QaDetail:
     category: Optional[dict] = None      # {"id": int, "name": str}
     tags: List[dict] = field(default_factory=list)  # [{"id": int, "name": str}, ...]
     hiroba_question_altered_count: int = 0
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
     def to_dict(self) -> dict:
         return {
@@ -50,4 +54,5 @@ class QaDetail:
             "category": self.category,
             "tags": list(self.tags),
             "hiroba_question_altered_count": self.hiroba_question_altered_count,
+            "is_searchable": self.is_searchable,
         }

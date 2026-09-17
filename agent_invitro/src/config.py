@@ -19,11 +19,13 @@ class Settings:
     lmstudio_chat_model: str | None = None  # lmstudio 時のみ必須
     bedrock_chat_model_id: str | None = None  # bedrock 時のみ必須（BEDROCK_CHAT_MODEL_ID）
     bedrock_region: str | None = None  # bedrock 時のみ必須（BEDROCK_REGION）
-    # --- 会話タグ管理機能で追加（IMPL-202608261345 T5 / ADR-0057）---
+    # --- select_tags 呼び出しパラメータ（IMPL-202608261345 T5 / ADR-0057 / ADR-0086）---
+    # tag_context_*（会話タグの継続判定パラメータ）は ADR-0084 の会話タグ機構廃止に伴い削除した。
     tag_selector_max_tags: int = 3
     tag_selector_confidence_threshold: float = 0.0
-    tag_context_max_tags: int = 5
-    tag_context_max_missed_turns: int = 2
+    # --- Agentic 探索ループのパラメータ（ADR-0088 決定5 / REQ-202609141415 7.3）---
+    agentic_max_iterations: int = 2
+    agentic_search_top_k: int = 3
 
 
 def load_settings() -> Settings:
@@ -70,15 +72,18 @@ def load_settings() -> Settings:
             "必須の環境変数が未設定です: " + ", ".join(missing)
         )
 
-    # --- 会話タグ管理機能で追加（IMPL-202608261345 T5 / ADR-0057）---
+    # --- select_tags 呼び出しパラメータ（IMPL-202608261345 T5 / ADR-0057 / ADR-0086）---
     # required 辞書には含めない＝未設定でも例外を発生させず既定値を使う。
     values["tag_selector_max_tags"] = int(os.environ.get("TAG_SELECTOR_MAX_TAGS", "3"))
     values["tag_selector_confidence_threshold"] = float(
         os.environ.get("TAG_SELECTOR_CONFIDENCE_THRESHOLD", "0.0")
     )
-    values["tag_context_max_tags"] = int(os.environ.get("TAG_CONTEXT_MAX_TAGS", "5"))
-    values["tag_context_max_missed_turns"] = int(
-        os.environ.get("TAG_CONTEXT_MAX_MISSED_TURNS", "2")
+
+    # --- Agentic 探索ループのパラメータ（ADR-0088 決定5 / REQ-202609141415 7.3）---
+    # こちらも required 辞書には含めない＝未設定でも既定値（2 周回 / top_k=3）で動作する。
+    values["agentic_max_iterations"] = int(
+        os.environ.get("AGENTIC_MAX_ITERATIONS", "2")
     )
+    values["agentic_search_top_k"] = int(os.environ.get("AGENTIC_SEARCH_TOP_K", "3"))
 
     return Settings(llm_provider=llm_provider, **values)

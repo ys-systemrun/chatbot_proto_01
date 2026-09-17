@@ -39,6 +39,11 @@ export default function QuestionAlteredFormPage({
   const [qaId, setQaId] = useState("");
   const [qaTitle, setQaTitle] = useState<string | null>(null);
   const [text, setText] = useState("");
+  // 検索対象フラグ（ADR-0092）。新規作成の初期値は true（要件6.6.3）。
+  // 編集ページでは即時保存せず、保存ボタン押下時に他項目とまとめて送る（ADR-0093 決定4）。
+  const [isSearchable, setIsSearchable] = useState(true);
+  // 親QAの検索対象フラグ（読み取り専用）。false なら本行は実際には検索されない。
+  const [qaIsSearchable, setQaIsSearchable] = useState(true);
 
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
@@ -52,6 +57,8 @@ export default function QuestionAlteredFormPage({
           setQaId(item.qa_id);
           setQaTitle(item.qa_title);
           setText(item.text);
+          setIsSearchable(item.is_searchable);
+          setQaIsSearchable(item.qa_is_searchable);
         })
         .catch((e) => setError(String(e)))
         .finally(() => setLoading(false));
@@ -68,9 +75,16 @@ export default function QuestionAlteredFormPage({
     setError(null);
     try {
       if (mode === "create") {
-        await createQuestionAltered({ qa_id: qaId, text });
+        await createQuestionAltered({
+          qa_id: qaId,
+          text,
+          is_searchable: isSearchable,
+        });
       } else if (id) {
-        await updateQuestionAltered(Number(id), { text });
+        await updateQuestionAltered(Number(id), {
+          text,
+          is_searchable: isSearchable,
+        });
       }
       navigate(backTo);
     } catch (e) {
@@ -167,6 +181,31 @@ export default function QuestionAlteredFormPage({
             保存すると検索用の埋め込みが再計算されます。
           </span>
         </label>
+
+        <div className="admin-field">
+          <span className="admin-label">検索対象</span>
+          <label className="admin-switch">
+            <input
+              type="checkbox"
+              checked={isSearchable}
+              onChange={(e) => setIsSearchable(e.target.checked)}
+            />
+            <span className="admin-switch-track" aria-hidden="true" />
+            <span className="admin-switch-label">
+              {isSearchable ? "検索可" : "検索不可"}
+            </span>
+          </label>
+          {!qaIsSearchable && (
+            <span className="admin-badge">親QAが検索対象外</span>
+          )}
+          <span className="admin-hint">
+            検索不可にすると、この言い換え質問文がチャットの情報源検索にヒットしなくなります
+            （同じQAの他の言い換え・主質問文経由ではヒットします）。
+            {!qaIsSearchable &&
+              " 親QAが検索対象外のため、この行を検索可にしても検索されません。"}
+            保存ボタンで反映されます。
+          </span>
+        </div>
 
         <div className="admin-form-actions">
           <button

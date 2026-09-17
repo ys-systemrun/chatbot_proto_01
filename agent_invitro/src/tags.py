@@ -1,20 +1,18 @@
-"""会話タグのマージ・継続判定・情報源検索ロジック（IMPL-202608261345 T6, ADR-0057 / ADR-0062 / ADR-0063）。"""
+"""select_tags 戻り値の正規化と Alias 一致対象テキストの構築（ADR-0063 / ADR-0086）。
+
+会話タグ機構（TagState・compute_conversation_tags・search_with_merged_tags）は ADR-0084 に
+より廃止され、会話文脈の管理は summary（会話要約）へ一本化された。本モジュールに残るのは
+select_tags の呼び出しに引き続き必要な langchain-mcp-adapters 戻り値の正規化ヘルパー
+（_mcp_result_to_dicts / _extract_selected_tags, ADR-0063）と、ADR-0086 の Alias 確定タグ
+向けに生テキストを組み立てる build_alias_match_text である。
+"""
 
 from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class TagState:
-    id: int
-    name: str
-    score: float
-    missed_turns: int
 
 
 def _mcp_result_to_dicts(raw) -> list[dict]:
@@ -103,68 +101,42 @@ def _extract_selected_tags(raw) -> list[dict]:
     return []
 
 
-def compute_conversation_tags(
-    new_tags: list[dict],
-    client_tags: list,  # main/api/server.py の ConversationTag のリスト（id/name/score/missed_turns属性を持てばよい）
-    max_missed_turns: int,
-    max_tags: int,
-) -> list[TagState]:
-    """select_tags結果とクライアント由来タグをマージし、継続タグを判定する（要件定義書6.4.3節）。
+_QUESTION_MARKER = "質問:\n"
 
-    戻り値はそのリクエストの検索（search_with_merged_tags）にも、
-    レスポンスの継続タグ（Response.tags）にも、同一の集合として使う。
+
+def _extract_question_from_content(content: str) -> str:
+    """user メッセージの content から実際の質問文だけを取り出す（ADR-0086 決定4）。
+
+    user メッセージの content は web_backend / agent_invitro いずれの実装でも
+    「参考情報:\n{context}\n\n質問:\n{text}」という固定テンプレートで構築されるため、
+    "質問:\n" 以降の部分文字列のみを抽出する。過去に提示された記事の文言（参考情報）を
+    誤って Alias 一致させないための処理である。マーカーが見つからない場合は content 全文を
+    フォールバックとして返す。参考情報側にも "質問:\n" が含まれ得るため、最後の出現位置を採る。
     """
-    new_by_id = {t["id"]: t for t in new_tags}
-    updated: dict[int, TagState] = {}
-
-    # 1-2. クライアント由来タグ: 再選択されていれば missed_turns=0・score更新、
-    #      されていなければ missed_turns+1
-    for ct in client_tags:
-        if ct.id in new_by_id:
-            nt = new_by_id[ct.id]
-            updated[ct.id] = TagState(
-                id=ct.id, name=nt["name"], score=nt["score"], missed_turns=0
-            )
-        else:
-            updated[ct.id] = TagState(
-                id=ct.id, name=ct.name, score=ct.score, missed_turns=ct.missed_turns + 1
-            )
-
-    # 3. 新規タグの追加（クライアント側に無かったもの）
-    for t in new_tags:
-        if t["id"] not in updated:
-            updated[t["id"]] = TagState(
-                id=t["id"], name=t["name"], score=t["score"], missed_turns=0
-            )
-
-    # 4. missed_turns がしきい値を超えたタグを破棄
-    tags = [t for t in updated.values() if t.missed_turns <= max_missed_turns]
-
-    # 5. 上限件数を超える場合は missed_turns 降順 → score 昇順で間引く
-    if len(tags) > max_tags:
-        tags.sort(key=lambda t: (-t.missed_turns, t.score))
-        tags = tags[:max_tags]
-
-    return tags
+    idx = content.rfind(_QUESTION_MARKER)
+    if idx == -1:
+        return content
+    return content[idx + len(_QUESTION_MARKER):]
 
 
-async def search_with_merged_tags(
-    search_tool,
-    extract_results_fn,  # server.py の _extract_results をそのまま渡す
-    query: str,
-    merged_tags: list[TagState],
-    top_k: int,
-) -> list[dict]:
-    """マージタグ全件を1回の tags 引数にまとめて search_knowledge を単一呼び出しする
-    （ADR-0062 / 要件定義書5.1節）。検証機能（ADR-0060）と同一方式。
+def build_alias_match_text(
+    req_text: str,
+    messages: list,  # order/role/content 属性を持つメッセージのリスト
+    summarized_upto: int,
+) -> str:
+    """select_tags へ渡す alias_match_text を構築する（ADR-0086 決定4）。
 
-    ADR-0058/0059 により tags 引数は完全一致AND条件から「タグ類似度によるソフトな
-    ランキングシグナル」へ変わり、ADR-0057 が対応していた0件化リスクは解消された。
-    そのため、タグ別複数回呼び出し・フォールバック呼び出し・QA単位の最大スコア統合は
-    不要となり、マージタグ全件（0件なら空配列）を1回で渡すだけでよい。tags=[] は
-    ADR-0059 により tags 未指定と同じ扱い（埋め込み類似度のみ）になる。
+    「今回の発話（req_text）＋未要約履歴のうち role="user" の質問文」を結合する。
+    role="assistant" のメッセージ、および要約済み（order <= summarized_upto）の履歴は
+    対象外とする（発注者確認済み、REQ-202609091730 6.2〜6.3節）。LLM 推論に使う
+    query（言い換え質問）と異なり、固定エラー文言をそのまま保持した生テキストを対象に
+    Alias 一致させるためのテキストである。
     """
-    raw = await search_tool.ainvoke(
-        {"query": query, "tags": [t.name for t in merged_tags], "top_k": top_k}
-    )
-    return extract_results_fn(raw)[:top_k]
+    parts = [req_text]
+    for m in sorted(messages, key=lambda m: m.order):
+        if m.role != "user":
+            continue
+        if m.order <= summarized_upto:
+            continue
+        parts.append(_extract_question_from_content(m.content))
+    return "\n".join(p for p in parts if p)

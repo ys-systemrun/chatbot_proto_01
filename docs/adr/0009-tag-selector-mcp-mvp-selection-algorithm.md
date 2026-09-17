@@ -1,6 +1,6 @@
 # ADR-0009: MVPのタグ選択アルゴリズム（Embedding層・階層探索は見送り、Alias辞書+LLMの一段階構成とする）
 
-- ステータス: Accepted
+- ステータス: Accepted（ADR-0086により改訂: Retrieval Engineの確定タグ判定を、LLMへの参考情報から即時確定・強制採用へ変更。「Alias辞書＋LLM一段階」という基本構成自体は維持）
 - 日付: 2026-08-05
 - 関連: `docs/requirement/202608051636.md`, `docs/requirement/202608051630.md`, ADR-0004, ADR-0008
 

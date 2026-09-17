@@ -31,11 +31,14 @@ def register_tools(
     @mcp.tool(
         name="select_tags",
         description=(
-            "質問文に最も関連するタグを選択し、id/name/score/path を score 降順で返す。"
+            "質問文に最も関連するタグを選択し、id/name/score/path を返す。"
+            "alias_match_text を指定するとその生テキストに対して Alias 一致（確定タグ）を行う"
+            "（省略時は query にフォールバック, ADR-0086）。"
         ),
     )
     def select_tags(
         query: str,
+        alias_match_text: str | None = None,
         max_tags: int = default_max_tags,
         confidence_threshold: float = default_confidence_threshold,
     ) -> dict:
@@ -44,6 +47,7 @@ def register_tools(
                 query,
                 max_tags=max_tags,
                 confidence_threshold=confidence_threshold,
+                alias_match_text=alias_match_text,
             )
         except Exception as e:
             # LLM接続失敗・DB参照失敗等はMCPエラーレスポンスへ変換する。

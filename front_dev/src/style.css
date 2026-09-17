@@ -86,6 +86,40 @@ body {
   white-space: nowrap;
 }
 
+/* 回答生成方式のトグル（パイプライン方式 / エージェント方式, ADR-0089 決定5）。
+   ヘッダー右端に寄せたセグメント型の2ボタン。選択中のみ塗りつぶす。 */
+.ask-mode-toggle {
+  display: flex;
+  margin-left: auto;
+  border: 1px solid #3a3a55;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.ask-mode-btn {
+  font-size: 0.75rem;
+  line-height: 1;
+  padding: 6px 12px;
+  color: #b8b8c8;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ask-mode-btn + .ask-mode-btn { border-left: 1px solid #3a3a55; }
+
+.ask-mode-btn:hover:not(:disabled) { background: #2a2a44; color: #fff; }
+
+.ask-mode-btn-active {
+  background: #4a6fa5;
+  color: #fff;
+  font-weight: 600;
+}
+
+.ask-mode-btn:disabled { cursor: not-allowed; opacity: 0.6; }
+
 #session-bar {
   display: flex;
   align-items: center;
@@ -255,6 +289,25 @@ body.page-evaluated #app {
   color: #1a1a2e;
 }
 
+/* 一覧上部の操作列（「列幅をリセット」ボタン, REQ 6.5）。 */
+.ev-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 10px;
+}
+
+.ev-reset-btn {
+  font-size: 0.78rem;
+  color: #555;
+  background: #fff;
+  border: 1px solid #d0d0d0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+}
+
+.ev-reset-btn:hover { background: #f2f4f8; }
+
 .ev-status {
   color: #888;
   padding: 12px 0;
@@ -297,10 +350,13 @@ body.page-evaluated #app {
 
 .ev-table-wrap { overflow-x: auto; }
 
+/* 列幅を <col> 側の指定で厳密に制御するため table-layout: fixed とする（ADR-0087 決定2）。
+   幅は EvaluatedMessagesPage.tsx の <colgroup> が px で与えるため、ここでは width を指定しない。 */
 .ev-table {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.85rem;
+  table-layout: fixed;
 }
 
 .ev-th {
@@ -311,7 +367,40 @@ body.page-evaluated #app {
   font-weight: 600;
   color: #555;
   white-space: nowrap;
+  /* ドラッグハンドル（.ev-col-resizer）の絶対配置の基準。列を狭めた際は見出しを省略表示する。 */
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+
+/* 列見出し右端のドラッグハンドル（ADR-0087 決定3）。透明な8px幅の操作領域で、
+   ホバー中・ドラッグ中のみ境界線をハイライトする。 */
+.ev-col-resizer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  user-select: none;
+}
+
+.ev-col-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 3px;
+  width: 2px;
+  height: 100%;
+  background: transparent;
+}
+
+.ev-col-resizer:hover::after,
+.ev-col-resizer-active::after { background: #2980b9; }
+
+/* ドラッグ中はテキストの誤選択を防ぎ、カーソルを画面全体で col-resize に保つ（REQ 6.1）。 */
+body.ev-resizing { cursor: col-resize; }
+body.ev-resizing * { user-select: none !important; }
 
 .ev-td {
   padding: 8px 10px;
@@ -319,11 +408,14 @@ body.page-evaluated #app {
   vertical-align: top;
 }
 
-.ev-td-num     { width: 40px; text-align: center; color: #aaa; }
+/* 幅指定は <colgroup> の <col> へ一本化したため、以下は文字揃え・色・折り返しのみを担う
+   （二重指定によるスタイル競合を避ける, ADR-0087 決定2 / 結果・影響）。 */
+.ev-td-num     { text-align: center; color: #aaa; }
 .ev-td-center  { text-align: center; }
-.ev-td-model   { width: 140px; word-break: break-all; font-size: 0.78rem; color: #777; }
-.ev-td-content { max-width: 300px; white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
-.ev-td-date    { width: 130px; font-size: 0.78rem; color: #aaa; white-space: nowrap; }
+.ev-td-model   { word-break: break-all; font-size: 0.78rem; color: #777; }
+.ev-td-content { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+.ev-td-input   { word-break: break-word; }
+.ev-td-date    { font-size: 0.78rem; color: #aaa; white-space: nowrap; }
 
 .ev-role-user { background: #fafcff; }
 .ev-role-assistant { background: #fff; }
@@ -1100,4 +1192,99 @@ body.page-admin {
 .admin-qapicker-cat {
   font-size: 0.78rem;
   color: #52606d;
+}
+
+/* --------------------------------------------------------------------------- */
+/* 検索対象フラグ（is_searchable）のトグルスイッチ（ADR-0092 / ADR-0093 決定5）。   */
+/* 新規UIライブラリは導入せず、素の <input type="checkbox"> にCSSでスイッチ外観を   */
+/* 与える（ADR-0015・ADR-0087 と同じ抑制）。                                       */
+/* --------------------------------------------------------------------------- */
+.admin-td-toggle {
+  width: 96px;
+  white-space: nowrap;
+}
+
+.admin-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.admin-switch input[type="checkbox"] {
+  /* チェックボックス本体は視覚的に隠すが、キーボード操作・支援技術からは利用可能にする。 */
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+}
+
+.admin-switch-track {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  border-radius: 10px;
+  background: #c3cbd3;
+  transition: background 0.15s ease-in-out;
+  flex: none;
+}
+
+.admin-switch-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s ease-in-out;
+}
+
+.admin-switch input[type="checkbox"]:checked + .admin-switch-track {
+  background: #2680b6;
+}
+
+.admin-switch input[type="checkbox"]:checked + .admin-switch-track::after {
+  transform: translateX(18px);
+}
+
+.admin-switch input[type="checkbox"]:focus-visible + .admin-switch-track {
+  outline: 2px solid #2680b6;
+  outline-offset: 2px;
+}
+
+.admin-switch input[type="checkbox"]:disabled + .admin-switch-track {
+  opacity: 0.5;
+}
+
+.admin-switch input[type="checkbox"]:disabled ~ .admin-switch-label,
+.admin-switch:has(input[type="checkbox"]:disabled) {
+  cursor: progress;
+}
+
+.admin-switch-label {
+  font-size: 0.8rem;
+  color: #52606d;
+}
+
+/* 実効検索可否が false の行は淡色表示で区別する（要件6.6.1）。 */
+.admin-row-unsearchable td {
+  background: #f7f8fa;
+  color: #8a94a0;
+}
+
+/* 親QAが検索対象外である旨のバッジ（言い換え質問文一覧, ADR-0093 決定6）。 */
+.admin-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: #fdecea;
+  color: #c0392b;
+  border: 1px solid #f5c6c0;
+  font-size: 0.72rem;
+  white-space: nowrap;
 }

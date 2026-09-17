@@ -114,7 +114,7 @@ module "knowledge_mcp" {
 }
 
 # --- agent_invitro（常駐 HTTP サービス化, ADR-0043 / IMPL-202608241104 T27）---
-# 従来の ECS Exec 専用（sleep infinity, ADR-0025）から、admin_ui の /ask-sl 中継先となる
+# 従来の ECS Exec 専用（sleep infinity, ADR-0025）から、admin_ui の /ask-pipeline 中継先となる
 # 常駐 HTTP サービス（FastAPI + Uvicorn, ポート 8300）へ変更する。ALB 配下ではないため
 # /health はコンテナヘルスチェック専用（ALB ターゲットグループのヘルスチェックとは別物, 10章）。
 module "agent_invitro" {
@@ -174,7 +174,7 @@ module "admin_ui_alb" {
 # --- admin_ui: 管理UI（web_backend + front_dev ビルド同梱, ADR-0042）---
 # ALB 配下だがタスク自体はプライベートサブネット・assign_public_ip=false（既存パターン, ADR-0041 T13）。
 # QA/タグ管理は /api/* 経由で Knowledge MCP を呼ぶため KNOWLEDGE_MCP_URL のみ設定（6.2節）。
-# データAPIは全て /api/ 名前空間へ揃えた（SPAページURLとの衝突回避）。chat 系（/api/ask-sl 等）の
+# データAPIは全て /api/ 名前空間へ揃えた（SPAページURLとの衝突回避）。chat 系（/api/ask-pipeline 等）の
 # 環境変数は AWS では未設定（src/main/config.py が空文字許容, 10章）。
 module "admin_ui" {
   source       = "../../modules/ecs-service"
@@ -187,9 +187,11 @@ module "admin_ui" {
   target_group_arn = module.admin_ui_alb.target_group_arn
   environment = {
     KNOWLEDGE_MCP_URL = "http://knowledge_mcp:${local.knowledge_port}/mcp"
-    # chat 系（/api/ask-sl）は agent_invitro へ中継する（中継先は agent_invitro 側の /ask-sl,
-    # ADR-0045 / IMPL-202608241104 T28）。
-    AGENT_INVITRO_URL = "http://agent_invitro:${local.agent_invitro_port}"
+    # chat 系（/api/ask-pipeline・/api/ask-agentic）は agent_invitro へ中継する。接続先アドレスの
+    # 指定のみで、どちらの方式を使うかはブラウザのトグルが決める（ADR-0045 / ADR-0089 決定5）。
+    # 旧 AGENT_INVITRO_URL（空文字か否かで中継／ローカル直接処理を切り替えるモードスイッチを
+    # 兼ねていた）からの改称。値の形は同じ。
+    AGENT_INVITRO_BASE_URL = "http://agent_invitro:${local.agent_invitro_port}"
     # 検証機能（質問→タグ→情報源の検索精度検証, ADR-0049 / IMPL-202608260909 T17）。
     # select_tags を tag_selector_mcp へ直接呼び出す。VERIFICATION_* は検証実行時に
     # select_tags / search_knowledge へ都度渡すパラメータ（機密ではないため平文 environment）。

@@ -14,7 +14,7 @@ import base64
 import time
 
 from . import log
-from .errors import DeployError
+from .errors import DeployError, ServicesNotStable
 
 
 def _client(service: str, **kwargs):
@@ -217,10 +217,128 @@ def get_task_log_events(
     return messages
 
 
-def wait_services_stable(cluster: str, services: list[str], region: str) -> None:
-    """ECS サービスが steady state（desired 数のタスクが RUNNING で安定）になるまで待つ。"""
+def _unstable_services(ecs, cluster: str, services: "list[str]") -> "list[tuple[str, str]]":
+    """steady state に達していないサービスの (name, 状況文字列) を返す。空なら全て安定。
+
+    steady state の判定は boto3 の services_stable ウェイターと同じ
+    「デプロイが PRIMARY 1 本だけ」かつ「runningCount == desiredCount」。
+    """
+    resp = ecs.describe_services(cluster=cluster, services=services)
+    pending: list[tuple[str, str]] = []
+    for svc in resp.get("services", []):
+        name = svc.get("serviceName", "?")
+        desired = svc.get("desiredCount", 0)
+        running = svc.get("runningCount", 0)
+        deployments = svc.get("deployments", [])
+        stable = len(deployments) == 1 and running == desired
+        if not stable:
+            pending.append(
+                (name, f"running={running}/{desired} pending={svc.get('pendingCount', 0)}"
+                       f" deployments={len(deployments)}")
+            )
+    # describe_services で見つからなかったサービスも不安定扱いにする。
+    found = {s.get("serviceName") for s in resp.get("services", [])}
+    for failure in resp.get("failures", []):
+        arn = failure.get("arn", "")
+        name = arn.rsplit("/", 1)[-1] or arn
+        if name not in found:
+            pending.append((name, f"describe 失敗: {failure.get('reason', '?')}"))
+    return pending
+
+
+def wait_services_stable(
+    cluster: str,
+    services: list[str],
+    region: str,
+    timeout_sec: int = 600,
+    interval_sec: int = 15,
+) -> None:
+    """ECS サービスが steady state（desired 数のタスクが RUNNING で安定）になるまで待つ。
+
+    boto3 の services_stable ウェイターは進捗を出さず、失敗しても
+    「Max attempts exceeded」としか言わない（どのサービスが不安定かが分からない）。
+    そのため wait_task_stopped と同じ形の自前ポーリングにし、15 秒ごとに進捗を出し、
+    タイムアウト時は不安定なサービス名を持つ ServicesNotStable を送出する。
+    """
     ecs = _client("ecs", region_name=region)
-    ecs.get_waiter("services_stable").wait(cluster=cluster, services=services)
+    elapsed = 0
+    while True:
+        pending = _unstable_services(ecs, cluster, services)
+        if not pending:
+            return
+        if elapsed >= timeout_sec:
+            raise ServicesNotStable([name for name, _ in pending], elapsed)
+        log.info(
+            "安定待機: " + ", ".join(f"{name}({state})" for name, state in pending)
+            + f" ({elapsed}s)"
+        )
+        time.sleep(interval_sec)
+        elapsed += interval_sec
+
+
+def describe_service_health(
+    cluster: str, services: "list[str]", region: str, event_limit: int = 5
+) -> "list[dict]":
+    """各サービスの台数・ロールアウト状態・直近イベントを返す（待機失敗時の診断用）。"""
+    resp = _client("ecs", region_name=region).describe_services(
+        cluster=cluster, services=services
+    )
+    out: list[dict] = []
+    for svc in resp.get("services", []):
+        primary = next(
+            (d for d in svc.get("deployments", []) if d.get("status") == "PRIMARY"), {}
+        )
+        out.append(
+            {
+                "name": svc.get("serviceName"),
+                "desired": svc.get("desiredCount"),
+                "running": svc.get("runningCount"),
+                "pending": svc.get("pendingCount"),
+                "rollout": primary.get("rolloutState"),
+                "rollout_reason": primary.get("rolloutStateReason"),
+                "events": [
+                    e.get("message", "") for e in svc.get("events", [])[:event_limit]
+                ],
+            }
+        )
+    return out
+
+
+def recent_stopped_tasks(
+    cluster: str, service: str, region: str, limit: int = 3
+) -> "list[dict]":
+    """サービスの直近の停止タスクから停止理由・終了コードを抜き出して返す（診断用）。
+
+    クラッシュループしているサービスでは、この stopCode / exitCode が一次情報になる。
+    タスク記録は 1 時間程度で失効するため、取得できない場合は空リストを返す。
+    """
+    ecs = _client("ecs", region_name=region)
+    arns = ecs.list_tasks(
+        cluster=cluster, serviceName=service, desiredStatus="STOPPED"
+    ).get("taskArns", [])
+    if not arns:
+        return []
+    tasks = ecs.describe_tasks(cluster=cluster, tasks=arns[:limit]).get("tasks", [])
+    tasks.sort(key=lambda t: t.get("stoppedAt") or 0, reverse=True)
+    out: list[dict] = []
+    for task in tasks[:limit]:
+        out.append(
+            {
+                "task_arn": task.get("taskArn"),
+                "stop_code": task.get("stopCode"),
+                "stopped_reason": task.get("stoppedReason"),
+                "stopped_at": str(task.get("stoppedAt")),
+                "containers": [
+                    {
+                        "name": c.get("name"),
+                        "exit_code": c.get("exitCode"),
+                        "reason": c.get("reason"),
+                    }
+                    for c in task.get("containers", [])
+                ],
+            }
+        )
+    return out
 
 
 def force_new_deployment(cluster: str, service: str, region: str) -> None:

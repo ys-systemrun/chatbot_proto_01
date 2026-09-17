@@ -108,3 +108,64 @@ def test_prompt_includes_confirmed():
     )
     engine.infer("q", result, max_tags=3, confidence_threshold=0.0)
     assert "id=1(A)" in llm.last_prompt
+
+
+# ---------------------------------------------------------------------------
+# 確定タグの強制採用（ADR-0086）
+# ---------------------------------------------------------------------------
+def test_infer_confirmed_forced_even_if_llm_omits():
+    # LLM が確定タグを選ばなくても、確定タグはスコア1.0で必ず含まれる
+    llm = FakeLLM('{"selected": []}')
+    engine = InferenceEngine(llm)
+    result = RetrievalResult(
+        confirmed=[TagRecord(id=1, name="A")], candidates=_candidates()
+    )
+    out = engine.infer("q", result, max_tags=3, confidence_threshold=0.0)
+    assert [(s.id, s.score, s.path) for s in out] == [(1, 1.0, ["A"])]
+
+
+def test_infer_confirmed_overrides_llm_duplicate():
+    # LLM が確定タグと同一 id を低スコアで返しても、確定タグ（1.0）で上書きする
+    llm = FakeLLM('{"selected": [{"tag_id": 1, "score": 0.2}]}')
+    engine = InferenceEngine(llm)
+    result = RetrievalResult(
+        confirmed=[TagRecord(id=1, name="A")], candidates=_candidates()
+    )
+    out = engine.infer("q", result, max_tags=3, confidence_threshold=0.0)
+    assert [(s.id, s.score) for s in out] == [(1, 1.0)]
+
+
+def test_infer_confirmed_ignores_confidence_threshold():
+    # confidence_threshold は確定タグには適用しない
+    llm = FakeLLM('{"selected": []}')
+    engine = InferenceEngine(llm)
+    result = RetrievalResult(
+        confirmed=[TagRecord(id=1, name="A")], candidates=_candidates()
+    )
+    out = engine.infer("q", result, max_tags=3, confidence_threshold=0.9)
+    assert [s.id for s in out] == [1]
+
+
+def test_infer_confirmed_precede_llm_and_id_ascending():
+    # 確定タグ（id昇順）→ 確定に含まれない LLM 選定タグ（スコア降順）の順に並ぶ
+    llm = FakeLLM('{"selected": [{"tag_id": 3, "score": 0.8}]}')
+    engine = InferenceEngine(llm)
+    result = RetrievalResult(
+        confirmed=[TagRecord(id=2, name="B"), TagRecord(id=1, name="A")],
+        candidates=_candidates(),
+    )
+    out = engine.infer("q", result, max_tags=3, confidence_threshold=0.0)
+    assert [(s.id, s.score) for s in out] == [(1, 1.0), (2, 1.0), (3, 0.8)]
+
+
+def test_infer_confirmed_exceed_max_tags_all_included():
+    # 確定タグは max_tags を超えても全件含める
+    llm = FakeLLM('{"selected": [{"tag_id": 3, "score": 0.9}]}')
+    engine = InferenceEngine(llm)
+    result = RetrievalResult(
+        confirmed=[TagRecord(id=1, name="A"), TagRecord(id=2, name="B")],
+        candidates=_candidates(),
+    )
+    out = engine.infer("q", result, max_tags=1, confidence_threshold=0.0)
+    # 確定タグ2件は全件、確定に含まれない LLM 選定（id=3）は残枠0のため除外
+    assert [s.id for s in out] == [1, 2]

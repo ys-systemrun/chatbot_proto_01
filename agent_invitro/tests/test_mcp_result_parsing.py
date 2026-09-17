@@ -29,10 +29,10 @@ def _text_block(payload: dict) -> dict:
 
 
 def _lazy_extract_results():
-    """server.py（FastAPI等の重い依存を引く）を遅延 import して _extract_results を返す。"""
-    from agent_invitro.main.api.server import _extract_results
+    """knowledge.py から extract_results を返す（ADR-0090 の再構成で server.py から移設）。"""
+    from agent_invitro.knowledge import extract_results
 
-    return _extract_results
+    return extract_results
 
 
 # --- select_tags: _extract_selected_tags -----------------------------------

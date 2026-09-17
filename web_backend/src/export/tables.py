@@ -82,7 +82,16 @@ CHATBOT_TABLES: list[TableSpec] = [
     TableSpec(
         db="chatbot",
         name="hiroba_qa_original",
-        columns=["uuid", "question_text", "answer_text", "category_id", "title"],
+        # is_searchable は末尾に追加する（ADR-0092 / ADR-0094 決定4）。INSERT は列名を明示する
+        # 形式のため、本変更前に取得した既存ダンプはそのまま投入でき、全レコードが true となる。
+        columns=[
+            "uuid",
+            "question_text",
+            "answer_text",
+            "category_id",
+            "title",
+            "is_searchable",
+        ],
         order_by=["uuid"],
         _create_ddl=(
             "CREATE TABLE IF NOT EXISTS hiroba_qa_original (\n"
@@ -90,7 +99,8 @@ CHATBOT_TABLES: list[TableSpec] = [
             "    question_text TEXT,\n"
             "    answer_text TEXT,\n"
             "    category_id INTEGER,\n"
-            "    title TEXT\n"
+            "    title TEXT,\n"
+            "    is_searchable BOOLEAN NOT NULL DEFAULT true\n"
             ");"
         ),
     ),
@@ -138,7 +148,7 @@ CHATBOT_TABLES: list[TableSpec] = [
     TableSpec(
         db="chatbot",
         name="hiroba_question_altered",
-        columns=["id", "qa_id", "text", "embedding", "is_primary"],
+        columns=["id", "qa_id", "text", "embedding", "is_primary", "is_searchable"],
         order_by=["id"],
         csv_exclude={"embedding"},
         _create_ddl=(
@@ -147,7 +157,8 @@ CHATBOT_TABLES: list[TableSpec] = [
             "    qa_id TEXT,\n"
             "    text TEXT,\n"
             f"    embedding VECTOR({EMBEDDING_DIM_PLACEHOLDER}),\n"
-            "    is_primary BOOLEAN NOT NULL DEFAULT false\n"
+            "    is_primary BOOLEAN NOT NULL DEFAULT false,\n"
+            "    is_searchable BOOLEAN NOT NULL DEFAULT true\n"
             ");"
         ),
     ),
@@ -203,6 +214,7 @@ CHATBOT_TABLES: list[TableSpec] = [
             "embedding",
             "created_at",
             "updated_at",
+            "is_searchable",
         ],
         order_by=["id"],
         csv_exclude={"embedding"},
@@ -228,6 +240,7 @@ CHATBOT_TABLES: list[TableSpec] = [
             f"    embedding VECTOR({EMBEDDING_DIM_PLACEHOLDER}),\n"
             "    created_at TIMESTAMP NOT NULL DEFAULT now(),\n"
             "    updated_at TIMESTAMP NOT NULL DEFAULT now(),\n"
+            "    is_searchable BOOLEAN NOT NULL DEFAULT true,\n"
             "    UNIQUE (source_key, title)\n"
             ");"
         ),

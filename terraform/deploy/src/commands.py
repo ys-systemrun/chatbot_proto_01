@@ -84,8 +84,83 @@ def _reconcile_agent_after_servers(cluster: str, region: str) -> None:
         aws.wait_services_stable(cluster, ["agent_invitro"], region)
         log.ok("agent_invitro 再デプロイ完了")
     except Exception as exc:  # noqa: BLE001 - 整合処理の失敗で apply 全体を失敗扱いにしない
-        log.warn(f"agent_invitro の自動再デプロイに失敗/タイムアウトしました: {exc}")
-        log.warn(f"  手動: aws ecs update-service --cluster {cluster} --service agent_invitro --force-new-deployment")
+        log.warn(f"Service Connect 整合処理が失敗/タイムアウトしました: {exc}")
+        _report_unstable_services(cluster, region, getattr(exc, "services", None))
+        log.warn(
+            f"  手動: aws ecs update-service --cluster {cluster} --service agent_invitro"
+            f" --force-new-deployment --region {region}"
+        )
+
+
+# 待機失敗時に表示する、サービスごとのコンテナログ行数（末尾から）。
+_UNSTABLE_LOG_TAIL_LINES = 40
+
+
+def _report_unstable_services(cluster: str, region: str, services) -> None:
+    """安定しなかったサービスの台数・イベント・停止理由・コンテナログを表示する。
+
+    boto3 の「Max attempts exceeded」だけでは原因が分からず、実機を手で調べ直すことになる。
+    一次情報（stopCode / exitCode / Python トレースバック）をその場で出し切るのが目的。
+    診断自体が失敗しても、元の警告を潰さないよう握り潰す。
+    """
+    if not services:
+        log.warn("  不安定だったサービスを特定できませんでした（診断情報なし）。")
+        return
+    for service in services:
+        log.warn(f"  --- {service} ---")
+        try:
+            for health in aws.describe_service_health(cluster, [service], region):
+                log.info(
+                    f"台数: running={health['running']}/{health['desired']}"
+                    f" pending={health['pending']} rollout={health['rollout']}"
+                    f" ({health['rollout_reason']})"
+                )
+                for message in health["events"]:
+                    log.info(f"event: {message}")
+        except Exception as exc:  # noqa: BLE001 - 診断は best-effort
+            log.warn(f"  サービス状態の取得に失敗: {exc}")
+
+        try:
+            stopped = aws.recent_stopped_tasks(cluster, service, region)
+        except Exception as exc:  # noqa: BLE001 - 診断は best-effort
+            log.warn(f"  停止タスクの取得に失敗: {exc}")
+            stopped = []
+        if not stopped:
+            log.info("停止タスクの記録なし（1時間以上前の停止は失効します）。")
+        for task in stopped:
+            containers = ", ".join(
+                f"{c['name']}: exitCode={c['exit_code']} reason={c['reason']}"
+                for c in task["containers"]
+            )
+            log.info(
+                f"stopped {task['stopped_at']}: {task['stop_code']}"
+                f" / {task['stopped_reason']} / {containers}"
+            )
+        _report_service_logs(service, region, stopped)
+
+
+def _report_service_logs(service: str, region: str, stopped_tasks: list) -> None:
+    """停止タスクのうち最新の 1 件について、/ecs/<service> の末尾ログを表示する。
+
+    awslogs のストリーム名は <stream_prefix>/<container_name>/<task-id> で、
+    ecs-service モジュールは stream_prefix・コンテナ名ともサービス名を使う。
+    """
+    if not stopped_tasks:
+        return
+    task = stopped_tasks[0]
+    try:
+        messages = aws.get_task_log_events(
+            f"/ecs/{service}", service, service, task["task_arn"], region
+        )
+    except Exception as exc:  # noqa: BLE001 - 診断は best-effort
+        log.warn(f"  コンテナログの取得に失敗: {exc}")
+        return
+    if not messages:
+        log.info(f"/ecs/{service} にログがありません（ログ未反映 or ロググループ削除済み）。")
+        return
+    log.info(f"/ecs/{service} 末尾 {_UNSTABLE_LOG_TAIL_LINES} 行:")
+    for line in messages[-_UNSTABLE_LOG_TAIL_LINES:]:
+        log.info(f"| {line}")
 
 
 def _info_output(cwd, name: str, label: str) -> None:

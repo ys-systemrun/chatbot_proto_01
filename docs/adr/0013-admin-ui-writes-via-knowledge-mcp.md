@@ -16,7 +16,7 @@
 
 `web_backend` に新設するQA・タグ管理系APIエンドポイント（`/api/qa/*`, `/api/tags/*`, `/api/categories`）は、**`chatbot_db` へ直接アクセスせず、すべてMCPクライアントとしてKnowledge MCP サーバのMCPツールを呼び出すことで実現する**。`web_backend` は、これらのエンドポインドに関しては「Knowledge MCP のMCPツールをREST APIとして`front_dev`向けに変換するBFF（Backend For Frontend）」として振る舞う。
 
-読み取り系（一覧・詳細取得）・書き込み系（登録・編集・削除）のいずれについても、この方針を適用する。既存のチャット機能（`/ask`, `/ask-sl` 等、`search_similar` を用いた直接DB参照）は本決定の対象外とし、変更しない（並行運用を継続する）。
+読み取り系（一覧・詳細取得）・書き込み系（登録・編集・削除）のいずれについても、この方針を適用する。既存のチャット機能（`/ask`, `/ask-pipeline` 等、`search_similar` を用いた直接DB参照）は本決定の対象外とし、変更しない（並行運用を継続する）。
 
 ## 検討した代替案
 

@@ -19,8 +19,18 @@ from src.main import config
 
 _client = KnowledgeMcpClient(config.KNOWLEDGE_MCP_URL)
 
-# CSV 一括インポートで受け付ける列（IMPL-202608261022 T11 / ADR-0053）。
-_QA_IMPORT_COLUMNS = ["uuid", "title", "question_text", "answer_text", "category_id", "tags"]
+# CSV 一括インポートで受け付ける列（IMPL-202608261022 T11 / ADR-0053、ADR-0094 で is_searchable 追加）。
+# is_searchable の値の解釈（true/false/1/0/空欄）は Knowledge MCP の import_qa_batch 側に置き、
+# 本コントローラは列の受け渡しに留める（ADR-0094 結果・影響）。
+_QA_IMPORT_COLUMNS = [
+    "uuid",
+    "title",
+    "question_text",
+    "answer_text",
+    "category_id",
+    "tags",
+    "is_searchable",
+]
 
 
 # --------------------------------------------------------------------------- #
@@ -32,6 +42,7 @@ class QaSummaryModel(BaseModel):
     category: str | None = None
     tags: list[str] = []
     hiroba_question_altered_count: int = 0
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
 
 class QaListResponse(BaseModel):
@@ -47,6 +58,7 @@ class QaDetailResponse(BaseModel):
     category: dict | None = None
     tags: list[dict] = []
     hiroba_question_altered_count: int = 0
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
 
 class QaCreateRequest(BaseModel):
@@ -55,6 +67,7 @@ class QaCreateRequest(BaseModel):
     answer_text: str
     category_id: int | None = None
     tag_ids: list[int] | None = None
+    is_searchable: bool = True  # 省略時は検索対象（ADR-0092 決定1）
 
 
 class QaUpdateRequest(BaseModel):
@@ -64,6 +77,8 @@ class QaUpdateRequest(BaseModel):
     answer_text: str | None = None
     category_id: int | None = None
     tag_ids: list[int] | None = None
+    # 一覧のトグルは本項目のみを含むボディを送る（ADR-0093 決定1・決定3）。
+    is_searchable: bool | None = None
 
 
 class CategoryModel(BaseModel):
@@ -96,6 +111,7 @@ async def list_qa(
     keyword: str | None,
     category: str | None,
     tag_id: list[int] | None,
+    is_searchable: bool | None,
     limit: int,
     offset: int,
 ) -> QaListResponse:
@@ -106,6 +122,9 @@ async def list_qa(
         args["category"] = category
     if tag_id:
         args["tag_ids"] = tag_id
+    # None（＝すべて）のときは引数を送らない（ADR-0093 決定7）。
+    if is_searchable is not None:
+        args["is_searchable"] = is_searchable
     result = await _client.call_tool("list_qa", args)
     return QaListResponse(**result)
 
@@ -153,7 +172,8 @@ def _parse_qa_import_csv(csv_bytes: bytes) -> list[dict]:
 
     列の機械的なバリデーション（必須列の存在チェック）のみをここで行い、
     業務バリデーション（必須値・タグ解決・部分更新）は Knowledge MCP に委ねる（ADR-0053）。
-    列: uuid（空=新規, 既存=更新）, title, question_text, answer_text, category_id, tags（カンマ区切り）。
+    列: uuid（空=新規, 既存=更新）, title, question_text, answer_text, category_id,
+    tags（カンマ区切り）, is_searchable（true/false/1/0。列なし・空欄は「新規はtrue・既存は変更なし」）。
     """
     try:
         text = csv_bytes.decode("utf-8-sig")

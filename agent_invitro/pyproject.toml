@@ -12,7 +12,7 @@ dependencies = [
     # boto3 は langchain-aws の依存として導入される。
     "langchain-aws",
     "ipython",
-    # AWS 環境で常駐 HTTP サービス（/ask-sl・/health）化するため（IMPL-202608241104 T1, ADR-0043）。
+    # AWS 環境で常駐 HTTP サービス（/ask-pipeline・/health）化するため（IMPL-202608241104 T1, ADR-0043）。
     # web_backend / knowledge_mcp / tag_selector_mcp と技術スタックを揃える。ローカル
     # docker-compose の command（sleep infinity）は変更しないため、ローカルの起動時の振る舞いは変わらない。
     "fastapi",
@@ -28,10 +28,14 @@ package-dir = {"agent_invitro" = "src"}
 packages = [
     "agent_invitro",
     "agent_invitro.graph",
+    "agent_invitro.llm_tasks",
+    "agent_invitro.llm_tasks.assess",
     "agent_invitro.mcp_clients",
     "agent_invitro.main",
     "agent_invitro.main.api",
+    "agent_invitro.main.api.routers",
     "agent_invitro.main.ipython",
+    "agent_invitro.usecases",
 ]
 
 [dependency-groups]

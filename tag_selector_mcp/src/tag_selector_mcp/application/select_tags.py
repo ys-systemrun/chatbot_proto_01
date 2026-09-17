@@ -26,8 +26,13 @@ class SelectTagsUseCase:
         query: str,
         max_tags: int = 3,
         confidence_threshold: float = 0.0,
+        alias_match_text: str | None = None,
     ) -> List[SelectedTag]:
-        retrieval_result = self._retrieval_engine.retrieve(query)
+        # alias_match_text は Alias 一致（確定タグ）専用の生テキスト。省略時は query に
+        # フォールバックする（ADR-0086）。LLM 推論には従来通り query を使う。
+        retrieval_result = self._retrieval_engine.retrieve(
+            query, alias_match_text=alias_match_text
+        )
         return self._inference_engine.infer(
             query, retrieval_result, max_tags, confidence_threshold
         )

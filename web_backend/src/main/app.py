@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 from src.mcp_client import KnowledgeMcpError
 from src.main import config
 from src.main.controllers import (
+    agent_controller,
     chat_controller,
     evaluation_controller,
     export_controller,
@@ -24,6 +25,7 @@ from src.main.controllers import (
     troubleshooting_controller,
     verification_controller,
 )
+from src.main.controllers import chat_schemas  # 3つの ask ルートが共有する契約
 
 app = FastAPI()
 
@@ -35,13 +37,31 @@ async def _knowledge_mcp_error_handler(_request: HttpRequest, exc: KnowledgeMcpE
 
 
 # ---------------------------------------------------------------------------
-# chat（stateless）: /api/ask-sl
+# chat（stateless）: /api/ask-pipeline・/api/ask-agentic・/api/ask-local
 # ---------------------------------------------------------------------------
 # データAPIは SPA のページURL（/・/evaluated_messages・/admin*）と衝突しないよう、
 # すべて /api/ 名前空間へ揃える。SPA フォールバック（catch-all）は /api/* を除外するため、
 # ページURLは index.html、/api/* は本ルート群が処理する（ADR-0042/ADR-0015）。
-@app.post("/api/ask-sl", response_model=chat_controller.Response)
-def ask_sl(req: chat_controller.Request):
+#
+# 3ルートはいずれも同一のリクエスト・レスポンススキーマ（chat_schemas）を持ち、どの実装に
+# 入るかはここで確定する（実行時に環境変数で経路を出し分ける分岐は持たない, ADR-0089 決定5）。
+#   /api/ask-pipeline … agent_invitro の /ask-pipeline へ中継（パイプライン方式, ADR-0043）
+#   /api/ask-agentic  … agent_invitro の /ask-agentic へ中継（エージェント方式, ADR-0088）
+#   /api/ask-local    … web_backend 内の LM Studio 直接処理（ローカル用, ADR-0045）
+# ブラウザのトグルは前2者を呼び分ける。/api/ask-local は UI からは呼ばれず、ローカルでの
+# 直叩き用として残している。
+@app.post("/api/ask-pipeline", response_model=chat_schemas.Response)
+def ask_pipeline(req: chat_schemas.Request):
+    return agent_controller.ask_pipeline(req)
+
+
+@app.post("/api/ask-agentic", response_model=chat_schemas.Response)
+def ask_agentic(req: chat_schemas.Request):
+    return agent_controller.ask_agentic(req)
+
+
+@app.post("/api/ask-local", response_model=chat_schemas.Response)
+def ask_local(req: chat_schemas.Request):
     return chat_controller.ask(req)
 
 
@@ -69,10 +89,14 @@ async def list_qa(
     keyword: str | None = None,
     category: str | None = None,
     tag_id: list[int] | None = Query(default=None),
+    # 検索対象フラグでの絞り込み（未指定＝すべて, ADR-0093 決定7）。
+    is_searchable: bool | None = None,
     limit: int = 20,
     offset: int = 0,
 ):
-    return await qa_controller.list_qa(keyword, category, tag_id, limit, offset)
+    return await qa_controller.list_qa(
+        keyword, category, tag_id, is_searchable, limit, offset
+    )
 
 
 @app.get("/api/qa/{qa_id}", response_model=qa_controller.QaDetailResponse)
@@ -122,10 +146,14 @@ async def list_categories():
 async def list_question_altered(
     qa_id: str | None = None,
     keyword: str | None = None,
+    # 行自身の検索対象フラグでの絞り込み（未指定＝すべて, ADR-0093 決定7）。
+    is_searchable: bool | None = None,
     limit: int = 20,
     offset: int = 0,
 ):
-    return await question_altered_controller.list_items(qa_id, keyword, limit, offset)
+    return await question_altered_controller.list_items(
+        qa_id, keyword, is_searchable, limit, offset
+    )
 
 
 # CSVエクスポート（is_primary=false 全件）。text/csv + attachment で返す。
@@ -317,11 +345,13 @@ async def list_troubleshooting_articles(
     keyword: str | None = None,
     source_key: str | None = None,
     tag_id: list[int] | None = Query(default=None),
+    # 検索対象フラグでの絞り込み（未指定＝すべて, ADR-0093 決定7）。
+    is_searchable: bool | None = None,
     limit: int = 20,
     offset: int = 0,
 ):
     return await troubleshooting_controller.list_articles(
-        keyword, source_key, tag_id, limit, offset
+        keyword, source_key, tag_id, is_searchable, limit, offset
     )
 
 

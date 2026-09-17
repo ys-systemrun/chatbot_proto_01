@@ -9,6 +9,8 @@ SELECT_TAGS_INPUT_SCHEMA = {
     "type": "object",
     "properties": {
         "query": {"type": "string"},
+        # ADR-0086: Alias 一致（確定タグ）専用の生テキスト。省略時は query にフォールバックする。
+        "alias_match_text": {"type": "string"},
         "max_tags": {"type": "integer", "default": 3, "minimum": 1},
         "confidence_threshold": {
             "type": "number",

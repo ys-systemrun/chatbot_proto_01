@@ -187,7 +187,7 @@ resource "aws_vpc_security_group_ingress_rule" "tag_selector_from_admin_ui" {
   description                  = "admin_ui to tag_selector_mcp (verification feature select_tags)"
 }
 
-# admin_ui task -> agent_invitro (8300) : /ask-sl 中継（ADR-0045 / IMPL-202608241104 T23）。
+# admin_ui task -> agent_invitro (8300) : /ask-pipeline 中継（ADR-0045 / IMPL-202608241104 T23）。
 # knowledge_from_admin_ui と同一形式。agent_invitro は ALB からは到達不可のまま（ADR-0023）。
 resource "aws_vpc_security_group_ingress_rule" "agent_invitro_from_admin_ui" {
   security_group_id            = aws_security_group.agent_invitro.id
@@ -195,7 +195,7 @@ resource "aws_vpc_security_group_ingress_rule" "agent_invitro_from_admin_ui" {
   from_port                    = var.agent_invitro_port
   to_port                      = var.agent_invitro_port
   ip_protocol                  = "tcp"
-  description                  = "admin_ui to agent_invitro (/ask-sl relay)"
+  description                  = "admin_ui to agent_invitro (/ask-pipeline relay)"
 }
 
 # admin_ui task -> rds (5432) : 会話評価（conversation データベース）用（ADR-0045 / IMPL-202608241104 T24）。

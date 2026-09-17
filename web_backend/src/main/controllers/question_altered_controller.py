@@ -21,10 +21,11 @@ from src.main import config
 
 _client = KnowledgeMcpClient(config.KNOWLEDGE_MCP_URL)
 
-# CSV 一括インポート・エクスポートの列（IMPL-202608281100 / ADR-0064）。
+# CSV 一括インポート・エクスポートの列（IMPL-202608281100 / ADR-0064、ADR-0094 で is_searchable 追加）。
 # is_primary はエクスポート時は常に false を出力し、インポート時は値を無視する（要件7.2）。
-_IMPORT_COLUMNS = ["id", "qa_id", "text", "is_primary"]
-_EXPORT_COLUMNS = ["id", "qa_id", "text", "is_primary"]
+# is_searchable の値の解釈（true/false/1/0/空欄）は Knowledge MCP 側に置く（ADR-0094）。
+_IMPORT_COLUMNS = ["id", "qa_id", "text", "is_primary", "is_searchable"]
+_EXPORT_COLUMNS = ["id", "qa_id", "text", "is_primary", "is_searchable"]
 
 
 # --------------------------------------------------------------------------- #
@@ -36,6 +37,10 @@ class QaAlteredItem(BaseModel):
     qa_title: str | None = None
     text: str
     is_primary: bool = False
+    # 当該行自身の検索対象フラグ（ADR-0092）。
+    is_searchable: bool = True
+    # 親QAの検索対象フラグ（読み取り専用。実効検索可否は両者のAND, ADR-0093 決定6）。
+    qa_is_searchable: bool = True
 
 
 class QaAlteredListResponse(BaseModel):
@@ -49,15 +54,21 @@ class QaAlteredDetail(BaseModel):
     qa_title: str | None = None
     text: str
     is_primary: bool = False
+    is_searchable: bool = True
+    qa_is_searchable: bool = True
 
 
 class QaAlteredCreateRequest(BaseModel):
     qa_id: str
     text: str
+    is_searchable: bool = True  # 省略時は検索対象（ADR-0092 決定1）
 
 
 class QaAlteredUpdateRequest(BaseModel):
-    text: str
+    # いずれも未指定＝変更なし。両方未指定は 400（ADR-0093 決定2 / 要件6.5）。
+    # text 未指定のときは embedding を再計算しない（一覧のトグル操作用）。
+    text: str | None = None
+    is_searchable: bool | None = None
 
 
 class QaAlteredImportRowResult(BaseModel):
@@ -79,6 +90,7 @@ class QaAlteredImportResponse(BaseModel):
 async def list_items(
     qa_id: str | None,
     keyword: str | None,
+    is_searchable: bool | None,
     limit: int,
     offset: int,
 ) -> QaAlteredListResponse:
@@ -87,6 +99,9 @@ async def list_items(
         args["qa_id"] = qa_id
     if keyword:
         args["keyword"] = keyword
+    # None（＝すべて）のときは引数を送らない。絞り込みは行自身の値のみが対象（ADR-0093 決定7）。
+    if is_searchable is not None:
+        args["is_searchable"] = is_searchable
     result = await _client.call_tool("list_question_altered", args)
     return QaAlteredListResponse(**result)
 
@@ -105,10 +120,17 @@ async def create_item(body: QaAlteredCreateRequest) -> QaAlteredDetail:
 
 
 async def update_item(item_id: int, body: QaAlteredUpdateRequest) -> QaAlteredDetail:
+    # exclude_unset で「送られたフィールドのみ」を転送する（未指定＝変更なし）。
+    sent = body.model_dump(exclude_unset=True)
+    if not sent:
+        raise HTTPException(
+            status_code=400,
+            detail="text または is_searchable のいずれかを指定してください。",
+        )
     result = await _client.call_tool(
-        "update_question_altered", {"id": item_id, "text": body.text}
+        "update_question_altered", {"id": item_id, **sent}
     )
-    log_admin_operation("update", "question_altered", item_id, body.model_dump())
+    log_admin_operation("update", "question_altered", item_id, sent)
     return QaAlteredDetail(**result)
 
 
@@ -125,7 +147,8 @@ def _parse_import_csv(csv_bytes: bytes) -> list[dict]:
 
     列の機械的なバリデーション（必須列の存在チェック）のみをここで行い、業務バリデーション
     （qa_id 存在・is_primary=true 拒否・qa_id 付け替え拒否）は Knowledge MCP に委ねる（ADR-0013）。
-    列: id（空=新規/既存=更新）, qa_id（新規時必須）, text（必須）, is_primary（入力は無視）。
+    列: id（空=新規/既存=更新）, qa_id（新規時必須）, text（新規時必須。更新時の空欄は変更なし）,
+    is_primary（入力は無視）, is_searchable（true/false/1/0。列なし・空欄は「新規はtrue・既存は変更なし」）。
     """
     try:
         text = csv_bytes.decode("utf-8-sig")
@@ -168,7 +191,8 @@ def _timestamp() -> str:
 async def build_export_csv() -> tuple[bytes, str]:
     """is_primary=false 行の全件を CSV（UTF-8 BOM付き）に組み立て、(bytes, filename) を返す。
 
-    列は id/qa_id/text/is_primary（is_primary は常に false）で、そのまま import_csv へ再投入できる。
+    列は id/qa_id/text/is_primary/is_searchable（is_primary は常に false）で、そのまま
+    import_csv へ再投入でき、検索対象フラグの設定が保持される（ADR-0094 決定1・決定5）。
     既存の全データエクスポート（chatbot_invitro_export_*）と混同しないファイル名にする（要件6.8）。
     """
     result = await _client.call_tool("export_question_altered", {})

@@ -24,11 +24,17 @@ class RetrievalEngine:
     def __init__(self, tag_repository: TagMetadataRepository):
         self._tag_repository = tag_repository
 
-    def retrieve(self, query: str) -> RetrievalResult:
+    def retrieve(
+        self, query: str, alias_match_text: str | None = None
+    ) -> RetrievalResult:
         """
-        1. tag_repository.find_tags_by_alias_match(query) の結果を confirmed とする。
-        2. candidates は tag_repository.all_tags() の全件とする（Embedding による絞り込みは行わない）。
+        1. tag_repository.find_tags_by_alias_match(alias_match_text or query) の結果を
+           confirmed とする（ADR-0086。alias_match_text 省略時は query にフォールバック）。
+        2. candidates は tag_repository.all_tags() の全件とする（Embedding による絞り込みは
+           行わない）。candidates は query に依存しない全件取得のままとする。
         """
-        confirmed = self._tag_repository.find_tags_by_alias_match(query)
+        confirmed = self._tag_repository.find_tags_by_alias_match(
+            alias_match_text or query
+        )
         candidates = self._tag_repository.all_tags()
         return RetrievalResult(confirmed=confirmed, candidates=candidates)

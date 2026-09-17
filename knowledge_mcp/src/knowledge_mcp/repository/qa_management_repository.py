@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Callable, List, Optional, Tuple
 
 from ..db.connection import Database, to_vector_str
 from ..models.qa import QaDetail, QaError, QaSummary
+from .csv_flags import parse_optional_bool
 from .tag_repository import TagError
 
 if TYPE_CHECKING:
@@ -36,13 +37,14 @@ class QaManagementRepository:
         keyword: Optional[str] = None,
         category: Optional[str] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: Optional[bool] = None,
         limit: int = 20,
         offset: int = 0,
     ) -> Tuple[List[QaSummary], int]:
         """(件数分のQaSummary, 絞り込み後の全体件数) を返す。
 
-        ベクトル類似検索は行わず、keyword(部分一致)/category(名称完全一致)/tag_ids(AND)による
-        単純な条件検索を行う（実装指示書10章）。
+        ベクトル類似検索は行わず、keyword(部分一致)/category(名称完全一致)/tag_ids(AND)/
+        is_searchable(None=すべて) による単純な条件検索を行う（実装指示書10章 / ADR-0093 決定7）。
         """
         conditions: List[str] = []
         params: List = []
@@ -75,6 +77,10 @@ class QaManagementRepository:
             params.append(list(tag_ids))
             params.append(len(set(tag_ids)))
 
+        if is_searchable is not None:
+            conditions.append("hiroba_qa_original.is_searchable = %s")
+            params.append(is_searchable)
+
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 
         count_sql = f"SELECT COUNT(*) FROM hiroba_qa_original {where_clause}"
@@ -97,7 +103,8 @@ class QaManagementRepository:
                     SELECT COUNT(*)
                     FROM hiroba_question_altered
                     WHERE hiroba_question_altered.qa_id = hiroba_qa_original.uuid
-                ) AS hiroba_question_altered_count
+                ) AS hiroba_question_altered_count,
+                hiroba_qa_original.is_searchable AS is_searchable
             FROM hiroba_qa_original
             LEFT JOIN hiroba_category ON hiroba_qa_original.category_id = hiroba_category.id
             {where_clause}
@@ -119,6 +126,7 @@ class QaManagementRepository:
                 category=row[2],
                 tags=list(row[3]) if row[3] else [],
                 hiroba_question_altered_count=row[4],
+                is_searchable=row[5],
             )
             for row in rows
         ]
@@ -149,6 +157,7 @@ class QaManagementRepository:
         answer_text: str,
         category_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: bool = True,
     ) -> QaDetail:
         if not title:
             raise QaError("title is required")
@@ -168,10 +177,11 @@ class QaManagementRepository:
 
             cur.execute(
                 """
-                INSERT INTO hiroba_qa_original (uuid, question_text, answer_text, category_id, title)
-                VALUES (%s, %s, %s, %s, %s)
+                INSERT INTO hiroba_qa_original
+                    (uuid, question_text, answer_text, category_id, title, is_searchable)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 """,
-                (qa_id, question_text, answer_text, category_id, title),
+                (qa_id, question_text, answer_text, category_id, title, is_searchable),
             )
             # 主となる質問文行（is_primary=true）を1件生成する。
             cur.execute(
@@ -197,10 +207,12 @@ class QaManagementRepository:
         answer_text: Optional[str] = None,
         category_id: Optional[int] = None,
         tag_ids: Optional[List[int]] = None,
+        is_searchable: Optional[bool] = None,
     ) -> QaDetail:
         """指定されたフィールドのみ更新する。
 
         - None は「変更なし」を意味する。
+        - is_searchable のみの更新では embedding を再計算しない（ADR-0093 決定2）。
         - tag_ids は空リスト [] で「全解除」、None で「変更なし」を区別する。
         - question_text が指定された場合、is_primary=true の question_altered 行のみを再計算する。
         """
@@ -235,6 +247,9 @@ class QaManagementRepository:
             if category_id is not None:
                 set_clauses.append("category_id = %s")
                 set_params.append(category_id)
+            if is_searchable is not None:
+                set_clauses.append("is_searchable = %s")
+                set_params.append(is_searchable)
             if set_clauses:
                 cur.execute(
                     f"UPDATE hiroba_qa_original SET {', '.join(set_clauses)} WHERE uuid = %s",
@@ -311,6 +326,8 @@ class QaManagementRepository:
         - `uuid` が空: create_qa 相当（新規作成、qa_id は自動採番）。
         - `uuid` が既存: update_qa 相当（部分更新。CSVの列が空の項目は変更しない, #12）。
         - `tags`: タグ名のカンマ区切り。既存タグは名前で解決、未存在は自動作成する（#7）。
+        - `is_searchable`: `true`/`false`/`1`/`0` を受理。列が無い・空欄の場合は
+          「新規は true、既存は変更なし」と解釈する（ADR-0094 決定3）。不正値は当該行のエラー。
         - 戻り値: [{"row", "status", "qa_id"?, "error"?}, ...]
         """
         results: List[dict] = []
@@ -318,6 +335,7 @@ class QaManagementRepository:
             try:
                 tag_ids = self._resolve_tag_names(row.get("tags"), tag_repository)
                 category_id = self._parse_category_id(row.get("category_id"))
+                is_searchable = self._parse_is_searchable(row.get("is_searchable"))
                 if row.get("uuid"):
                     detail = self.update_qa(
                         row["uuid"],
@@ -327,6 +345,8 @@ class QaManagementRepository:
                         category_id=category_id,
                         # tags 列が空欄なら「変更なし」（None）。値があるときのみ置換する。
                         tag_ids=tag_ids if row.get("tags") else None,
+                        # 空欄・列なしは None（＝変更なし）。既存の除外設定を保持する。
+                        is_searchable=is_searchable,
                     )
                 else:
                     detail = self.create_qa(
@@ -335,6 +355,8 @@ class QaManagementRepository:
                         answer_text=row.get("answer_text") or "",
                         category_id=category_id,
                         tag_ids=tag_ids,
+                        # 空欄・列なしは新規行では true（DB の DEFAULT と同じ）。
+                        is_searchable=True if is_searchable is None else is_searchable,
                     )
                 results.append({"row": i, "status": "success", "qa_id": detail.id})
             except (QaError, TagError) as e:
@@ -360,6 +382,14 @@ class QaManagementRepository:
         return ids
 
     @staticmethod
+    def _parse_is_searchable(value) -> Optional[bool]:
+        """CSV の is_searchable 列を Optional[bool] へ解釈する（ADR-0094 決定2・決定3）。"""
+        try:
+            return parse_optional_bool(value)
+        except ValueError as e:
+            raise QaError(str(e))
+
+    @staticmethod
     def _parse_category_id(value) -> Optional[int]:
         if value is None or value == "":
             return None
@@ -380,7 +410,8 @@ class QaManagementRepository:
                 hiroba_qa_original.question_text,
                 hiroba_qa_original.answer_text,
                 hiroba_category.id,
-                hiroba_category.name
+                hiroba_category.name,
+                hiroba_qa_original.is_searchable
             FROM hiroba_qa_original
             LEFT JOIN hiroba_category ON hiroba_qa_original.category_id = hiroba_category.id
             WHERE hiroba_qa_original.uuid = %s
@@ -420,6 +451,7 @@ class QaManagementRepository:
             category=category,
             tags=tags,
             hiroba_question_altered_count=altered_count,
+            is_searchable=row[6],
         )
 
     @staticmethod

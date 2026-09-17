@@ -56,7 +56,13 @@ class QARepository:
         vec_str = to_vector_str(embedding)
         pool_size = self.candidate_pool_size or max(top_k * 10, 50)
 
-        conditions: list[str] = []
+        # 検索対象フラグによる除外（ADR-0092 決定2・決定3）。候補プールの LIMIT より前に適用する
+        # ため、除外されたレコードは候補枠を消費しない。第2項の COALESCE は hiroba_qa_original を
+        # LEFT JOIN しているため（親QAが存在しない孤児行の従来挙動を変えない）。
+        conditions: list[str] = [
+            "hiroba_question_altered.is_searchable",
+            "COALESCE(hiroba_qa_original.is_searchable, true)",
+        ]
         params: dict = {"query_vec": vec_str, "pool_size": pool_size}
 
         if category:

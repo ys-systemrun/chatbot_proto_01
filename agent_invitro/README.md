@@ -29,30 +29,98 @@
 2. `search_knowledge`（knowledge_mcp）— タグを使って社内QAを検索
 3. 検索結果をもとに回答を生成。関連情報が無ければ「関連する情報が見つかりませんでした」と返す（推測で作らない）
 
+## HTTP エンドポイント（AWS 環境）
+
+AWS 環境では Uvicorn で `agent_invitro.main.api.server:app` を起動し、`admin_ui` からの VPC 内部
+通信を受けます（ALB からの到達性は与えない, ADR-0023 / ADR-0043 / ADR-0045）。ローカル
+`docker-compose` は `sleep infinity` のままで、HTTP サーバーは起動しません（ADR-0019）。
+
+| メソッド | パス | 内容 |
+|---|---|---|
+| GET | `/health` | プロセス生存確認のみ（DB・MCP への到達性は見ない） |
+| POST | `/ask-pipeline` | 単発プロンプト生成方式。言い換え → タグ選定 → 検索1回 → 回答生成（ADR-0043） |
+| POST | `/ask-agentic` | Agentic 探索ループ。言い換え → タグ選定 →（検索 → 十分性評価）を最大2周回 → 回答生成 or 逆質問（ADR-0088） |
+
+`/ask-pipeline` と `/ask-agentic` のリクエスト・レスポンスのスキーマは完全に同一です
+（ADR-0089 決定2）。探索の経過はレスポンスに含めず、`logger.info` でのみ出力します（同 決定4）。
+
+```
+        [start]
+           │
+      condense           … condensed_query 生成（ADR-0085、1回のみ）
+           │
+     select_tags         … タグ選定（ADR-0086、1回のみ）
+           │
+           ▼
+    ┌── search ◀────────────────┐   … search_knowledge 1回（query は周回ごとに変わる）
+    │      │                    │
+    │   assess                  │   … 十分性評価 LLM（sufficient / missing / next_query）
+    │      │                    │
+    │      ├─ sufficient ──────────────▶ generate ─▶ [end]
+    │      ├─ 不十分 & 周回数 < 上限 ──┘（next_query で再検索）
+    │      └─ 不十分 & 周回数 = 上限
+    │              ├─ 蓄積結果あり ────▶ generate ─▶ [end]   … ベストエフォート回答
+    └──────────────┴─ 蓄積結果が空 ────▶ clarify  ─▶ [end]   … 逆質問
+```
+
+十分性評価・逆質問生成が失敗しても 500 にはならず、`/ask-pipeline` と同等（検索1回＋回答生成）へ
+縮退します（ADR-0088 決定7）。
+
 ## ディレクトリ・ファイル構成
 
 ```
 agent_invitro/
-├── Dockerfile                         … sleep infinity で常駐（HTTPサーバは持たない）
-├── pyproject.toml                     … 依存: langgraph / langchain-mcp-adapters / langchain-openai / ipython
+├── Dockerfile                         … sleep infinity で常駐（ローカルは HTTPサーバを起動しない）
+├── pyproject.toml                     … 依存: langgraph / langchain-mcp-adapters / langchain-openai
+│                                          / langchain-aws / ipython / fastapi / uvicorn
 ├── README.md
 ├── src/                              … Python パッケージ名は agent_invitro（pyproject.toml の package-dir で対応付け）
 │   ├── __init__.py
 │   ├── config.py                     … 環境変数の読み込み・Settings の保持
 │   ├── llm.py                        … Chat モデルのビルダー・URL変換（to_openai_base_url）
+│   ├── condense.py                   … 言い換え質問（condensed_query）生成 LLM（ADR-0085）
+│   ├── summarize.py                  … 会話履歴の要約 LLM（ADR-0043）
+│   ├── generate.py                   … 回答生成 LLM（ADR-0043。両エンドポイントで共有）
+│   ├── clarify.py                    … 逆質問生成 LLM（ADR-0088）
+│   ├── tags.py                       … select_tags の戻り値パース・alias_match_text 構築（ADR-0086）
+│   ├── knowledge.py                  … search_knowledge 呼び出し・結果パース・蓄積の重複排除（ADR-0090）
+│   ├── llm_tasks/                    … LLM機能モジュール群（ADR-0091。機能ごとにサブパッケージ）
+│   │   └── assess/                   … 十分性評価（ADR-0088 / ADR-0091）
+│   │       ├── base.py               … SufficiencyAssessor（抽象基底クラス）・縮退値
+│   │       ├── parsing.py            … parse_assessment（純関数）
+│   │       ├── prompts.py            … システムプロンプト・ユーザーメッセージ構築
+│   │       └── bedrock.py            … SufficiencyAssessorBedrock（Converse API・縮退処理）
 │   ├── mcp_clients/
 │   │   └── client.py                 … MultiServerMCPClient のセットアップ・ツール取得
 │   ├── graph/
-│   │   └── agent.py                  … ReActエージェント構築・システムプロンプト
+│   │   ├── agent.py                  … ReActエージェント構築・システムプロンプト（IPython 実験用途）
+│   │   └── agentic_search.py         … Agentic 探索ループの StateGraph（ADR-0088）
+│   ├── usecases/                     … ユースケース層（fastapi に依存しない実処理, ADR-0090）
+│   │   ├── conversation.py           … 要約畳み込み・history/next_order 算出・context 構築（共通）
+│   │   ├── ask_pipeline.py           … /ask-pipeline の実処理（単発プロンプト生成方式）
+│   │   └── ask_agentic.py            … /ask-agentic の実処理（Agentic 探索ループ）
 │   └── main/                         … エントリポイント群
 │       ├── api/
-│       │   └── server.py             … AWS環境の常駐HTTPサーバ（FastAPI /ask-sl・/health）
+│       │   ├── server.py             … 起動エントリポイント。create_app() を呼び app を公開するのみ
+│       │   ├── app.py                … create_app(): FastAPI 生成・router 登録・ロギング設定
+│       │   ├── schemas.py            … Message / Summary / Request / Response（全エンドポイント共通）
+│       │   ├── dependencies.py       … コンポーネントの遅延初期化・DI
+│       │   └── routers/
+│       │       ├── health.py         … GET /health
+│       │       ├── ask_pipeline.py   … POST /ask-pipeline
+│       │       └── ask_agentic.py    … POST /ask-agentic
 │       └── ipython/
 │           └── main.py               … IPython から呼び出す build() / run()（コンポジションルート）
 ├── scripts/
 │   └── check_tool_calling.py          … Phase 1 スモークテスト（Tool Calling 対応可否の確認）
-└── tests/
-    └── test_graph_smoke.py            … build_agent() のスモークテスト（接続不要）
+└── tests/                             … MCP・LLM 非接続で動く単体テスト
+    ├── test_graph_smoke.py            … build_agent() のスモークテスト
+    ├── test_config_llm.py             … load_settings / build_llm の provider 分岐
+    ├── test_mcp_result_parsing.py     … MCP ツール戻り値パース（ADR-0063）
+    ├── test_alias_match_text.py       … alias_match_text 構築（ADR-0086）
+    ├── test_condense.py               … 言い換え質問生成（ADR-0085）
+    ├── test_agentic_assess.py         … 十分性評価のパース・分岐判定・結果蓄積（ADR-0088 / ADR-0091）
+    └── test_ask_usecases.py           … /ask-pipeline・/ask-agentic のユースケース（ADR-0090）
 ```
 
 ### 各ファイルの役割
@@ -64,7 +132,22 @@ agent_invitro/
 | `mcp_clients/client.py` | 2つの MCP サーバーへの接続設定を持つ `MultiServerMCPClient` を構築し、ツール一覧を取得する。 | `build_mcp_client(tag_selector_mcp_url, knowledge_mcp_url)`、`load_tools(client)`（async） |
 | `graph/agent.py` | `create_react_agent` で ReAct エージェントを組む。呼び出し順序を誘導するシステムプロンプトを持つ。 | `SYSTEM_PROMPT`、`build_agent(llm, tools)` |
 | `main/ipython/main.py` | IPython から使うエントリポイント。構築一式と1クエリ実行を提供。ツール呼び出し・応答・最終回答をログ出力する。 | `build()`（async）、`run(agent, query)`（async） |
-| `main/api/server.py` | AWS環境で常駐する FastAPI アプリ。`/ask-sl`（会話生成）・`/health` を提供する（ADR-0043/0045）。ローカルの `sleep infinity` 運用では未使用。 | `app`（FastAPI）、`ask()`、`health()` |
+| `condense.py` | 会話文脈から今回の発話を standalone な質問文へ言い換える（ADR-0085）。失敗時は元の発話へフォールバック。 | `CondenseQueryLLMBedrock.condense()` |
+| `summarize.py` | 会話履歴の先頭 n 件を要約する（ADR-0043）。 | `SummarizeLLMBedrock.summarize()` |
+| `generate.py` | 参考情報と質問から回答を生成する。両エンドポイントで共有（ADR-0088 決定8）。 | `GenerateAnswerLLMBedrock.generate()` |
+| `llm_tasks/assess/` | 蓄積した検索結果で回答できるかを判定し、不足観点と次のクエリを返す（ADR-0088 / ADR-0091）。抽象基底 `SufficiencyAssessor` が「同期・例外を投げない・3キーを返す」契約を定める。失敗・パース失敗時は `sufficient=true` へ縮退。 | `SufficiencyAssessor`、`SufficiencyAssessorBedrock.assess()`、`parse_assessment()` |
+| `clarify.py` | 検索結果0件時に、回答に必要な情報を1〜3点尋ねる逆質問文を生成する（ADR-0088）。 | `ClarifyQuestionLLMBedrock.clarify()`、`FALLBACK_CLARIFICATION` |
+| `tags.py` | `select_tags` の戻り値パースと `alias_match_text` の構築（ADR-0063 / ADR-0086）。 | `_extract_selected_tags()`、`build_alias_match_text()` |
+| `knowledge.py` | `search_knowledge` の呼び出し・結果パース・周回をまたいだ重複排除（ADR-0090）。 | `search_knowledge()`、`extract_results()`、`merge_results()` |
+| `graph/agentic_search.py` | `search` → `assess` を条件付きエッジで周回させる `StateGraph`（ADR-0088）。`create_react_agent` は使わない。 | `build_agentic_search_graph()`、`_decide()` |
+| `usecases/conversation.py` | 両エンドポイント共通の会話処理（要約畳み込み・`history`/`next_order` 算出・`context` 構築・前処理）。 | `fold_summary_if_needed()`、`condense_query()`、`select_tag_names()`、`build_context()` |
+| `usecases/ask_pipeline.py` | `/ask-pipeline` の実処理（単発プロンプト生成方式, ADR-0043）。 | `ask_pipeline(req, components)` |
+| `usecases/ask_agentic.py` | `/ask-agentic` の実処理（探索ループの起動と Response 組み立て, ADR-0088）。 | `ask_agentic(req, components)` |
+| `main/api/server.py` | 起動エントリポイント。`create_app()` を呼び `app` を公開するだけ。Terraform の起動コマンドが参照するモジュールパス（`agent_invitro.main.api.server:app`）を維持するため名前を変えない（ADR-0090 決定2）。 | `app` |
+| `main/api/app.py` | FastAPI を生成し router を登録する。 | `create_app()` |
+| `main/api/schemas.py` | API 契約（全エンドポイント共通, ADR-0089 決定2）。 | `Message` / `Summary` / `Request` / `Response` |
+| `main/api/dependencies.py` | 設定読み込み・MCP ツール取得・Bedrock クライアント生成の遅延初期化と DI（ADR-0090 決定6）。 | `get_components()`（async） |
+| `main/api/routers/*.py` | 薄いルーター。パス宣言・ユースケース呼び出し・例外の `HTTPException` 変換のみ（ADR-0090 決定3）。 | `router`（APIRouter） |
 | `scripts/check_tool_calling.py` | ロード済みモデルが構造化 `tool_calls` を返せるかを実機確認する（Phase 1）。 | `main()` |
 | `tests/test_graph_smoke.py` | モックの LLM・tools でエージェントが構築できることを確認（MCP/LM Studio 不要）。 | pytest |
 
@@ -82,9 +165,38 @@ agent_invitro/
 | `TAG_SELECTOR_MCP_URL` | `http://tag_selector_mcp:8200/mcp` | Tag Selector MCP への接続先 |
 | `LMSTUDIO_CHAT_URL` | `http://host.docker.internal:1234/v1/chat/completions` | LM Studio のチャット補完エンドポイント（変換を経由して使用） |
 | `LMSTUDIO_CHAT_MODEL` | （ロード済みモデル名） | チャットに使うモデル名。未指定時は docker-compose 側で `MODEL_CHAT` にフォールバック |
-| `LLM_PROVIDER` | `lmstudio` | LLM 実装の切り替え（実験フェーズは `lmstudio` のみ） |
+| `LLM_PROVIDER` | `lmstudio` | LLM 実装の切り替え。常駐 HTTP サーバー（AWS 環境）は `bedrock` のみ動作する |
+| `BEDROCK_CHAT_MODEL_ID` | （モデルID） | `LLM_PROVIDER=bedrock` のとき必須。要約・言い換え・十分性評価・逆質問・回答生成で共用する |
+| `BEDROCK_REGION` | `ap-northeast-1` | `LLM_PROVIDER=bedrock` のとき必須 |
 
-いずれも必須（`LLM_PROVIDER` を除く）で、未設定なら `load_settings()` が起動時に例外を投げます。
+`KNOWLEDGE_MCP_URL` / `TAG_SELECTOR_MCP_URL` は常に必須、`LMSTUDIO_*` / `BEDROCK_*` は
+`LLM_PROVIDER` に応じて必須です。未設定なら `load_settings()` が例外を投げます。
+
+以下は任意（未設定でも既定値で動作します）。
+
+| 変数名 | 既定値 | 用途 |
+|---|---|---|
+| `TAG_SELECTOR_MAX_TAGS` | `3` | `select_tags` へ渡す最大タグ数（ADR-0057 / ADR-0086） |
+| `TAG_SELECTOR_CONFIDENCE_THRESHOLD` | `0.0` | `select_tags` の確信度しきい値 |
+| `AGENTIC_MAX_ITERATIONS` | `2` | `/ask-agentic` の探索ループの最大周回数（ADR-0088 決定5） |
+| `AGENTIC_SEARCH_TOP_K` | `3` | `/ask-agentic` の1周回あたりの `search_knowledge` の `top_k` |
+
+どちらの方式を使うかは、チャット画面ヘッダーの「パイプライン方式 / エージェント方式」トグルで
+切り替えます（ADR-0089 決定5）。トグルは `web_backend` の `POST /api/ask-pipeline` /
+`POST /api/ask-agentic` を呼び分け、`web_backend` の `agent_controller` が `agent_invitro` の
+同名パスへ中継します。接続先は `web_backend` 側の `AGENT_INVITRO_BASE_URL`
+（既定 `http://agent_invitro:8300`）です。
+
+ローカル `docker-compose` では本コンテナが `sleep infinity` で HTTP サーバーを起動しないため、
+上記2ルートはいずれも 502 になります。ローカルで従来の LM Studio 直接処理を試す場合は
+`web_backend` の `POST /api/ask-local` を直接叩いてください。本サーバーをローカルで動かして
+トグルを検証したい場合は、コンテナ内で Uvicorn を起動します。
+
+```bash
+docker compose exec agent_invitro uvicorn agent_invitro.main.api.server:app --host 0.0.0.0 --port 8300
+```
+
+なお本サーバーは `LLM_PROVIDER=bedrock` でのみ起動します（ADR-0043）。
 
 ## 使い方
 

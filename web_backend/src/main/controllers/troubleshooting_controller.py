@@ -26,6 +26,7 @@ class TroubleshootingSummaryModel(BaseModel):
     subtitle: str | None = None
     tags: list[str] = []
     source_updated_at: str | None = None
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
 
 class TroubleshootingListResponse(BaseModel):
@@ -54,6 +55,7 @@ class TroubleshootingDetailResponse(BaseModel):
     created_at: str | None = None
     updated_at: str | None = None
     tags: list[dict] = []
+    is_searchable: bool = True  # 検索対象フラグ（ADR-0092）
 
 
 class TroubleshootingUpdateRequest(BaseModel):
@@ -72,6 +74,9 @@ class TroubleshootingUpdateRequest(BaseModel):
     cause: str | None = None
     notes: str | None = None
     keyword_raw: str | None = None
+    # 一覧のトグルは本項目のみを含むボディを送る（fields へ転送される, ADR-0093 決定1・決定3）。
+    # embedding 再計算の判定対象には含まれない（ADR-0093 決定2）。
+    is_searchable: bool | None = None
     tag_ids: list[int] | None = None
 
 
@@ -86,6 +91,7 @@ async def list_articles(
     keyword: str | None,
     source_key: str | None,
     tag_id: list[int] | None,
+    is_searchable: bool | None,
     limit: int,
     offset: int,
 ) -> TroubleshootingListResponse:
@@ -96,6 +102,9 @@ async def list_articles(
         args["source_key"] = source_key
     if tag_id:
         args["tag_ids"] = tag_id
+    # None（＝すべて）のときは引数を送らない（ADR-0093 決定7）。
+    if is_searchable is not None:
+        args["is_searchable"] = is_searchable
     result = await _client.call_tool("list_troubleshooting_articles", args)
     return TroubleshootingListResponse(**result)
 

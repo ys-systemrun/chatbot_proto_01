@@ -181,3 +181,30 @@ def test_results_sorted_by_combined_score_desc_and_truncated_to_top_k():
     repo = QARepository(db, _embed)
     docs = repo.search("q", top_k=2)
     assert [d.id for d in docs] == ["g2", "g3"]  # 降順・上位2件
+
+
+# --------------------------------------------------------------------------- #
+# 検索対象フラグによる除外（ADR-0092 決定2・決定3）
+# --------------------------------------------------------------------------- #
+def test_is_searchable_predicate_is_always_applied_before_pool_limit():
+    """フィルタ未指定でも is_searchable 条件が WHERE に入り、LIMIT より前に適用される。"""
+    db = FakeDatabase([])
+    repo = QARepository(db, _embed)
+    repo.search("q", top_k=5)
+
+    sql = " ".join(db.log[0]["sql"].split())
+    assert "WHERE hiroba_question_altered.is_searchable" in sql
+    # 親QAは LEFT JOIN のため、孤児行の従来挙動を変えないよう COALESCE(..., true) とする。
+    assert "COALESCE(hiroba_qa_original.is_searchable, true)" in sql
+    # 候補プールの LIMIT より前（＝除外分だけ他候補が繰り上がる）。
+    assert sql.index("is_searchable") < sql.index("LIMIT %(pool_size)s")
+
+
+def test_is_searchable_predicate_coexists_with_category_filter():
+    db = FakeDatabase([])
+    repo = QARepository(db, _embed)
+    repo.search("q", category="カテゴリA")
+
+    sql = " ".join(db.log[0]["sql"].split())
+    assert "hiroba_question_altered.is_searchable" in sql
+    assert "category_id = (SELECT id FROM hiroba_category WHERE name = %(category)s)" in sql

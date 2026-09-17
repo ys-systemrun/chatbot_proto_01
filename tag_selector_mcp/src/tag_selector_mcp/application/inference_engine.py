@@ -116,7 +116,15 @@ class InferenceEngine:
             t.id: t.name for t in retrieval_result.candidates
         }
 
-        selected: List[SelectedTag] = []
+        # Alias 一致で確定したタグ（ADR-0086）。LLM の選定結果に含まれていなくても
+        # スコア1.0・path=[name] で必ず結果へ含める。confidence_threshold は適用しない。
+        confirmed_ids = {t.id for t in retrieval_result.confirmed}
+        confirmed_selected: List[SelectedTag] = [
+            SelectedTag(id=t.id, name=t.name, score=1.0, path=[t.name])
+            for t in sorted(retrieval_result.confirmed, key=lambda t: t.id)
+        ]
+
+        llm_selected: List[SelectedTag] = []
         for item in raw_selected:
             if not isinstance(item, dict):
                 continue
@@ -133,9 +141,19 @@ class InferenceEngine:
             if name is None:
                 # 候補に存在しない id は無視する（LLMの幻覚対策）
                 continue
+            if tag_id in confirmed_ids:
+                # 確定タグと重複する LLM 選定は確定タグ側（スコア1.0）で上書きするため捨てる。
+                continue
             if score < confidence_threshold:
                 continue
-            selected.append(SelectedTag(id=tag_id, name=name, score=score, path=[name]))
+            llm_selected.append(
+                SelectedTag(id=tag_id, name=name, score=score, path=[name])
+            )
 
-        selected.sort(key=lambda s: s.score, reverse=True)
-        return selected[:max_tags]
+        # 確定タグに含まれない LLM 選定タグはスコア降順に並べる。
+        llm_selected.sort(key=lambda s: s.score, reverse=True)
+
+        # 確定タグ（id昇順）を先頭に、続けて残りの LLM 選定タグを max_tags 件へ切り詰める。
+        # 確定タグ自体は max_tags を超えても全件含める（ADR-0086）。
+        remaining = max(max_tags - len(confirmed_selected), 0)
+        return confirmed_selected + llm_selected[:remaining]
