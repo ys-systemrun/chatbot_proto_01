@@ -22,7 +22,10 @@ def build_parser() -> argparse.ArgumentParser:
     add("bootstrap", with_yes=True)
     add("apply-database", with_yes=True)
     ap = add("apply-app", with_yes=True)
-    ap.add_argument("--knowledge-mcp-desired-count", type=int, default=1)
+    # ADR-0095: ゲートは集約サービス全体に効く。旧名 --knowledge-mcp-desired-count も互換のため受け付ける。
+    ap.add_argument(
+        "--app-desired-count", "--knowledge-mcp-desired-count", dest="app_desired_count", type=int, default=1
+    )
     add("apply-all", with_yes=True)
     sd = add("seed", with_yes=True)
     sd.add_argument(
@@ -64,7 +67,7 @@ def main(argv=None) -> None:
         elif args.command == "apply-database":
             commands.cmd_apply_database(args.yes)
         elif args.command == "apply-app":
-            commands.cmd_apply_app(args.yes, args.knowledge_mcp_desired_count)
+            commands.cmd_apply_app(args.yes, args.app_desired_count)
         elif args.command == "apply-all":
             commands.cmd_apply_all(args.yes)
         elif args.command == "seed":

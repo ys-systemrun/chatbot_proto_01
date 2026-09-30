@@ -47,16 +47,23 @@ variable "mcp_inspector_image_tag" {
 }
 
 # Phase 4→5 ゲート用（apply-app / apply-all が制御）。seed 完了まで 0、完了後 1 にスケールする。
+# ADR-0095: 4サービスを1タスクに集約したため、ゲートはタスク全体に効く（seed 前は admin_ui も停止）。
 # 手動 apply 時は既定 1 のままでよい（その場合は seed 完了を手順で担保, README）。
-variable "knowledge_mcp_desired_count" {
+variable "app_desired_count" {
   type    = number
   default = 1
 }
 
-# --- Service Connect ---
-variable "service_namespace" {
-  type    = string
-  default = "chatbot.internal"
+# --- 集約タスクのサイズ（ADR-0095 決定1）---
+# 4コンテナ合計。Fargate の有効な組み合わせで指定する（1024 CPU なら memory は 2048〜8192）。
+variable "app_task_cpu" {
+  type    = number
+  default = 1024
+}
+
+variable "app_task_memory" {
+  type    = number
+  default = 2048
 }
 
 # --- Bedrock（ADR-0031, モデルIDは実装時に確定）---

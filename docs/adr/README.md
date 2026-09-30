@@ -98,6 +98,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0092](./0092-knowledge-source-is-searchable-flag.md) | 情報源レコードの検索対象フラグ（is_searchable）の新設と検索除外の意味論（3テーブルへBOOLEAN NOT NULL DEFAULT true、候補取得SQLの述語による除外、QAを親スイッチとするAND合成） | Accepted |
 | [0093](./0093-is-searchable-admin-ui-toggle.md) | 検索対象フラグの切り替え方式（専用ツール・専用エンドポイントを新設せず既存の部分更新を使用、一覧は楽観的更新による即時保存、編集ページはフォーム保存、一覧に3値の絞り込み） | Accepted |
 | [0094](./0094-is-searchable-csv-column-addition.md) | CSV一括インポート／エクスポートへのis_searchable列追加（省略時は「新規はtrue・既存は変更なし」、タグCSVは対象外） | Accepted |
+| [0095](./0095-verification-env-cost-reduction-single-task-single-az-endpoints.md) | 検証環境のコスト削減（常駐4サービスを1タスク・4コンテナへ集約、Interface VPCエンドポイントとECSタスクを単一AZに限定） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

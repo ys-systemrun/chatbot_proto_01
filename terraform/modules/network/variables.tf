@@ -14,6 +14,14 @@ variable "private_subnet_ids" {
   description = "既存プライベートサブネットの ID 群（2つ以上, DBサブネットグループ要件 ADR-0026）"
 }
 
+# ADR-0095: Interface VPC エンドポイント・集約 ECS タスク・run-task を置く単一サブネット。
+# null のときは private_subnet_ids の先頭を使う。private_subnet_ids のいずれかを指定すること。
+variable "workload_subnet_id" {
+  type        = string
+  default     = null
+  description = "エンドポイント・ECS タスクを置く単一プライベートサブネット ID（既定: private_subnet_ids[0]）"
+}
+
 variable "knowledge_mcp_port" {
   type    = number
   default = 8100
@@ -24,18 +32,11 @@ variable "tag_selector_mcp_port" {
   default = 8200
 }
 
-# agent_invitro 常駐 HTTP サービス（ADR-0043 / IMPL-202608241104 T25）。
-# admin_ui タスク → agent_invitro の到達許可（T23）に使う。knowledge/tag と同じ変数方式に揃える。
-variable "agent_invitro_port" {
-  type    = number
-  default = 8300
-}
-
 # IMPL-202608211050 T8/T9: admin_ui（管理UI, ADR-0041/0042）向け。
 variable "admin_ui_port" {
   type        = number
   default     = 8000
-  description = "admin_ui（web_backend）のコンテナポート。ALB→タスク / タスク間の許可に使用"
+  description = "admin_ui（web_backend）のコンテナポート。ALB→集約タスクの許可に使用"
 }
 
 # ADR-0036 と同様、既存 VPC のパブリックサブネットを ID で参照する（新規作成しない）。

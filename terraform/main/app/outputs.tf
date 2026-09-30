@@ -3,12 +3,17 @@
 # （local.db.*）であり、seed スクリプトは database 構成から直接取得するため、ここでは中継しない。
 
 output "ecr_repository_urls" {
-  description = "app 側 4 リポジトリの ECR URI（イメージ push 先, §5.2）"
+  description = "app 側 5 リポジトリの ECR URI（イメージ push 先, §5.2）"
   value       = module.ecr.repository_urls
 }
 
 output "cluster_name" {
   value = module.ecs_cluster.cluster_name
+}
+
+# ADR-0095: 集約 ECS サービス名（deploy の安定待機・import-data の停止／再開が参照）。
+output "app_service_name" {
+  value = module.app.service_name
 }
 
 output "mcp_inspector_task_family" {

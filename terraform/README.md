@@ -37,9 +37,8 @@ terraform/
 │   ├── ecr/              ECR リポジトリ（database で1件, app で4件に分割呼び出し）
 │   ├── database/         RDS PostgreSQL(pgvector) + DATABASE_URL シークレット（§5.3）
 │   ├── ecs-cluster/      Fargate クラスタ（§5.4）
-│   ├── ecs-service/      常駐サービス共通（app で3回呼び出し）（§5.5）
+│   ├── ecs-app-task/     常駐4サービスを1タスク・4コンテナで起動（ADR-0095）
 │   ├── db-init-task/     db_hiroba_qa_init の Run Task 定義（database 構成が呼び出し）（§5.6）
-│   ├── service-discovery/ ECS Service Connect 名前空間（§5.5）
 │   ├── mcp-inspector-task/ MCP Inspector 検証用タスク（app 構成）（§5.7）
 │   └── cost-alert/       Bedrock 月額予算アラート（AWS Budgets）（app 構成）
 ├── deploy/                  デプロイオーケストレータ（コンテナ内 Python, ADR-0040）
@@ -57,7 +56,7 @@ terraform/
 
 **state 分割の要点（ADR-0039）:**
 - **database 構成**: 既存VPC参照 + SG + VPCエンドポイント（旧 network）、RDS + DBサブネットグループ + `DATABASE_URL` シークレット（旧 database）、`db_hiroba_qa_init` シードタスク定義 + シード用 ECR 1件（旧 app から移設）。RDS を永続化（`deletion_protection=true` 既定）。**通常の `destroy-app` の対象外**（再シード＝Bedrock 再計算を避ける）。
-- **app 構成**: database 構成の出力（VPC/サブネット・各 SG・`db_url_secret_arn`）を `terraform_remote_state` で参照。ECS クラスタ + 3常駐サービス + MCP Inspector タスク定義 + 予算アラート + 残り4リポジトリの ECR。`destroy-app` はこの構成のみ破棄。
+- **app 構成**: database 構成の出力（VPC/サブネット・各 SG・`db_url_secret_arn`）を `terraform_remote_state` で参照。ECS クラスタ + 集約サービス（常駐4サービスを1タスク・4コンテナ, ADR-0095）+ admin_ui 用 ALB + MCP Inspector タスク定義 + 予算アラート + 残り4リポジトリの ECR。`destroy-app` はこの構成のみ破棄。
 
 ## かんたん実行（bat ダブルクリック）
 
@@ -91,8 +90,8 @@ terraform/
 2. `terraform/.env` … `terraform/.env.example` をコピーして全設定を記入（ADR-0040 で単一ファイルに集約）:
    - **AWS 認証**: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（一時クレデンシャルなら `AWS_SESSION_TOKEN` も）。鍵の代わりに `AWS_PROFILE` も可（両方あれば鍵優先）。**平文保持のためコミット厳禁・ローカル限定。可能なら一時クレデンシャル推奨。**
    - **共通値**: `AWS_REGION`、`AWS_ACCOUNT_ID`（認証先不一致時に安全停止）、`STATE_BUCKET`（既定 `chatbot-invitro-terraform-state-349131272460-us-east-1-an`, ADR-0039）、`NAME_PREFIX`（既定 `chatbot-invitro`）、`STATE_KEY_DATABASE` / `STATE_KEY_APP`（既定のままでよい）。
-   - **terraform 変数（`TF_VAR_*`）**: 旧 `terraform.tfvars` の内容をすべてここに記入。`TF_VAR_vpc_id` / `TF_VAR_private_subnet_ids`（既存 VPC/サブネット, ADR-0036）、`TF_VAR_rds_engine_version`（pgvector 対応版を要確認）、`TF_VAR_bedrock_chat_model_id` / `TF_VAR_bedrock_embedding_model_id` / `TF_VAR_embedding_vector_dim`（共有・同値）、`TF_VAR_service_namespace`、予算アラート等。リストは JSON（`["subnet-a","subnet-b"]`）、値の後ろにコメントを書かないこと。
-   > **ADR-0040**: 設定は単一 `.env` に集約する。`deploy` が `AWS_*`/`STATE_*` をマッピングし、`TF_VAR_*` は terraform へ素通しする。terraform は未宣言の `TF_VAR_*` を無視するため両構成の変数を1ファイルに置いてよい。実行時上書き（`deletion_protection` / `knowledge_mcp_desired_count` 等）は `deploy` が `-var` で行う。
+   - **terraform 変数（`TF_VAR_*`）**: 旧 `terraform.tfvars` の内容をすべてここに記入。`TF_VAR_vpc_id` / `TF_VAR_private_subnet_ids`（既存 VPC/サブネット, ADR-0036）、`TF_VAR_rds_engine_version`（pgvector 対応版を要確認）、`TF_VAR_bedrock_chat_model_id` / `TF_VAR_bedrock_embedding_model_id` / `TF_VAR_embedding_vector_dim`（共有・同値）、`TF_VAR_workload_subnet_id`（任意, ADR-0095）、予算アラート等。リストは JSON（`["subnet-a","subnet-b"]`）、値の後ろにコメントを書かないこと。
+   > **ADR-0040**: 設定は単一 `.env` に集約する。`deploy` が `AWS_*`/`STATE_*` をマッピングし、`TF_VAR_*` は terraform へ素通しする。terraform は未宣言の `TF_VAR_*` を無視するため両構成の変数を1ファイルに置いてよい。実行時上書き（`deletion_protection` / `app_desired_count` 等）は `deploy` が `-var` で行う。
 
 > `.env` が無い/必須変数が欠けている場合、`deploy` は雛形生成の案内や必須項目を表示して安全に停止する。値を埋めて再度クリックすれば続行できる。
 > 無人/CI 向けには `deploy` の各 apply 系コマンドに `--yes` を付ける（`.bat` を編集するか `run.bat` 経由で引数を渡す）。
@@ -170,16 +169,16 @@ done
 ### Phase 3: app 構成 apply（ゲート閉）
 ```bash
 cd terraform/main/app
-terraform apply -var="knowledge_mcp_desired_count=0"   # seed 完了まで knowledge_mcp を起動しない
+terraform apply -var="app_desired_count=0"   # seed 完了まで集約サービス（4コンテナ）を起動しない
 ```
 
-### Phase 4: データ投入（シード, knowledge_mcp 起動より前に完了させる）
+### Phase 4: データ投入（シード, 集約サービス起動より前に完了させる）
 ECS には compose の `depends_on: service_completed_successfully` に相当する自動待機が無いため、
 順序は手順で担保する。`seed.bat` が次を自動化する（両構成の output を参照して run-task）:
 ```bash
 # database 構成から subnets/SG/タスク定義ファミリ、app 構成から cluster_name を取得
 CLUSTER=$(cd ../app && terraform output -raw cluster_name)
-SUBNETS=$(terraform output -json private_subnet_ids | jq -r 'join(",")')   # database 構成で
+SUBNETS=$(terraform output -json workload_subnet_ids | jq -r 'join(",")')  # database 構成で（単一サブネット, ADR-0095）
 SG=$(terraform output -raw sg_verification_task_id)                        # database 構成で
 TD=$(terraform output -raw db_init_task_family)                            # database 構成で
 
@@ -227,10 +226,10 @@ RDS（`db_chatbot_knowledge_base` / conversation）に対し、運用者がそ�
 - データ喪失が心配な操作の前は、エクスポート機能でのバックアップ取得を推奨（運用ルール。本機能の対象外）。
 
 ### Phase 5: app 構成 再 apply（ゲート開）
-**exitCode=0 を確認してから** knowledge_mcp サービスを稼働させる:
+**exitCode=0 を確認してから** 集約サービス（4コンテナ）を稼働させる:
 ```bash
 cd terraform/main/app
-terraform apply -var="knowledge_mcp_desired_count=1"
+terraform apply -var="app_desired_count=1"
 ```
 
 ### Phase 6: 検証（手動）
@@ -240,10 +239,17 @@ aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
   --task-definition $(cd ../app && terraform output -raw mcp_inspector_task_family) --enable-execute-command \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}"
 aws ecs execute-command --cluster $CLUSTER --task <task-arn> --container mcp-inspector --command "/bin/sh" --interactive
-#   → Service Connect 名で tag_selector_mcp:8200 / knowledge_mcp:8100 に tools/list, tools/call
+#   → 集約タスクのプライベート IP の :8200（tag_selector_mcp）/ :8100（knowledge_mcp）に tools/list, tools/call
+#     （ADR-0095 で Service Connect を廃止したため名前解決は無い。IP は下記で取得）
 
-# クライアント統合層: agent_invitro（ADR-0025）
-aws ecs execute-command --cluster $CLUSTER --task <agent-task-arn> --container agent_invitro --command "ipython" --interactive
+# 集約タスク（4コンテナ）の ARN とプライベート IP
+APP_SVC=$(cd ../app && terraform output -raw app_service_name)
+APP_TASK=$(aws ecs list-tasks --cluster $CLUSTER --service-name $APP_SVC --query 'taskArns[0]' --output text)
+aws ecs describe-tasks --cluster $CLUSTER --tasks $APP_TASK \
+  --query 'tasks[0].attachments[0].details[?name==`privateIPv4Address`].value' --output text
+
+# クライアント統合層: agent_invitro（ADR-0025）。集約タスク内の agent_invitro コンテナを --container で選ぶ
+aws ecs execute-command --cluster $CLUSTER --task $APP_TASK --container agent_invitro --command "ipython" --interactive
 #   → 会話エージェント実験要件定義書 §6.4 の手動テストクエリ3件を実行
 ```
 
@@ -271,7 +277,7 @@ DB を残したまま常時課金リソース（ECS 等）だけ止めるのが�
 # app 構成のみ（RDS/ネットワークは残る）= destroy-app.bat（deploy destroy-app）と同じ
 # deploy が内部で行う処理（手動なら deploy shell 内で実行）:
 cd main/app
-terraform destroy -var="knowledge_mcp_desired_count=0"
+terraform destroy -var="app_desired_count=0"
 ```
 DB も破棄する場合（プロジェクト完全終了時）は **app を先に破棄してから** destroy-database.bat か、database 構成で明示的に:
 ```bash
@@ -281,6 +287,39 @@ terraform destroy -var="deletion_protection=false" -var="skip_final_snapshot=tru
 ```
 > **VPC エンドポイントは課金対象**（Interface型は毎時課金）。VPCエンドポイントは database 構成に含まれるため、
 > `destroy-database` で一緒に削除される（既存VPC/サブネット自体は data 参照のため削除されない）。
+
+## 検証環境のコスト削減構成（ADR-0095）
+
+検証環境向けに、常駐4サービス（`tag_selector_mcp` / `knowledge_mcp` / `agent_invitro` / `admin_ui`）を
+**1つの ECS サービス（1タスク・4コンテナ）** に集約し、Interface VPC エンドポイントと ECS タスク・run-task を
+**単一 AZ の1サブネット**（`TF_VAR_workload_subnet_id`、未指定なら `private_subnet_ids` の先頭）に置く。
+常時起動の月額概算は約 $200 → 約 $115〜125（us-east-1）。
+
+- **イメージは分けたまま**: ECR リポジトリ・Dockerfile は従来どおり。コンテナ間の接続先は `localhost:<port>`
+  （8000 admin_ui / 8100 knowledge_mcp / 8200 tag_selector_mcp / 8300 agent_invitro）。
+- **起動順序**: `agent_invitro` と `admin_ui` は、`knowledge_mcp` / `tag_selector_mcp` が HEALTHY になるまで
+  起動を待つ（タスク定義の `dependsOn`）。Service Connect は使わない。
+- **シード完了ゲート**: `app_desired_count`（旧 `knowledge_mcp_desired_count`）で集約サービス全体を 0/1 にする。
+  seed 完了前は admin_ui も起動しない。CLI 引数は `--app-desired-count`（旧名も互換で受け付ける）。
+- **タスクサイズ**: `TF_VAR_app_task_cpu` / `TF_VAR_app_task_memory`（既定 1024 / 2048）。
+- **import-data**: 対象 DB によらず集約サービスごと停止・再開する（agent_invitro も一緒に止まる）。
+- **ログ**: コンテナ単位のロググループ `/ecs/<コンテナ名>` のまま（従来と同名）。
+- **受容するトレードオフ**: 単一 AZ 障害で全体停止、1コンテナの異常・1イメージの更新で4サービスが同時に再起動、
+  タスクロールが1つのため admin_ui コンテナも Bedrock を呼べる（DB 資格情報の注入はコンテナ単位のまま）。
+  **本番環境には適用しない**前提（ADR-0095）。
+
+### 旧構成（サービス別4タスク）からの移行手順
+
+ECS サービス・タスク定義・SG が作り直しになる。旧 SG（`sg-agent-invitro` / `sg-tag-selector-mcp` /
+`sg-knowledge-mcp` / `sg-admin-ui-task`）は稼働中タスクの ENI が使っているため、**先に app 構成を破棄してから**
+database 構成を apply すること（逆順だと SG の削除が ENI の使用中で失敗・長時間待ちになる）。RDS は影響を受けない。
+
+1. `destroy-app.bat`（app 構成のみ破棄。RDS・データは残る）
+2. `apply-database.bat`（SG 統合・エンドポイントの単一サブネット化。エンドポイントはその場で更新され作り直しにならない）
+3. `apply-app.bat`（集約サービスを作成。データ投入済みなので再シード不要）
+
+> `apply-all.bat` は database → app の順で実行するため、旧構成が残ったまま実行すると手順2で上記の失敗になる。
+> 移行時は必ず 1 → 2 → 3 の順で個別に実行する。
 
 ## 注意点
 - **既存 VPC 前提（ADR-0036）**: database 構成は VPC/サブネットを新規作成しない。`vpc_id` / `private_subnet_ids` を基盤チームから受領し、既存サブネットが要件（2AZ以上、DBサブネットグループ用、十分な空きIP）を満たすか確認すること。
@@ -292,9 +331,8 @@ terraform destroy -var="deletion_protection=false" -var="skip_final_snapshot=tru
 - **DB は destroy-app の対象外（ADR-0037 継承）**: RDS は永続化（`deletion_protection=true`）。DB 破棄は destroy-database.bat / database 構成で明示的に（保護解除→destroy の2段階）行う。
 - **ECS Exec は事後有効化不可**: `enable_execute_command` は最初から true（agent_invitro / 検証タスク）。
 - **pgvector 対応バージョン**: `rds_engine_version` は実装着手時に AWS 公式で要確認。
-- **Service Connect タイムアウト**: Streamable HTTP(SSE) の長時間コネクションは Envoy 既定タイムアウトが短い可能性。Phase 6 で併せて確認。
 - **DATABASE_URL**: アプリが1本の URL を要求するため、`database` モジュールが random_password から完全な接続 URL を組み立てた独自シークレットを作り、ECS に secrets 注入する（RDS マネージドマスターパスワードは JSON のため URL 注入に使えない）。
 - **admin_ui の ALB コスト（ADR-0041）**: ALB は時間課金＋LCU で常時発生する。`admin_ui`・ALB は `app` 構成に含まれるため `destroy-app` で ECS 等と一緒に破棄される（RDS は残る）。検証終了後にコストを止めたい場合は `destroy-app` を実行する。
-- **admin_ui タスクは非公開（ADR-0041 T13）**: ALB はパブリックサブネットだが、`admin_ui` の ECS タスク自体はプライベートサブネット・`assign_public_ip=false`（既存3サービスと同じ）。ALB SG からのコンテナポートのみ受ける。
+- **admin_ui タスクは非公開（ADR-0041 T13）**: ALB はパブリックサブネットだが、集約タスク自体はプライベートサブネット・`assign_public_ip=false`。ALB SG からは admin_ui のコンテナポートのみ受ける（ADR-0095）。
 - **ローカル docker-compose は不変（ADR-0042）**: `Dockerfile.admin_ui` は AWS 専用の追加ファイル。既存 `web_backend/Dockerfile`・`front_dev/Dockerfile`・`docker-compose.yml` は変更しないため、ローカル開発フローに影響しない。
 - **CSV/JSON データ（ADR-0034）**: ECS にホストマウントは無いが、シード元データは db-hiroba-qa-init イメージに `/data` として同梱済み（`Dockerfile` の `COPY data /data`）。EFS 等の追加ストレージは不要。`CSV_DATA_DIR` は `data`（main.py が先頭に `/` を付与 → `/data`）。

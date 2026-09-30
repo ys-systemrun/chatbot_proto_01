@@ -43,6 +43,14 @@ variable "private_subnet_ids" {
   description = "既存プライベートサブネットの ID 群（2つ以上, ADR-0026）"
 }
 
+# ADR-0095: Interface VPC エンドポイント・集約 ECS タスク・run-task を置く単一サブネット。
+# 未指定（null）なら private_subnet_ids の先頭。private_subnet_ids は RDS の DB サブネットグループ用。
+variable "workload_subnet_id" {
+  type        = string
+  default     = null
+  description = "エンドポイント・ECS タスクを置く単一プライベートサブネット ID（既定: private_subnet_ids[0]）"
+}
+
 # IMPL-202608211050 T9 / ADR-0041: admin_ui の ALB（internet-facing）を配置する既存
 # パブリックサブネット。SG（sg-admin-ui-alb/task）は network モジュールで作成し、app 構成が
 # local.db 経由で参照する。0章 Open Issue #2 が解消するまで値未確定（既定 [] で apply 阻害しない）。

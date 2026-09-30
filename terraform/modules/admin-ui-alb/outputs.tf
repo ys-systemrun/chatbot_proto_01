@@ -1,5 +1,5 @@
 output "target_group_arn" {
-  description = "ecs-service モジュールの load_balancer ブロックに渡す（T12/T14）"
+  description = "ecs-app-task モジュールの load_balancer ブロックに渡す（T12/T14, ADR-0095）"
   value       = aws_lb_target_group.this.arn
 }
 

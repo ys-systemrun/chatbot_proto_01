@@ -67,27 +67,22 @@ def _require_app_applied(cfg: config.Config) -> None:
         )
 
 
-def _reconcile_agent_after_servers(cluster: str, region: str) -> None:
-    """Service Connect のクライアント(agent_invitro)を、サーバ登録後に起動させ直す。
+def _wait_app_stable(cluster: str, service: str, region: str) -> None:
+    """集約サービス（4コンテナ, ADR-0095）の安定を待ち、落ちたら一次情報を出し切る。
 
-    apply では3サービスが同時作成され、クライアント(agent_invitro)がサーバ(tag_selector_mcp/
-    knowledge_mcp)の Service Connect 登録より先に安定してしまうと、そのタスクは相手を名前解決できない
-    （httpx: Name or service not known）。サーバ安定を待ってから agent_invitro を強制再デプロイし、
-    サーバ登録後に新タスクが起動するようにする。apply 本体は成功済みのため、失敗しても警告に留める。
+    起動順序はタスク定義の dependsOn（MCP サーバの HEALTHY 待ち）が担うため、旧 Service Connect 構成で
+    必要だった agent_invitro の強制再デプロイは不要になった。apply 本体は成功済みのため、待機失敗でも
+    警告に留める（どのコンテナが落ちたかは停止タスクの exitCode とコンテナログで示す）。
     """
     try:
-        log.step("Service Connect 整合: サーバ安定後に agent_invitro を再デプロイ")
-        log.info("tag_selector_mcp / knowledge_mcp の安定を待機...")
-        aws.wait_services_stable(cluster, ["tag_selector_mcp", "knowledge_mcp"], region)
-        log.info("agent_invitro を強制再デプロイ（サーバ登録後に起動させ名前解決を確実化）")
-        aws.force_new_deployment(cluster, "agent_invitro", region)
-        aws.wait_services_stable(cluster, ["agent_invitro"], region)
-        log.ok("agent_invitro 再デプロイ完了")
-    except Exception as exc:  # noqa: BLE001 - 整合処理の失敗で apply 全体を失敗扱いにしない
-        log.warn(f"Service Connect 整合処理が失敗/タイムアウトしました: {exc}")
+        log.step(f"集約サービスの安定待機（{service}）")
+        aws.wait_services_stable(cluster, [service], region)
+        log.ok(f"{service} 安定（4コンテナ稼働）")
+    except Exception as exc:  # noqa: BLE001 - 待機失敗で apply 全体を失敗扱いにしない
+        log.warn(f"集約サービスの安定待機が失敗/タイムアウトしました: {exc}")
         _report_unstable_services(cluster, region, getattr(exc, "services", None))
         log.warn(
-            f"  手動: aws ecs update-service --cluster {cluster} --service agent_invitro"
+            f"  手動: aws ecs update-service --cluster {cluster} --service {service}"
             f" --force-new-deployment --region {region}"
         )
 
@@ -140,27 +135,36 @@ def _report_unstable_services(cluster: str, region: str, services) -> None:
 
 
 def _report_service_logs(service: str, region: str, stopped_tasks: list) -> None:
-    """停止タスクのうち最新の 1 件について、/ecs/<service> の末尾ログを表示する。
+    """停止タスクのうち最新の 1 件について、コンテナごとの /ecs/<container> 末尾ログを表示する。
 
     awslogs のストリーム名は <stream_prefix>/<container_name>/<task-id> で、
-    ecs-service モジュールは stream_prefix・コンテナ名ともサービス名を使う。
+    ecs-app-task モジュールは stream_prefix・ロググループ名ともコンテナ名を使う（ADR-0095）。
+    異常終了（exitCode が 0 以外）したコンテナを優先し、該当が無ければ全コンテナを表示する。
+    dependsOn 待ちで起動しなかったコンテナは exitCode が None になるため、犯人から外れる。
     """
     if not stopped_tasks:
         return
     task = stopped_tasks[0]
-    try:
-        messages = aws.get_task_log_events(
-            f"/ecs/{service}", service, service, task["task_arn"], region
-        )
-    except Exception as exc:  # noqa: BLE001 - 診断は best-effort
-        log.warn(f"  コンテナログの取得に失敗: {exc}")
-        return
-    if not messages:
-        log.info(f"/ecs/{service} にログがありません（ログ未反映 or ロググループ削除済み）。")
-        return
-    log.info(f"/ecs/{service} 末尾 {_UNSTABLE_LOG_TAIL_LINES} 行:")
-    for line in messages[-_UNSTABLE_LOG_TAIL_LINES:]:
-        log.info(f"| {line}")
+    containers = [c["name"] for c in task.get("containers", []) if c.get("name")]
+    failed = [
+        c["name"] for c in task.get("containers", [])
+        if c.get("name") and c.get("exit_code") not in (None, 0)
+    ]
+    for container in failed or containers or [service]:
+        log_group = f"/ecs/{container}"
+        try:
+            messages = aws.get_task_log_events(
+                log_group, container, container, task["task_arn"], region
+            )
+        except Exception as exc:  # noqa: BLE001 - 診断は best-effort
+            log.warn(f"  {log_group} のログ取得に失敗: {exc}")
+            continue
+        if not messages:
+            log.info(f"{log_group} にログがありません（ログ未反映 or ロググループ削除済み）。")
+            continue
+        log.info(f"{log_group} 末尾 {_UNSTABLE_LOG_TAIL_LINES} 行:")
+        for line in messages[-_UNSTABLE_LOG_TAIL_LINES:]:
+            log.info(f"| {line}")
 
 
 def _info_output(cwd, name: str, label: str) -> None:
@@ -226,7 +230,7 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
     log.info("次: apply-app（アプリ層）→ seed（データ投入）の順で実行します。")
 
 
-def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1) -> None:
+def cmd_apply_app(assume_yes: bool = False, app_desired_count: int = 1) -> None:
     cfg = config.load_config()
     prerequisites(cfg)
     tfvars.validate("app")
@@ -277,22 +281,22 @@ def cmd_apply_app(assume_yes: bool = False, knowledge_mcp_desired_count: int = 1
     )
     log.ok("4イメージの push 完了（mcp-inspector は検証時に手動 build/push, §5.7）")
 
-    log.step(f"app 構成 apply（knowledge_mcp_desired_count={knowledge_mcp_desired_count}）")
-    tf.apply(d, variables={"knowledge_mcp_desired_count": knowledge_mcp_desired_count}, what="app apply")
+    log.step(f"app 構成 apply（app_desired_count={app_desired_count}）")
+    tf.apply(d, variables={"app_desired_count": app_desired_count}, what="app apply")
 
     log.step("app 構成 apply 完了")
-    cluster = None
+    cluster = service = None
     try:
         cluster = tf.output_raw(d, "cluster_name")
-        log.info(f"cluster: {cluster}")
+        service = tf.output_raw(d, "app_service_name")
+        log.info(f"cluster: {cluster} / service: {service}")
     except DeployError:
-        log.warn("output 'cluster_name' を取得できませんでした（apply 自体は完了しています）。")
+        log.warn("output 'cluster_name' / 'app_service_name' を取得できませんでした（apply 自体は完了しています）。")
 
-    if knowledge_mcp_desired_count == 0:
-        log.warn("knowledge_mcp は停止中（desired_count=0）。seed 完了後に再 apply（=1）で起動します。")
-    elif cluster:
-        # サーバ(knowledge/tag)が起動する構成のときだけ、クライアントを登録後に起動させ直す。
-        _reconcile_agent_after_servers(cluster, cfg.aws_region)
+    if app_desired_count == 0:
+        log.warn("集約サービスは停止中（desired_count=0）。seed 完了後に再 apply（=1）で起動します。")
+    elif cluster and service:
+        _wait_app_stable(cluster, service, cfg.aws_region)
 
     log.info("検証（Phase 6）: mcp-inspector イメージを手動 build/push 後に run-task + ECS Exec（README 参照）。")
 
@@ -316,11 +320,11 @@ def _run_db_init_task(cfg: config.Config, *, migrate_only: bool, label: str) -> 
 
     log.step("database 構成 output 取得")
     tf.init_backend(db, cfg.state_bucket, region, cfg.state_key_database)
-    subnets = tf.output_json(db, "private_subnet_ids")
+    subnets = tf.output_json(db, "workload_subnet_ids")
     sg = tf.output_raw(db, "sg_verification_task_id")
     family = tf.output_raw(db, "db_init_task_family")
     if not subnets or not sg or not family:
-        raise DeployError("database 構成の output（private_subnet_ids / sg_verification_task_id / db_init_task_family）を取得できませんでした。")
+        raise DeployError("database 構成の output（workload_subnet_ids / sg_verification_task_id / db_init_task_family）を取得できませんでした。")
 
     log.step("app 構成 output 取得")
     tf.init_backend(app, cfg.state_bucket, region, cfg.state_key_app)
@@ -360,7 +364,7 @@ def cmd_seed(assume_yes: bool = False, skip_seed: bool = False) -> None:
         _run_db_init_task(cfg, migrate_only=True, label="マイグレーション")
         return
     _run_db_init_task(cfg, migrate_only=False, label="シード")
-    log.info("knowledge_mcp を起動するには apply-app（desired_count=1）を実行してください（apply-all は自動で行います）。")
+    log.info("アプリを起動するには apply-app（desired_count=1）を実行してください（apply-all は自動で行います）。")
 
 
 def cmd_migrate() -> None:
@@ -376,13 +380,9 @@ def cmd_migrate() -> None:
     _run_db_init_task(cfg, migrate_only=True, label="マイグレーション")
 
 
-# 全データインポート（ADR-0066）: 実行対象データベースと、停止すべき（そのデータベースへ直接
-# 接続する）アプリケーションサービスの対応。admin_ui は AWS 上の web_backend（管理UI）。
-# agent_invitro はデータベースへ直接接続しないため停止対象に含めない（ADR-0066 §8 の検討）。
-_IMPORT_SERVICES_BY_DB = {
-    "chatbot": ["admin_ui", "knowledge_mcp", "tag_selector_mcp"],
-    "conversation": ["admin_ui"],
-}
+# 全データインポート（ADR-0066）: 停止すべきサービスは、ADR-0095 で常駐4サービスを1タスクに集約した
+# ため、対象データベースによらず集約サービス1つ（app 構成の output app_service_name）になる。
+# agent_invitro も一緒に止まるが、インポート中はチャットも使えないため実害はない（ADR-0095 決定4）。
 _IMPORT_DUMP_DEFAULT = {"chatbot": "chatbot.sql", "conversation": "conversation.sql"}
 
 
@@ -392,15 +392,6 @@ def _import_labels(target: str) -> list[str]:
     if target in ("chatbot", "conversation"):
         return [target]
     raise DeployError(f"--target は chatbot / conversation / both のいずれか（指定: {target!r}）。")
-
-
-def _import_services(labels: list[str]) -> list[str]:
-    """対象ラベル群に対応する停止対象サービスの重複なしリスト（定義順を保持）。"""
-    ordered: list[str] = []
-    for svc in ("admin_ui", "knowledge_mcp", "tag_selector_mcp"):
-        if any(svc in _IMPORT_SERVICES_BY_DB[label] for label in labels) and svc not in ordered:
-            ordered.append(svc)
-    return ordered
 
 
 def cmd_import_data(
@@ -442,23 +433,24 @@ def cmd_import_data(
 
     log.step("database 構成 output 取得")
     tf.init_backend(db, cfg.state_bucket, region, cfg.state_key_database)
-    subnets = tf.output_json(db, "private_subnet_ids")
+    subnets = tf.output_json(db, "workload_subnet_ids")
     sg = tf.output_raw(db, "sg_verification_task_id")
     family = tf.output_raw(db, "db_init_task_family")
     import_bucket = tf.output_raw(db, "import_bucket_name")
     if not subnets or not sg or not family or not import_bucket:
         raise DeployError(
-            "database 構成の output（private_subnet_ids / sg_verification_task_id / "
+            "database 構成の output（workload_subnet_ids / sg_verification_task_id / "
             "db_init_task_family / import_bucket_name）を取得できませんでした。"
         )
 
     log.step("app 構成 output 取得")
     tf.init_backend(app, cfg.state_bucket, region, cfg.state_key_app)
     cluster = tf.output_raw(app, "cluster_name")
-    if not cluster:
-        raise DeployError("app 構成の output（cluster_name）を取得できませんでした。")
+    app_service = tf.output_raw(app, "app_service_name")
+    if not cluster or not app_service:
+        raise DeployError("app 構成の output（cluster_name / app_service_name）を取得できませんでした。")
 
-    services = _import_services(labels)
+    services = [app_service]
 
     log.warn("=== 全データインポート（全消去→上書き, 不可逆） ===")
     log.warn(f"対象データベース: {', '.join(labels)}")
@@ -585,12 +577,12 @@ def cmd_query(target: str = "chatbot", sql_file: str | None = None) -> None:
 
     log.step("database 構成 output 取得")
     tf.init_backend(db, cfg.state_bucket, region, cfg.state_key_database)
-    subnets = tf.output_json(db, "private_subnet_ids")
+    subnets = tf.output_json(db, "workload_subnet_ids")
     sg = tf.output_raw(db, "sg_verification_task_id")
     family = tf.output_raw(db, "db_init_task_family")
     if not subnets or not sg or not family:
         raise DeployError(
-            "database 構成の output（private_subnet_ids / sg_verification_task_id / "
+            "database 構成の output（workload_subnet_ids / sg_verification_task_id / "
             "db_init_task_family）を取得できませんでした。"
         )
 
@@ -665,14 +657,14 @@ def cmd_apply_all(assume_yes: bool = False) -> None:
     log.step("[1/4] database 構成 apply")
     cmd_apply_database(assume_yes=True)
 
-    log.step("[2/4] app 構成 apply（ゲート閉: knowledge_mcp_desired_count=0）")
-    cmd_apply_app(assume_yes=True, knowledge_mcp_desired_count=0)
+    log.step("[2/4] app 構成 apply（ゲート閉: app_desired_count=0）")
+    cmd_apply_app(assume_yes=True, app_desired_count=0)
 
     log.step("[3/4] シード（run-task, exitCode=0 まで待機）")
     cmd_seed(assume_yes=True)
 
-    log.step("[4/4] app 構成 再 apply（ゲート開: knowledge_mcp_desired_count=1）")
-    cmd_apply_app(assume_yes=True, knowledge_mcp_desired_count=1)
+    log.step("[4/4] app 構成 再 apply（ゲート開: app_desired_count=1）")
+    cmd_apply_app(assume_yes=True, app_desired_count=1)
 
     log.step("apply-all 完了")
     log.info("次の手動検証（Phase 6, README 参照）: MCP Inspector を ECR に build/push 後 run-task + ECS Exec、agent_invitro に ipython で手動テストクエリ3件。")
@@ -683,12 +675,12 @@ def cmd_destroy_app() -> None:
     cfg = config.load_config()
     prerequisites(cfg)
     log.step("app 構成の破棄（RDS・ネットワークは残す, ADR-0039）")
-    log.warn("app 構成（ECS クラスタ/3サービス/MCP Inspector タスク定義/予算アラート/ECR4）を削除します。RDS・SG・VPCエンドポイントは残ります。")
+    log.warn("app 構成（ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR）を削除します。RDS・SG・VPCエンドポイントは残ります。")
     prompts.confirm_typed("app 構成を破棄する場合は 'destroy-app' と入力してください: ", "destroy-app")
 
     d = paths.app_dir()
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_app)
-    tf.destroy(d, variables={"knowledge_mcp_desired_count": 0}, what="app destroy")
+    tf.destroy(d, variables={"app_desired_count": 0}, what="app destroy")
 
     log.ok("app 構成の破棄完了")
     log.info("RDS は database 構成に残っています。再開時は apply-app のみでよい（再シード不要）。")

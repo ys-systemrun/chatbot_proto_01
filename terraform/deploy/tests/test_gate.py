@@ -22,6 +22,16 @@ def test_apply_all_gate_sequence(monkeypatch):
     commands.cmd_apply_all(assume_yes=True)
 
     assert [name for name, _ in calls] == ["database", "app", "seed", "app"]
-    # ゲート閉→開
-    assert calls[1][1]["knowledge_mcp_desired_count"] == 0
-    assert calls[3][1]["knowledge_mcp_desired_count"] == 1
+    # ゲート閉→開（ADR-0095: 集約サービス全体の desired_count）
+    assert calls[1][1]["app_desired_count"] == 0
+    assert calls[3][1]["app_desired_count"] == 1
+
+
+def test_apply_app_desired_count_flag_and_legacy_alias():
+    from src.__main__ import build_parser
+
+    parser = build_parser()
+    assert parser.parse_args(["apply-app", "--app-desired-count", "0"]).app_desired_count == 0
+    # 旧名（ADR-0095 以前）も互換のため受け付ける。
+    assert parser.parse_args(["apply-app", "--knowledge-mcp-desired-count", "0"]).app_desired_count == 0
+    assert parser.parse_args(["apply-app"]).app_desired_count == 1

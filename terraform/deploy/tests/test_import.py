@@ -21,6 +21,7 @@ def _output_raw(_cwd, name):
         "db_init_task_family": "db-hiroba-qa-init",
         "import_bucket_name": "prefix-import-acct-us-east-1",
         "cluster_name": "prefix-cluster",
+        "app_service_name": "prefix-app",
     }[name]
 
 
@@ -72,22 +73,23 @@ def test_import_both_orders_stop_run_restart(monkeypatch):
     set_restore = [i for i, c in enumerate(calls) if c[0] == "set" and c[2] == 1]
     assert set_zeros and set_restore
     assert max(set_zeros) < run_idx < min(set_restore)  # 停止→run→再開
-    # both は chatbot 側の3サービスを停止対象にする。
+    # ADR-0095: 停止対象は集約サービス1つ。
     stopped = {c[1] for c in calls if c[0] == "set" and c[2] == 0}
-    assert stopped == {"admin_ui", "knowledge_mcp", "tag_selector_mcp"}
+    assert stopped == {"prefix-app"}
     # run-task は IMPORT_MODE=true / target=both を渡す。
     run_call = next(c for c in calls if c[0] == "run")
     assert run_call[1] == "true" and run_call[2] == "both"
 
 
-def test_import_conversation_only_stops_admin_ui(monkeypatch):
+def test_import_conversation_only_stops_app_service(monkeypatch):
     calls = []
     _wire_common(monkeypatch, calls)
 
     commands.cmd_import_data(target="conversation")
 
+    # conversation のみでも、集約サービス（admin_ui を含む）ごと停止する（ADR-0095 決定4）。
     stopped = {c[1] for c in calls if c[0] == "set" and c[2] == 0}
-    assert stopped == {"admin_ui"}
+    assert stopped == {"prefix-app"}
     assert [c for c in calls if c[0] == "upload"] == [("upload", "import/conversation.sql")]
 
 
@@ -100,4 +102,4 @@ def test_import_restarts_services_on_failure(monkeypatch):
 
     # 失敗しても停止したサービスは元の desired_count(=1) へ復元される。
     restored = {c[1] for c in calls if c[0] == "set" and c[2] == 1}
-    assert restored == {"admin_ui", "knowledge_mcp", "tag_selector_mcp"}
+    assert restored == {"prefix-app"}

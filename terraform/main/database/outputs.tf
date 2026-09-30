@@ -6,20 +6,20 @@ output "vpc_id" {
 }
 
 output "private_subnet_ids" {
-  description = "run-task の networkConfiguration / ECS サービスの subnets に使う"
+  description = "既存プライベートサブネット群（RDS の DB サブネットグループ用, 2 AZ）"
   value       = module.network.private_subnet_ids
 }
 
-output "sg_agent_invitro_id" {
-  value = module.network.sg_agent_invitro_id
+# ADR-0095: 集約 ECS サービスの subnets と run-task の networkConfiguration に使う単一サブネット。
+output "workload_subnet_ids" {
+  description = "ECS サービス / run-task（seed・migrate・query・import-data・MCP Inspector）の subnets に使う"
+  value       = module.network.workload_subnet_ids
 }
 
-output "sg_tag_selector_mcp_id" {
-  value = module.network.sg_tag_selector_mcp_id
-}
-
-output "sg_knowledge_mcp_id" {
-  value = module.network.sg_knowledge_mcp_id
+# ADR-0095: 集約タスク（tag_selector_mcp / knowledge_mcp / agent_invitro / admin_ui）用 SG。
+output "sg_app_task_id" {
+  description = "集約 ECS タスク用 SG（app 構成の ecs-app-task に渡す）"
+  value       = module.network.sg_app_task_id
 }
 
 output "sg_verification_task_id" {
@@ -31,11 +31,6 @@ output "sg_verification_task_id" {
 output "sg_admin_ui_alb_id" {
   description = "admin_ui ALB 用 SG（app 構成の admin-ui-alb モジュールが関連付け）"
   value       = module.network.sg_admin_ui_alb_id
-}
-
-output "sg_admin_ui_task_id" {
-  description = "admin_ui ECS タスク用 SG（app 構成の ecs-service に渡す）"
-  value       = module.network.sg_admin_ui_task_id
 }
 
 output "public_subnet_ids" {
@@ -63,7 +58,7 @@ output "chatbot_export_db_url_secret_arn" {
 }
 
 # ADR-0052 / IMPL-202608261022 T19: アプリ用ロール（_app）の接続文字列シークレットを app 構成へ渡す。
-# chatbot_app は knowledge_mcp / tag_selector_mcp / admin_ui の DATABASE_URL、conversation_app は
+# chatbot_app は knowledge_mcp / tag_selector_mcp の DATABASE_URL、conversation_app は
 # admin_ui の CONVERSATION_DB_URL に注入する。app 構成が terraform_remote_state 経由で
 # local.db.chatbot_app_db_url_secret_arn / local.db.conversation_app_db_url_secret_arn として参照する。
 # migrator/app の生パスワードシークレットは db_init_task が同一 root 内で直接参照するため再エクスポートしない

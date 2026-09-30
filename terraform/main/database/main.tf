@@ -9,7 +9,6 @@
 locals {
   knowledge_mcp_port    = 8100
   tag_selector_mcp_port = 8200
-  agent_invitro_port    = 8300 # ADR-0043 / IMPL-202608241104 T25
 }
 
 # --- ネットワーク基盤（既存VPC参照 + SG + VPCエンドポイント, ADR-0036）---
@@ -18,12 +17,12 @@ module "network" {
   name_prefix           = var.name_prefix
   vpc_id                = var.vpc_id
   private_subnet_ids    = var.private_subnet_ids
+  workload_subnet_id    = var.workload_subnet_id
   public_subnet_ids     = var.public_subnet_ids
   admin_ui_port         = var.admin_ui_port
   create_vpc_endpoints  = var.create_vpc_endpoints
   knowledge_mcp_port    = local.knowledge_mcp_port
   tag_selector_mcp_port = local.tag_selector_mcp_port
-  agent_invitro_port    = local.agent_invitro_port
 }
 
 # --- RDS(pgvector) + DBサブネットグループ + DATABASE_URL シークレット（ADR-0037, 永続化）---
