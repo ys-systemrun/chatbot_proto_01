@@ -1,22 +1,22 @@
 """エクスポート対象テーブルの定義（IMPL-202608241600 T15、5.4 節）。
 
-対象は chatbot データベース7テーブル・conversation データベース6テーブルの計13テーブル。
-カラム定義は既存マイグレーション（db_hiroba_qa_init/migrations/0001〜0008 および
+対象は ナレッジ データベース7テーブル・conversation データベース6テーブルの計13テーブル。
+カラム定義は既存マイグレーション（db_init/migrations/0001〜0008 および
 migrations_conversation/0001〜0003）に基づく（0006 で tag_folder / tag.folder_id 追加, ADR-0072、
 0007 で tag_folder.parent_folder_id 追加・name UNIQUE 撤廃, ADR-0073、
 0008 で tag / tag_folder に display_order 追加, ADR-0074）。
 各テーブルについて次を保持する:
 
-  - db          : データベース種別（"chatbot" / "conversation"）
+  - db          : データベース種別（"knowledge" / "conversation"）
   - name        : テーブル名
   - columns     : 全カラム（定義順。SQL 出力の INSERT に使う）
   - csv_exclude : CSV 出力から除外するカラム（question_altered.embedding のみ）
   - order_by    : 決定的な出力順のための ORDER BY 列（主キー）
   - _create_ddl : CREATE TABLE IF NOT EXISTS 文（既存マイグレーションと同一定義）
 
-SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の CHATBOT_TABLES /
+SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、下の KNOWLEDGE_TABLES /
 CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
-  - chatbot     : category → qa_original → tag_folder → tag → question_altered → tag_alias → qa_tag
+  - knowledge     : category → qa_original → tag_folder → tag → question_altered → tag_alias → qa_tag
                   → troubleshooting_article → troubleshooting_article_tag（ADR-0076）
   - conversation: conversation → message → verification_question → verification_run
                   → verification_run_tag → verification_run_source
@@ -39,8 +39,8 @@ from dataclasses import dataclass, field
 EMBEDDING_DIM_PLACEHOLDER = "{embedding_dim}"
 DEFAULT_EMBEDDING_DIM = 1024
 
-# chatbot データベースの SQL ダンプ先頭に付ける拡張の宣言（question_altered.embedding 用）。
-CHATBOT_SQL_HEADER = "CREATE EXTENSION IF NOT EXISTS vector;\n"
+# ナレッジ データベースの SQL ダンプ先頭に付ける拡張の宣言（question_altered.embedding 用）。
+KNOWLEDGE_SQL_HEADER = "CREATE EXTENSION IF NOT EXISTS vector;\n"
 
 
 @dataclass(frozen=True)
@@ -64,11 +64,11 @@ class TableSpec:
 
 
 # --------------------------------------------------------------------------- #
-# chatbot データベース（migrations 0001〜0008 の最終形）
+# ナレッジ データベース（migrations 0001〜0008 の最終形）
 # --------------------------------------------------------------------------- #
-CHATBOT_TABLES: list[TableSpec] = [
+KNOWLEDGE_TABLES: list[TableSpec] = [
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="hiroba_category",
         columns=["id", "name"],
         order_by=["id"],
@@ -80,7 +80,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="hiroba_qa_original",
         # is_searchable は末尾に追加する（ADR-0092 / ADR-0094 決定4）。INSERT は列名を明示する
         # 形式のため、本変更前に取得した既存ダンプはそのまま投入でき、全レコードが true となる。
@@ -108,7 +108,7 @@ CHATBOT_TABLES: list[TableSpec] = [
     # tag.folder_id の参照先のため tag より前に置く。parent_folder_id は自己参照。
     # name の UNIQUE は撤廃済み（ADR-0073 決定1: name は表示用ラベルで重複可）。
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="tag_folder",
         columns=["id", "name", "description", "parent_folder_id", "display_order"],
         order_by=["id"],
@@ -123,7 +123,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="tag",
         columns=[
             "id",
@@ -146,7 +146,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="hiroba_question_altered",
         columns=["id", "qa_id", "text", "embedding", "is_primary", "is_searchable"],
         order_by=["id"],
@@ -163,7 +163,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="tag_alias",
         columns=["id", "tag_id", "alias"],
         order_by=["id"],
@@ -176,7 +176,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="hiroba_qa_tag",
         columns=["qa_id", "tag_id"],
         order_by=["qa_id", "tag_id"],
@@ -191,7 +191,7 @@ CHATBOT_TABLES: list[TableSpec] = [
     # トラブルシューティング記事（ADR-0076 / migrations 0009）。tag（共有タグマスタ）の後に置く。
     # troubleshooting_article_tag は troubleshooting_article と tag の両方を参照するため両者より後。
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="troubleshooting_article",
         columns=[
             "id",
@@ -246,7 +246,7 @@ CHATBOT_TABLES: list[TableSpec] = [
         ),
     ),
     TableSpec(
-        db="chatbot",
+        db="knowledge",
         name="troubleshooting_article_tag",
         columns=["article_id", "tag_id"],
         order_by=["article_id", "tag_id"],
@@ -308,7 +308,7 @@ CONVERSATION_TABLES: list[TableSpec] = [
         ),
     ),
     # 検証機能の4テーブル（migrations_conversation/0002・0003, ADR-0048/0051/0060）。
-    # tag_id / source_id は chatbot データベース側の値を参照するが、データベースを跨ぐ
+    # tag_id / source_id は ナレッジ データベース側の値を参照するが、データベースを跨ぐ
     # 外部キー制約は張らない（ADR-0048）。ADR-0066 で全データエクスポート／インポートの
     # 対象に追加した。
     TableSpec(

@@ -66,7 +66,7 @@ variable "admin_ui_port" {
   description = "admin_ui（web_backend）のコンテナポート"
 }
 
-# 会話評価用データベース名（ADR-0044 / IMPL-202608241104 T20, T29）。db_hiroba_qa_init の
+# 会話評価用データベース名（ADR-0044 / IMPL-202608241104 T20, T29）。db_init の
 # CONVERSATION_DB_NAME・database モジュールの接続 URL シークレット両方で使う。
 variable "conversation_db_name" {
   type        = string
@@ -108,16 +108,17 @@ variable "skip_final_snapshot" {
   default = true
 }
 
-# --- シード用イメージ（db-hiroba-qa-init）---
+# --- シード用イメージ（db-init）---
 variable "image_tag" {
   type    = string
   default = "latest"
 }
 
-# --- db_hiroba_qa_init のデータ・埋め込み関連（旧 verify から移設, §5.6）---
-# 注意: db_hiroba_qa_init の main.py は CSV_DATA_DIR="/" + os.environ["CSV_DATA_DIR"] と
+# --- db_init のデータ・埋め込み関連（旧 verify から移設, §5.6）---
+# 注意: db_init の main.py は CSV_DATA_DIR="/" + os.environ["CSV_DATA_DIR"] と
 # 先頭に "/" を付けるため、ここでは先頭スラッシュ無しの "data" を渡す（→ /data）。
 # シード元データは ADR-0034 によりイメージに /data として同梱済み。
+# 各ファイル名は /data からの相対パス（情報源別ディレクトリ, ADR-0098）。
 variable "csv_data_dir" {
   type    = string
   default = "data"
@@ -125,23 +126,23 @@ variable "csv_data_dir" {
 
 variable "qa_original_file" {
   type    = string
-  default = "exportjson_withguid_small.json"
+  default = "hiroba_qa/small/exportjson_withguid.json"
 }
 
 variable "question_altered_file" {
   type    = string
-  default = "question_altered_small.csv"
+  default = "hiroba_qa/small/question_altered.csv"
 }
 
 variable "category_file" {
   type    = string
-  default = "category.csv"
+  default = "hiroba_qa/category.csv"
 }
 
-# 埋め込み（ADR-0031, モデルIDは実装時に確定）。db_hiroba_qa_init のシード計算で使用。
+# 埋め込み（ADR-0031, モデルIDは実装時に確定）。db_init のシード計算で使用。
 variable "bedrock_embedding_model_id" {
   type        = string
-  description = "埋め込み用 Bedrock モデルID（db_hiroba_qa_init のシード計算）"
+  description = "埋め込み用 Bedrock モデルID（db_init のシード計算）"
 }
 
 variable "embedding_vector_dim" {

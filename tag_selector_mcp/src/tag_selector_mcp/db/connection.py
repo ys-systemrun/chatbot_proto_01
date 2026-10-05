@@ -1,4 +1,4 @@
-"""既存 chatbot_db への接続（既存 app/src/db.py・Knowledge MCP のDB接続部分に準拠）。
+"""既存 ナレッジ DB への接続（既存 app/src/db.py・Knowledge MCP のDB接続部分に準拠）。
 
 Knowledge MCP の db/connection.py と同一方針で、呼び出しの都度 psycopg2 コネクションを
 生成するファクトリを提供する。TagMetadataRepository はこの Database を DI で受け取り、

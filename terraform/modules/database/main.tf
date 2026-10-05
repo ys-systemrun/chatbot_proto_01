@@ -2,7 +2,7 @@
 # Amazon RDS for PostgreSQL（pgvector 拡張）。検証用途の最小構成。
 #
 # 認証情報の扱い:
-#   アプリ（knowledge_mcp / db_hiroba_qa_init）は DATABASE_URL を1本の接続文字列として要求する
+#   アプリ（knowledge_mcp / db_init）は DATABASE_URL を1本の接続文字列として要求する
 #   （アプリコード変更は本書スコープ外, §11）。RDS のマネージドマスターパスワード（JSON secret）は
 #   URL 文字列としては注入できないため、本モジュールでは random_password を生成し、その値から
 #   完全な DATABASE_URL を組み立てた独自の Secrets Manager シークレットを作成する。
@@ -50,18 +50,18 @@ variable "allocated_storage" {
   default = 20
 }
 
-variable "db_name" {
-  type    = string
+variable "knowledge_db_name" {
+  type = string
   # ADR-0069/0077: サポート知識基盤の実データベース名。ADR-0077 で複数データソース
   # （維津美の広場QA＋トラブルシューティング記事）を保持する実態に合わせ
-  # "db_chatbot_knowledge_base" へ再改名した（サーバ名 db_support_knowledge、
+  # "db_chatbot_knowledge_base" へ再改名した（サーバ名 knowledge_db、
   # ロール/シークレット/環境変数名 chatbot_*/CHATBOT_* は据え置き）。
   # 注意: この変更は RDS の初期データベース名の変更＝aws_db_instance の置換を伴う（ADR-0077 §7.2）。
   default = "db_chatbot_knowledge_base"
 }
 
 # 会話評価用データベース名（ADR-0044 / IMPL-202608241104 T20）。同一 RDS インスタンス上に
-# 別データベースとして作成する（db_hiroba_qa_init が CREATE DATABASE で作成, T16）。
+# 別データベースとして作成する（db_init が CREATE DATABASE で作成, T16）。
 variable "conversation_db_name" {
   type    = string
   default = "conversation"
@@ -118,7 +118,7 @@ resource "aws_db_instance" "this" {
   allocated_storage = var.allocated_storage
   storage_type      = "gp3"
 
-  db_name  = var.db_name
+  db_name  = var.knowledge_db_name
   username = var.master_username
   password = random_password.master.result
 
@@ -146,7 +146,7 @@ resource "aws_secretsmanager_secret_version" "db_url" {
     random_password.master.result,
     aws_db_instance.this.address,
     aws_db_instance.this.port,
-    var.db_name,
+    var.knowledge_db_name,
   )
 }
 
@@ -157,7 +157,7 @@ output "db_url_secret_arn" {
 
 # conversation データベースへの接続 URL シークレット（ADR-0044 / IMPL-202608241104 T21）。
 # ホスト・ポート・マスター認証情報は db_url と共通で、データベース名のみ conversation_db_name に
-# 置き換える。admin_ui の CONVERSATION_DB_URL / db_hiroba_qa_init の作成・スキーマ適用で参照する。
+# 置き換える。admin_ui の CONVERSATION_DB_URL / db_init の作成・スキーマ適用で参照する。
 resource "aws_secretsmanager_secret" "conversation_db_url" {
   name_prefix = "${var.name_prefix}-conversation-db-url-"
 }
@@ -183,14 +183,14 @@ output "conversation_db_url_secret_arn" {
 # エクスポート専用読み取りロール（ADR-0046 / IMPL-202608241600 T4〜T8）
 # ---------------------------------------------------------------------------
 # db_url（マスター権限）・conversation_db_url（マスター権限, conversation DB 向け）とは異なり、
-# chatbot_export_db_url は新規ロール（マスター権限ではない）を使う。ロール自体は RDS の
-# マスターパスワードではないため aws_db_instance 経由では設定できず、db_hiroba_qa_init が
+# knowledge_export_db_url は新規ロール（マスター権限ではない）を使う。ロール自体は RDS の
+# マスターパスワードではないため aws_db_instance 経由では設定できず、db_init が
 # SQL の CREATE ROLE ... PASSWORD で設定する。random_password を1個生成し、(a) 生パスワード
-# 専用シークレット（db_hiroba_qa_init が CREATE/ALTER ROLE に使う）と (b) 同じ値を埋め込んだ
+# 専用シークレット（db_init が CREATE/ALTER ROLE に使う）と (b) 同じ値を埋め込んだ
 # 完全な接続文字列シークレット（admin_ui が使う）の2つを作成する（0章）。
 variable "export_reader_username" {
   type    = string
-  default = "chatbot_export_reader"
+  default = "knowledge_export_reader"
 }
 
 resource "random_password" "export_reader" {
@@ -198,7 +198,7 @@ resource "random_password" "export_reader" {
   special = false # 接続 URL に入れるため記号を避け、URL エンコード不要にする
 }
 
-# db_hiroba_qa_init が CREATE ROLE / ALTER ROLE に使う生パスワード専用シークレット。
+# db_init が CREATE ROLE / ALTER ROLE に使う生パスワード専用シークレット。
 resource "aws_secretsmanager_secret" "export_reader_password" {
   name_prefix = "${var.name_prefix}-export-reader-password-"
 }
@@ -209,53 +209,53 @@ resource "aws_secretsmanager_secret_version" "export_reader_password" {
 }
 
 output "export_reader_password_secret_arn" {
-  description = "chatbot_export_reader ロールの生パスワードを持つシークレット ARN（db_init_task が参照）"
+  description = "knowledge_export_reader ロールの生パスワードを持つシークレット ARN（db_init_task が参照）"
   value       = aws_secretsmanager_secret.export_reader_password.arn
 }
 
-# admin_ui が使う、chatbot_export_reader ロールでの完全な接続文字列シークレット。
-resource "aws_secretsmanager_secret" "chatbot_export_db_url" {
-  name_prefix = "${var.name_prefix}-chatbot-export-db-url-"
+# admin_ui が使う、knowledge_export_reader ロールでの完全な接続文字列シークレット。
+resource "aws_secretsmanager_secret" "knowledge_export_db_url" {
+  name_prefix = "${var.name_prefix}-knowledge-export-db-url-"
 }
 
-resource "aws_secretsmanager_secret_version" "chatbot_export_db_url" {
-  secret_id = aws_secretsmanager_secret.chatbot_export_db_url.id
+resource "aws_secretsmanager_secret_version" "knowledge_export_db_url" {
+  secret_id = aws_secretsmanager_secret.knowledge_export_db_url.id
   secret_string = format(
     "postgresql://%s:%s@%s:%d/%s",
     var.export_reader_username,
     random_password.export_reader.result,
     aws_db_instance.this.address,
     aws_db_instance.this.port,
-    var.db_name,
+    var.knowledge_db_name,
   )
 }
 
-output "chatbot_export_db_url_secret_arn" {
-  description = "CHATBOT_EXPORT_DB_URL を1本の文字列として持つシークレット ARN（app 構成が参照, ADR-0046）"
-  value       = aws_secretsmanager_secret.chatbot_export_db_url.arn
+output "knowledge_export_db_url_secret_arn" {
+  description = "KNOWLEDGE_EXPORT_DB_URL を1本の文字列として持つシークレット ARN（app 構成が参照, ADR-0046）"
+  value       = aws_secretsmanager_secret.knowledge_export_db_url.arn
 }
 
 # ---------------------------------------------------------------------------
 # アプリ/マイグレーション用ロールの分離（ADR-0052 / IMPL-202608261022 T18）
 # ---------------------------------------------------------------------------
-# chatbot_export_reader（ADR-0046）と同一パターンで、4ロール分のパスワードを生成し
+# knowledge_export_reader（ADR-0046）と同一パターンで、4ロール分のパスワードを生成し
 # Secrets Manager に登録する。ロール自体は RDS のマスターパスワードではないため
-# aws_db_instance 経由では設定できず、db_hiroba_qa_init が SQL の CREATE ROLE ... PASSWORD で
-# 設定する（ensure_chatbot_roles() / ensure_conversation_roles()）。
-#   - migrator（chatbot_migrator / conversation_migrator）: 生パスワード専用シークレットのみ。
-#     db_hiroba_qa_init が CREATE/ALTER ROLE と migrate 接続文字列の組み立てに使う。
-#   - app（chatbot_app / conversation_app）: 生パスワード専用シークレット（db_hiroba_qa_init が
+# aws_db_instance 経由では設定できず、db_init が SQL の CREATE ROLE ... PASSWORD で
+# 設定する（ensure_knowledge_roles() / ensure_conversation_roles()）。
+#   - migrator（knowledge_migrator / conversation_migrator）: 生パスワード専用シークレットのみ。
+#     db_init が CREATE/ALTER ROLE と migrate 接続文字列の組み立てに使う。
+#   - app（knowledge_app / conversation_app）: 生パスワード専用シークレット（db_init が
 #     CREATE/ALTER ROLE に使う）に加え、同じ値を埋め込んだ完全な接続文字列シークレット
 #     （admin_ui / knowledge_mcp / tag_selector_mcp が DATABASE_URL / CONVERSATION_DB_URL に使う）
-#     の2つを作成する。DB 名は chatbot_app → var.db_name、conversation_app → var.conversation_db_name。
-variable "chatbot_migrator_username" {
+#     の2つを作成する。DB 名は knowledge_app → var.knowledge_db_name、conversation_app → var.conversation_db_name。
+variable "knowledge_migrator_username" {
   type    = string
-  default = "chatbot_migrator"
+  default = "knowledge_migrator"
 }
 
-variable "chatbot_app_username" {
+variable "knowledge_app_username" {
   type    = string
-  default = "chatbot_app"
+  default = "knowledge_app"
 }
 
 variable "conversation_migrator_username" {
@@ -268,65 +268,65 @@ variable "conversation_app_username" {
   default = "conversation_app"
 }
 
-# --- chatbot_migrator: 生パスワード専用シークレット ---
-resource "random_password" "chatbot_migrator" {
+# --- knowledge_migrator: 生パスワード専用シークレット ---
+resource "random_password" "knowledge_migrator" {
   length  = 24
   special = false # 接続 URL に入れるため記号を避け、URL エンコード不要にする
 }
 
-resource "aws_secretsmanager_secret" "chatbot_migrator_password" {
-  name_prefix = "${var.name_prefix}-chatbot-migrator-password-"
+resource "aws_secretsmanager_secret" "knowledge_migrator_password" {
+  name_prefix = "${var.name_prefix}-knowledge-migrator-password-"
 }
 
-resource "aws_secretsmanager_secret_version" "chatbot_migrator_password" {
-  secret_id     = aws_secretsmanager_secret.chatbot_migrator_password.id
-  secret_string = random_password.chatbot_migrator.result
+resource "aws_secretsmanager_secret_version" "knowledge_migrator_password" {
+  secret_id     = aws_secretsmanager_secret.knowledge_migrator_password.id
+  secret_string = random_password.knowledge_migrator.result
 }
 
-output "chatbot_migrator_password_secret_arn" {
-  description = "chatbot_migrator ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
-  value       = aws_secretsmanager_secret.chatbot_migrator_password.arn
+output "knowledge_migrator_password_secret_arn" {
+  description = "knowledge_migrator ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.knowledge_migrator_password.arn
 }
 
-# --- chatbot_app: 生パスワード専用シークレット + 完全な接続文字列シークレット ---
-resource "random_password" "chatbot_app" {
+# --- knowledge_app: 生パスワード専用シークレット + 完全な接続文字列シークレット ---
+resource "random_password" "knowledge_app" {
   length  = 24
   special = false
 }
 
-resource "aws_secretsmanager_secret" "chatbot_app_password" {
-  name_prefix = "${var.name_prefix}-chatbot-app-password-"
+resource "aws_secretsmanager_secret" "knowledge_app_password" {
+  name_prefix = "${var.name_prefix}-knowledge-app-password-"
 }
 
-resource "aws_secretsmanager_secret_version" "chatbot_app_password" {
-  secret_id     = aws_secretsmanager_secret.chatbot_app_password.id
-  secret_string = random_password.chatbot_app.result
+resource "aws_secretsmanager_secret_version" "knowledge_app_password" {
+  secret_id     = aws_secretsmanager_secret.knowledge_app_password.id
+  secret_string = random_password.knowledge_app.result
 }
 
-output "chatbot_app_password_secret_arn" {
-  description = "chatbot_app ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
-  value       = aws_secretsmanager_secret.chatbot_app_password.arn
+output "knowledge_app_password_secret_arn" {
+  description = "knowledge_app ロールの生パスワードを持つシークレット ARN（db_init_task が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.knowledge_app_password.arn
 }
 
-resource "aws_secretsmanager_secret" "chatbot_app_db_url" {
-  name_prefix = "${var.name_prefix}-chatbot-app-db-url-"
+resource "aws_secretsmanager_secret" "knowledge_app_db_url" {
+  name_prefix = "${var.name_prefix}-knowledge-app-db-url-"
 }
 
-resource "aws_secretsmanager_secret_version" "chatbot_app_db_url" {
-  secret_id = aws_secretsmanager_secret.chatbot_app_db_url.id
+resource "aws_secretsmanager_secret_version" "knowledge_app_db_url" {
+  secret_id = aws_secretsmanager_secret.knowledge_app_db_url.id
   secret_string = format(
     "postgresql://%s:%s@%s:%d/%s",
-    var.chatbot_app_username,
-    random_password.chatbot_app.result,
+    var.knowledge_app_username,
+    random_password.knowledge_app.result,
     aws_db_instance.this.address,
     aws_db_instance.this.port,
-    var.db_name,
+    var.knowledge_db_name,
   )
 }
 
-output "chatbot_app_db_url_secret_arn" {
-  description = "chatbot_app ロールでの DATABASE_URL を持つシークレット ARN（admin_ui/knowledge_mcp/tag_selector_mcp が参照, ADR-0052）"
-  value       = aws_secretsmanager_secret.chatbot_app_db_url.arn
+output "knowledge_app_db_url_secret_arn" {
+  description = "knowledge_app ロールでの DATABASE_URL を持つシークレット ARN（admin_ui/knowledge_mcp/tag_selector_mcp が参照, ADR-0052）"
+  value       = aws_secretsmanager_secret.knowledge_app_db_url.arn
 }
 
 # --- conversation_migrator: 生パスワード専用シークレット ---
@@ -398,6 +398,6 @@ output "port" {
   value = aws_db_instance.this.port
 }
 
-output "db_name" {
-  value = var.db_name
+output "knowledge_db_name" {
+  value = var.knowledge_db_name
 }

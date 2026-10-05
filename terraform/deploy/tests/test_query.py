@@ -22,7 +22,7 @@ def _dummy_cfg():
 def _output_raw(_cwd, name):
     return {
         "sg_verification_task_id": "sg-1",
-        "db_init_task_family": "db-hiroba-qa-init",
+        "db_init_task_family": "db-init",
         "cluster_name": "prefix-cluster",
     }[name]
 
@@ -73,15 +73,15 @@ def test_query_sets_query_mode_override_and_confirms(monkeypatch, tmp_path):
     _wire_common(monkeypatch, calls)
     sql = _write_sql(tmp_path, "SELECT 1;")
 
-    commands.cmd_query(target="chatbot", sql_file=sql)
+    commands.cmd_query(target="knowledge", sql_file=sql)
 
     # confirm_typed（対象DB名）→ run（QUERY_MODE=true）→ logs 取得の順。
     names = [c[0] for c in calls]
     assert names == ["confirm", "run", "logs"]
-    assert calls[0] == ("confirm", "chatbot")
+    assert calls[0] == ("confirm", "knowledge")
     run = calls[1]
-    assert run[1] == "true" and run[2] == "chatbot" and run[3] == "SELECT 1;"
-    assert calls[2][1] == "/ecs/db-hiroba-qa-init"
+    assert run[1] == "true" and run[2] == "knowledge" and run[3] == "SELECT 1;"
+    assert calls[2][1] == "/ecs/db-init"
 
 
 def test_query_target_both(monkeypatch, tmp_path):
@@ -102,7 +102,7 @@ def test_query_raises_on_nonzero_exit(monkeypatch, tmp_path):
     sql = _write_sql(tmp_path)
 
     with pytest.raises(commands.DeployError):
-        commands.cmd_query(target="chatbot", sql_file=sql)
+        commands.cmd_query(target="knowledge", sql_file=sql)
 
 
 def test_query_invalid_target(monkeypatch, tmp_path):
@@ -116,11 +116,11 @@ def test_query_missing_file(monkeypatch, tmp_path):
     calls = []
     _wire_common(monkeypatch, calls)
     with pytest.raises(commands.DeployError):
-        commands.cmd_query(target="chatbot", sql_file=str(tmp_path / "nope.sql"))
+        commands.cmd_query(target="knowledge", sql_file=str(tmp_path / "nope.sql"))
 
 
 def test_query_empty_file(monkeypatch, tmp_path):
     calls = []
     _wire_common(monkeypatch, calls)
     with pytest.raises(commands.DeployError):
-        commands.cmd_query(target="chatbot", sql_file=_write_sql(tmp_path, "   \n"))
+        commands.cmd_query(target="knowledge", sql_file=_write_sql(tmp_path, "   \n"))

@@ -7,7 +7,7 @@ QA_ORIGINAL_FILE（exportjson_withguid.json 等）を読み込み、以下を投
      (b) guid とタグ名から tag.id を引き当て、qa_tag(qa_id, tag_id) へ INSERT ... ON CONFLICT DO NOTHING。
 
 - 冪等（何度実行しても同じ結果。ON CONFLICT DO NOTHING を活用）。存在チェックではなく
-  「未設定の行のみ」を対象にするため、db_hiroba_qa_init のシードフローで毎回安全に呼べる。
+  「未設定の行のみ」を対象にするため、db_init のシードフローで毎回安全に呼べる。
 - 現行の exportjson_withguid.json にはレコード単位の "tags" フィールドが無いため、
   実運用ではタグ投入は 0 件となる（title のみ補完される）。将来 JSON にタグが付与された場合、
   レコードの "tags"（配列）または "tag" を自動的に取り込む。

@@ -94,7 +94,7 @@ def run_import_task(
     container_name: str,
     environment: dict,
 ) -> str:
-    """db_hiroba_qa_init を IMPORT_MODE の environment オーバーライドで一時起動する（ADR-0066）。
+    """db_init を IMPORT_MODE の environment オーバーライドで一時起動する（ADR-0066）。
 
     既定 CMD（python src/main.py）はそのまま使い、environment だけを上書きして
     全データインポート（全消去→上書き）バッチを走らせる。

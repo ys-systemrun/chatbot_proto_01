@@ -1,5 +1,5 @@
 # db-init-task モジュール（IMPL-202608101542 §5.6, ADR-0030）
-# db_hiroba_qa_init の ECS タスク定義のみ。常駐サービスは作らない。
+# db_init の ECS タスク定義のみ。常駐サービスは作らない。
 # 実行は Phase 4 で `aws ecs run-task` を都度呼び出す（§8.1）。
 
 terraform {
@@ -13,7 +13,7 @@ terraform {
 
 variable "family" {
   type    = string
-  default = "db-hiroba-qa-init"
+  default = "db-init"
 }
 
 variable "region" {

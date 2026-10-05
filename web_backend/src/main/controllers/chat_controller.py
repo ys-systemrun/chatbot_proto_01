@@ -54,7 +54,7 @@ def _summarize_oldest(
 
 
 def ask(req: Request) -> Response:
-    """LM Studio と chatbot データベースを直接使って1ターン分の応答を返す。"""
+    """LM Studio と ナレッジ データベースを直接使って1ターン分の応答を返す。"""
     conversation_id = req.conversation_id or str(uuid.uuid4())
     messages = list(req.messages)
     summary = req.summary

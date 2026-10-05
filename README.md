@@ -1,45 +1,49 @@
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
-2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。`DB_DIR` に対応した `EMBEDDING_VECTOR_DIM`（`db_nomic` なら 768、`db_multilingual` なら 384）を必ず設定してください。
-3. `docker compose up` を実行してください。スキーマ作成（マイグレーション）と初期データ投入（シード、embedding計算を含む）は、専用のワンショットサービス `db_hiroba_qa_init` が自動的に実行します（IMPL-202608061016 / ADR-0016〜0018）。手動でのシーディング操作は不要です。既存データが投入済みの場合は、テーブル単位の存在チェックにより自動的にスキップされます。
+2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。埋め込みモデルの出力次元に合わせた `EMBEDDING_VECTOR_DIM`（nomic-embed-text なら 768）を必ず設定してください。
+3. `docker compose up` を実行してください。スキーマ作成（マイグレーション）と初期データ投入（シード、embedding計算を含む）は、専用のワンショットサービス `db_init` が自動的に実行します（IMPL-202608061016 / ADR-0016〜0018）。手動でのシーディング操作は不要です。既存データが投入済みの場合は、テーブル単位の存在チェックにより自動的にスキップされます。
 
-> **注意**: シードは `question_altered` の各行について LM Studio の embedding エンドポイントを呼び出します。`docker compose up` の前に LM Studio を起動し、embedding 用モデルをロードしておいてください。未起動のままだと `db_hiroba_qa_init` がシードに失敗し（非0終了）、これに依存する `web_backend` / `knowledge_mcp` / `tag_selector_mcp` は起動しません。ログは `docker compose logs db_hiroba_qa_init` で確認できます。
+> **注意**: シードは `question_altered` の各行について LM Studio の embedding エンドポイントを呼び出します。`docker compose up` の前に LM Studio を起動し、embedding 用モデルをロードしておいてください。未起動のままだと `db_init` がシードに失敗し（非0終了）、これに依存する `web_backend` / `knowledge_mcp` / `tag_selector_mcp` は起動しません。ログは `docker compose logs db_init` で確認できます。
+
+#### ADR-0098（命名整理）適用前のローカルボリュームからの移行
+
+ローカル DB のデータ置き場は `db_nomic/data`・`db_conversation/data` から `.local/volumes/knowledge_db`・`.local/volumes/conversation_db` に移りました（ADR-0098）。DB ロール名も `chatbot_*` → `knowledge_*` に変わったため、旧ボリュームはそのまま使わず、**新しい空のボリュームで起動してからエクスポートダンプ（`knowledge.sql` / `conversation.sql`）を再インポート**してください。旧ボリュームは確認後に手動で削除して構いません。
 
 #### 既存環境（手動 migration 適用済みボリューム）からの移行
 
-既に旧方式（`db_nomic/init.sql` ＋ `knowledge_mcp/migrations/` 等の手動適用）でスキーマを構築済みの既存 `db_nomic/data` を使う場合、`db_hiroba_qa_init` の全マイグレーションSQLは `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` でガードされているため、**そのまま `docker compose up` しても既存テーブル・列に対して無害に完了します**（未追跡のマイグレーションを yoyo が再実行しても、実体は作成済みのためスキップと同義）。
+既に旧方式（`db_nomic/init.sql` ＋ `knowledge_mcp/migrations/` 等の手動適用）でスキーマを構築済みの既存 `db_nomic/data` を使う場合、`db_init` の全マイグレーションSQLは `IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` でガードされているため、**そのまま `docker compose up` しても既存テーブル・列に対して無害に完了します**（未追跡のマイグレーションを yoyo が再実行しても、実体は作成済みのためスキップと同義）。
 
 マイグレーションを「適用済み」として yoyo の追跡テーブルに明示登録（ベースライン化）したい場合は、`yoyo mark` を利用できます。
 
 ```bash
 # 実行前に LM Studio 等は不要（マイグレーション履歴の登録のみ）。既存の全ステップを適用済みとして記録する。
-docker compose run --rm db_hiroba_qa_init \
-  yoyo mark --batch --database "postgresql://postgres:postgres@db_support_knowledge:5432/db_chatbot_knowledge_base" ./migrations
+docker compose run --rm db_init \
+  yoyo mark --batch --database "postgresql://postgres:postgres@knowledge_db:5432/db_chatbot_knowledge_base" ./migrations
 ```
 
 #### DBロール分離に伴う接続情報の変更点（IMPL-202608261022 / ADR-0052）
 
-`chatbot` / `conversation` の両データベースは、用途別ロール（`migrator` / `app`）に分離されました。開発者は今後、単一の `postgres` マスターユーザーではなく、`chatbot_app` / `chatbot_migrator`（および `conversation_app` / `conversation_migrator`）の資格情報を意識する必要があります。
+`knowledge`（実DB名 `db_chatbot_knowledge_base`）/ `conversation` の両データベースは、用途別ロール（`migrator` / `app`）に分離されました。開発者は今後、単一の `postgres` マスターユーザーではなく、`knowledge_app` / `knowledge_migrator`（および `conversation_app` / `conversation_migrator`）の資格情報を意識する必要があります。
 
-- アプリケーション（`web_backend` / `knowledge_mcp` / `tag_selector_mcp`）は `chatbot_app` ロールで `chatbot` DB に接続します。`web_backend` の会話DBは `conversation_app` ロールで接続します。`app` ロールは DML（SELECT/INSERT/UPDATE/DELETE）権限のみを持ち、DDL 権限を持ちません。
-- ロールの作成・スキーマのマイグレーションを行うのは `db_hiroba_qa_init` サービスのみです（`migrator` ／マスター権限で実行）。
+- アプリケーション（`web_backend` / `knowledge_mcp` / `tag_selector_mcp`）は `knowledge_app` ロールでナレッジ DB に接続します。`web_backend` の会話DBは `conversation_app` ロールで接続します。`app` ロールは DML（SELECT/INSERT/UPDATE/DELETE）権限のみを持ち、DDL 権限を持ちません。
+- ロールの作成・スキーマのマイグレーションを行うのは `db_init` サービスのみです（`migrator` ／マスター権限で実行）。
 
 ローカルの `docker compose` 環境では、各ロールのパスワードを `.env` で固定値指定できます（未指定時は下表の既定値が使われます）。AWS 環境では Terraform / Secrets Manager から注入されます。
 
 | 環境変数 | 対象ロール | 既定値 |
 |---|---|---|
-| `CHATBOT_MIGRATOR_PASSWORD` | `chatbot_migrator` | `chatbot_migrator_pw` |
-| `CHATBOT_APP_PASSWORD` | `chatbot_app` | `chatbot_app_pw` |
+| `KNOWLEDGE_MIGRATOR_PASSWORD` | `knowledge_migrator` | `knowledge_migrator_pw` |
+| `KNOWLEDGE_APP_PASSWORD` | `knowledge_app` | `knowledge_app_pw` |
 | `CONVERSATION_MIGRATOR_PASSWORD` | `conversation_migrator` | `conversation_migrator_pw` |
 | `CONVERSATION_APP_PASSWORD` | `conversation_app` | `conversation_app_pw` |
 
 #### conversation データベースのベースライン化（IMPL-202608261022 / ADR-0051）
 
-本実装で、`conversation` データベースのスキーマ適用が `init.sql` の直書きから yoyo マイグレーション（`db_hiroba_qa_init/migrations_conversation/`）へ移行しました。既存ボリューム（`conversation` / `message` の2テーブル、検証機能実装後は `verification_*` 系4テーブルも含む計6テーブルが既に存在する環境）を使う場合は、上の `chatbot` 向け `yoyo mark` と同様に、`conversation` データベース側も既存テーブルを「適用済み」として yoyo の追跡テーブルに登録します。
+本実装で、`conversation` データベースのスキーマ適用が `init.sql` の直書きから yoyo マイグレーション（`db_init/migrations_conversation/`）へ移行しました。既存ボリューム（`conversation` / `message` の2テーブル、検証機能実装後は `verification_*` 系4テーブルも含む計6テーブルが既に存在する環境）を使う場合は、上の `knowledge` 向け `yoyo mark` と同様に、`conversation` データベース側も既存テーブルを「適用済み」として yoyo の追跡テーブルに登録します。
 
 ```bash
 # conversation データベースの既存テーブルを適用済みとしてyoyoの追跡テーブルに登録する
-yoyo mark --batch --database "postgresql://conversation_migrator:<password>@localhost:5433/conversation" ./db_hiroba_qa_init/migrations_conversation
+yoyo mark --batch --database "postgresql://conversation_migrator:<password>@localhost:5433/conversation" ./db_init/migrations_conversation
 ```
 
 > ローカルの `conversation_db` は既定でホスト `5433` ポート（`.env` の `CONVERSATION_DB_PORT` で変更可）。コンテナ間で実行する場合はホスト名・ポートを `conversation_db:5432` に読み替えてください。`<password>` は `CONVERSATION_MIGRATOR_PASSWORD`（既定 `conversation_migrator_pw`）を指定します。
@@ -51,12 +55,11 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 | BOT_PORT | 8000 | FastAPI がリクエストを受け付けるポート |
 | FRONT_PORT | 5173 | デバッグ UI (Vite dev server) の対ホストポート |
 | DB_PORT | 5432 | Q&Aおよび埋め込みベクトルデータを保存するPostgreSQL DBコンテナの対ホストポート |
-| DB_DIR | db_nomic | DBとして使うディレクトリ。 ./{DB_DIR}/data 下には PostgreSQL のデータクラスタが構築される（永続化ボリューム）。 |
-| EMBEDDING_VECTOR_DIM | 768 | `db_hiroba_qa_init` が `question_altered.embedding` を `VECTOR(N)` で作成する際の次元数。`DB_DIR` に対応させる（`db_nomic`→768, `db_multilingual`→384）。埋め込みモデル差異はこの1変数で吸収し、スキーマは単一のマイグレーション履歴で管理する（ADR-0017）。 |
-| CSV_DATA_DIR | data | 読み込むデータ内容を記述したCSVファイルやJSONファイルを配置したディレクトリ。 |
-| QA_ORIGINAL_FILE | exportjson_withguid_small.json | オリジナルの質問・回答の組データのJSONファイル。(GUIDを付与したもの) |
-| QUESTION_ALTERED_FILE | question_altered_small.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
-| CATEGORY_FILE | category.csv | 問い合わせを分類するカテゴリとそのコード値を記載したファイル。 |
+| EMBEDDING_VECTOR_DIM | 768 | `db_init` が `question_altered.embedding` を `VECTOR(N)` で作成する際の次元数。埋め込みモデルの出力次元に合わせる（nomic-embed-text→768）。次元を変える場合は `.local/volumes/knowledge_db` を作り直す。埋め込みモデル差異はこの1変数で吸収し、スキーマは単一のマイグレーション履歴で管理する（ADR-0017）。 |
+| CSV_DATA_DIR | data | コンテナ内のデータディレクトリ（`/data`）。`db_init` には `db_init/data/`（情報源別ディレクトリ, ADR-0098）、`web_backend` にはリポジトリ直下の `data/`（評価用CSV）がマウントされる。 |
+| QA_ORIGINAL_FILE | hiroba_qa/small/exportjson_withguid.json | オリジナルの質問・回答の組データのJSONファイル。(GUIDを付与したもの) |
+| QUESTION_ALTERED_FILE | hiroba_qa/small/question_altered.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
+| CATEGORY_FILE | hiroba_qa/category.csv | 問い合わせを分類するカテゴリとそのコード値を記載したファイル。 |
 | MODEL_EMBEDDING | text-embedding-nomic-embed-text-v1.5@q8_0 | embedding用のモデル名 |
 | LMSTUDIO_EMBDDING_URL | http://host.docker.internal:1234/v1/embeddings | LM Studio 上の embedding用のモデルのエンドポイント |
 | MODEL_CHAT | google/gemma-4-e4b | チャット作成用のモデル名 |
@@ -65,7 +68,7 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 
 ## 全データインポート（別環境への投入 / 同一環境への再投入）
 
-全データエクスポート機能で取得した `chatbot.sql` / `conversation.sql` を別環境へ投入する運用手順です。AWS 環境では **バッチ自動実行（`import-data.bat`, ADR-0066）を第一手段**とし、手動の ECS Exec 手順（ADR-0055）はバッチが失敗したときの障害切り分け・手動リカバリ手段として併存させます。
+全データエクスポート機能で取得した `knowledge.sql` / `conversation.sql` を別環境へ投入する運用手順です。AWS 環境では **バッチ自動実行（`import-data.bat`, ADR-0066）を第一手段**とし、手動の ECS Exec 手順（ADR-0055）はバッチが失敗したときの障害切り分け・手動リカバリ手段として併存させます。
 
 > **前提**（ADR-0066 で更新）:
 > - 既存データがある環境にも投入できます（**全消去→上書き**方式）。バッチ方式は全消去の直前に既存データを **自動でバックアップ**（S3 の `rollback/` プレフィックス）してから実行します。
@@ -73,7 +76,7 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 > - 全消去→上書きは不可逆操作のため、バッチ実行時は **対象クラスタ名のタイプ確認** を必須とします（ADR-0066 §6）。
 > - 実行中は対象データベースへ直接接続するサービス（`web_backend`(=`admin_ui`)・`knowledge_mcp`・`tag_selector_mcp`）を停止します。バッチ方式はこの停止・再開も内包します（ADR-0066 §8）。
 > - ブラウザUIは提供しません。運用者による CLI ／一時タスク実行のみです（発注者確認#6）。
-> - 対象テーブルは全データエクスポート機能と同一（`chatbot` 6テーブル・`conversation` 6テーブルの計12テーブル）。バックアップ・全消去・再投入をこの集合で一致させます（ADR-0066 §4）。
+> - 対象テーブルは全データエクスポート機能と同一（`knowledge` 6テーブル・`conversation` 6テーブルの計12テーブル）。バックアップ・全消去・再投入をこの集合で一致させます（ADR-0066 §4）。
 
 ### バッチ自動実行（AWS, 推奨 / ADR-0066）
 
@@ -81,25 +84,25 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 
 ```bat
 rem 1. エクスポート成果物を terraform\ 配下に置く（既定のファイル名）
-rem      terraform\chatbot.sql
+rem      terraform\knowledge.sql
 rem      terraform\conversation.sql
 
 rem 2. バッチを実行（ダブルクリック = 両データベース）
 terraform\import-data.bat
-rem   一方のみ: terraform\import-data.bat --target chatbot
+rem   一方のみ: terraform\import-data.bat --target knowledge
 rem            terraform\import-data.bat --target conversation
-rem   別パス指定: terraform\import-data.bat --chatbot-sql path\to\chatbot.sql
+rem   別パス指定: terraform\import-data.bat --knowledge-sql path\to\knowledge.sql
 ```
 
 実行時、対象クラスタ名の入力を求められます（誤操作防止のタイプ確認, §6）。正しく入力すると次を自動実行します。
 
 - 投入ダンプを `s3://<import-bucket>/import/<db>.sql` へアップロード（§7）
 - 対象サービスを `desired_count=0` に変更しタスク停止を待機（停止前の値を記録, §8）
-- `db_hiroba_qa_init` を `IMPORT_MODE` で run-task 起動 → `STOPPED` まで待機 → `exitCode=0` を確認（§1）
+- `db_init` を `IMPORT_MODE` で run-task 起動 → `STOPPED` まで待機 → `exitCode=0` を確認（§1）
   - コンテナ内: 消去対象データを `s3://<import-bucket>/rollback/<db>/<時刻>/<db>.sql` へ退避（§5）→ 対象テーブルを `TRUNCATE ... RESTART IDENTITY CASCADE` → 投入ダンプを同一トランザクションで適用（§4）
 - 対象サービスを停止前の `desired_count` へ戻し安定化を待機（成功・失敗どちらでも再開, §8）
 
-`<import-bucket>` は `terraform apply`（`apply-database`）が作成する専用バケット（`<name_prefix>-import-<account-id>-<region>`）です。運用者による事前の S3 準備・`aws s3 cp`・サービス停止/再開は不要です。異常終了した場合は、退避バックアップ（`rollback/`）と CloudWatch Logs `/ecs/db-hiroba-qa-init` を確認し、必要に応じて下記の手動手順（ECS Exec）で切り分けます。
+`<import-bucket>` は `terraform apply`（`apply-database`）が作成する専用バケット（`<name_prefix>-import-<account-id>-<region>`）です。運用者による事前の S3 準備・`aws s3 cp`・サービス停止/再開は不要です。異常終了した場合は、退避バックアップ（`rollback/`）と CloudWatch Logs `/ecs/db-init` を確認し、必要に応じて下記の手動手順（ECS Exec）で切り分けます。
 
 > **退避バックアップの運用ルール**（保持期間・世代管理）は別途定めてください（ADR-0066 結果・影響）。バケットはバージョニング有効です。
 >
@@ -116,7 +119,7 @@ rem   別パス指定: terraform\import-data.bat --chatbot-sql path\to\chatbot.s
 docker compose stop web_backend knowledge_mcp tag_selector_mcp agent_invitro
 
 # 2. 新規（空の）DBへSQLダンプを投入する（既存データがある状態は非対応）
-docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_chatbot_knowledge_base < chatbot.sql
+docker compose exec -T knowledge_db psql -U knowledge_migrator -d db_chatbot_knowledge_base < knowledge.sql
 docker compose exec -T conversation_db psql -U conversation_migrator -d conversation < conversation.sql
 
 # 3. サービスを再開する
@@ -126,17 +129,17 @@ docker compose start web_backend knowledge_mcp tag_selector_mcp agent_invitro
 > **PowerShell（Windows）での注意**: PowerShell では `<`（入力リダイレクト）が使えません。手順2は `Get-Content` からのパイプに置き換えてください。CP932 環境での文字化けを避けるため、SQLダンプが UTF-8 の場合は `-Encoding utf8` を明示するのが安全です。
 >
 > ```powershell
-> Get-Content -Encoding utf8 chatbot.sql | docker compose exec -T db_support_knowledge psql -U chatbot_migrator -d db_chatbot_knowledge_base
+> Get-Content -Encoding utf8 knowledge.sql | docker compose exec -T knowledge_db psql -U knowledge_migrator -d db_chatbot_knowledge_base
 > Get-Content -Encoding utf8 conversation.sql | docker compose exec -T conversation_db psql -U conversation_migrator -d conversation
 > ```
 
 #### AWS 環境（ECS Exec）
 
-バッチ方式（上記）が失敗したときの手動リカバリ手段です。常駐サービスや ALB エンドポイントを新設せず、既存の `db_hiroba_qa_init` タスク定義を一時的に起動して ECS Exec（`aws ecs execute-command`、ADR-0029 と同様の実行形態）で接続し、コンテナ内から対象 RDS へ `psql` でダンプを投入します（ADR-0055/0066 §2）。SQL ファイルの受け渡しは **S3 経由**で行います。
+バッチ方式（上記）が失敗したときの手動リカバリ手段です。常駐サービスや ALB エンドポイントを新設せず、既存の `db_init` タスク定義を一時的に起動して ECS Exec（`aws ecs execute-command`、ADR-0029 と同様の実行形態）で接続し、コンテナ内から対象 RDS へ `psql` でダンプを投入します（ADR-0055/0066 §2）。SQL ファイルの受け渡しは **S3 経由**で行います。
 
 > **前提（ADR-0066 で反映済み）**: 本手順が使う次の 2 点は、バッチ方式の実装（ADR-0066）と併せて反映済みです。
 >
-> 1. **`psql` / `aws` CLI の同梱**: `db_hiroba_qa_init/Dockerfile` に `postgresql-client`・`awscli` を同梱済みです（ECS Exec 内で `psql` / `aws s3 cp` が使えます）。
+> 1. **`psql` / `aws` CLI の同梱**: `db_init/Dockerfile` に `postgresql-client`・`awscli` を同梱済みです（ECS Exec 内で `psql` / `aws s3 cp` が使えます）。
 > 2. **S3 権限**: `terraform/modules/db-init-task` の task role に、import バケットへの `s3:GetObject` / `s3:PutObject` / `s3:ListBucket` を付与済みです（`import_bucket_arn` に限定）。
 >
 > ECS Exec 用の SSM 権限（`ssmmessages:*`）も task role に付与済みです。`run-task` 時に `--enable-execute-command` を付ければそのまま接続できます。`<import-bucket>` は `apply-database` が作成する専用バケット（`<name_prefix>-import-<account-id>-<region>`）です。
@@ -149,7 +152,7 @@ docker compose start web_backend knowledge_mcp tag_selector_mcp agent_invitro
 #    SUBNETS / SG / TD … database 構成 output（private_subnet_ids / sg_verification_task_id / db_init_task_family）
 
 # 1. エクスポート成果物を S3 にアップロード（運用者が用意した投入用バケットへ）
-aws s3 cp chatbot.sql      s3://<import-bucket>/import/chatbot.sql      --region <region>
+aws s3 cp knowledge.sql      s3://<import-bucket>/import/knowledge.sql      --region <region>
 aws s3 cp conversation.sql s3://<import-bucket>/import/conversation.sql --region <region>
 
 # 2. メンテナンス時間帯: 対象サービスを停止する（desired_count=0, 発注者確認#10）
@@ -159,34 +162,34 @@ done
 aws ecs wait services-stable --cluster $CLUSTER \
   --services admin_ui knowledge_mcp tag_selector_mcp agent_invitro --region <region>
 
-# 3. db_hiroba_qa_init タスクを「シード実行させず」一時起動する。
+# 3. db_init タスクを「シード実行させず」一時起動する。
 #    既定 CMD（python src/main.py = マイグレーション+シード）を sleep で上書きし、ECS Exec 用に待機させる。
 aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
   --task-definition $TD --enable-execute-command \
-  --overrides '{"containerOverrides":[{"name":"db-hiroba-qa-init","command":["sleep","3600"]}]}' \
+  --overrides '{"containerOverrides":[{"name":"db-init","command":["sleep","3600"]}]}' \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}" \
   --region <region>
 #   → 起動した <task-arn> を控える（describe-tasks で RUNNING を確認してから次へ）
 
 # 4. ECS Exec でコンテナ内シェルに接続する
 aws ecs execute-command --cluster $CLUSTER --task <task-arn> \
-  --container db-hiroba-qa-init --command "/bin/sh" --interactive --region <region>
+  --container db-init --command "/bin/sh" --interactive --region <region>
 ```
 
-コンテナ内シェルに入ったら、S3 からダンプを取得して新規（空の）DB へ投入します。接続情報はタスクへ注入済みの環境変数（`DATABASE_URL` = chatbot、`CONVERSATION_DB_URL` = conversation）を利用します。
+コンテナ内シェルに入ったら、S3 からダンプを取得して新規（空の）DB へ投入します。接続情報はタスクへ注入済みの環境変数（`DATABASE_URL` = knowledge、`CONVERSATION_DB_URL` = conversation）を利用します。
 
 ```sh
 # --- ECS Exec で入ったコンテナ内 ---
-aws s3 cp s3://<import-bucket>/import/chatbot.sql      /tmp/chatbot.sql
+aws s3 cp s3://<import-bucket>/import/knowledge.sql      /tmp/knowledge.sql
 aws s3 cp s3://<import-bucket>/import/conversation.sql /tmp/conversation.sql
 
 # 既存データがある場合は、投入前に対象テーブルを手動で全消去する（バッチ方式の TRUNCATE 相当）。
-#   例（chatbot）: psql "$DATABASE_URL" -c 'TRUNCATE hiroba_category, hiroba_qa_original, tag, hiroba_question_altered, tag_alias, hiroba_qa_tag RESTART IDENTITY CASCADE;'
+#   例（knowledge）: psql "$DATABASE_URL" -c 'TRUNCATE hiroba_category, hiroba_qa_original, tag, hiroba_question_altered, tag_alias, hiroba_qa_tag RESTART IDENTITY CASCADE;'
 #   例（conversation）: psql "$CONVERSATION_DB_URL" -c 'TRUNCATE conversation, message, verification_question, verification_run, verification_run_tag, verification_run_source RESTART IDENTITY CASCADE;'
 # 全消去の前に、必要ならエクスポート機能で退避バックアップを取得しておくこと（誤操作時の復旧手段, ADR-0066 §5）。
 
 # ダンプを投入する（空DB へはそのまま、既存データありなら上記 TRUNCATE 後に）
-psql "$DATABASE_URL"        -v ON_ERROR_STOP=1 -f /tmp/chatbot.sql
+psql "$DATABASE_URL"        -v ON_ERROR_STOP=1 -f /tmp/knowledge.sql
 psql "$CONVERSATION_DB_URL" -v ON_ERROR_STOP=1 -f /tmp/conversation.sql
 exit
 ```
@@ -203,7 +206,7 @@ for svc in admin_ui knowledge_mcp tag_selector_mcp agent_invitro; do
 done
 
 # 7. 後始末: S3 に置いた一時ダンプを削除する
-aws s3 rm s3://<import-bucket>/import/chatbot.sql      --region <region>
+aws s3 rm s3://<import-bucket>/import/knowledge.sql      --region <region>
 aws s3 rm s3://<import-bucket>/import/conversation.sql --region <region>
 ```
 
@@ -238,7 +241,7 @@ build.bat
 docker compose up -d --build
 ```
 
-3 つのコンテナ（`chatbot_db` → `chatbot_app` → `chatbot_frontend`）が順に起動します。  
+3 つのコンテナ（`chatbot_knowledge_db` → `chatbot_app` → `chatbot_frontend`）が順に起動します。  
 初回は `npm install` を含むビルドが走るため数分かかります。
 
 起動状況は以下で確認できます。
@@ -365,9 +368,9 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 
 ### 事前準備（DBスキーマ移行）
 
-`title` 列・`tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
+`title` 列・`tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
 
-> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_hiroba_qa_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
+> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
 
 ### 起動
 
@@ -400,7 +403,7 @@ curl -f http://localhost:${KNOWLEDGE_MCP_PORT:-8100}/health
 
 ### 事前準備（DBスキーマ移行・暫定シード）
 
-`tag.description` 列・`tag_alias` テーブルの作成、および動作確認用の暫定 description / alias 投入は、`db_hiroba_qa_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用・暫定シードスクリプトの手動実行は不要になりました。旧 `tag_selector_mcp/migrations/` の内容は `db_hiroba_qa_init/migrations/0005_add_tag_description_and_alias.sql` および `db_hiroba_qa_init` のシード処理へ統合済みです。
+`tag.description` 列・`tag_alias` テーブルの作成、および動作確認用の暫定 description / alias 投入は、`db_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用・暫定シードスクリプトの手動実行は不要になりました。旧 `tag_selector_mcp/migrations/` の内容は `db_init/migrations/0005_add_tag_description_and_alias.sql` および `db_init` のシード処理へ統合済みです。
 
 > 注: この暫定 description / alias は MVP 動作確認用のデータです。本番運用向けの網羅的な整備は Knowledge MCP 側のタグ管理ツール拡張後に別途行います（Open Issue #2）。
 
@@ -431,7 +434,7 @@ curl -f http://localhost:${TAG_SELECTOR_MCP_PORT:-8200}/health
 
 ## QA・タグ管理 UI（front_dev / web_backend 拡張）
 
-`front_dev` の `/admin` 配下に、QAデータとタグ階層を登録・編集するための管理画面を追加しました（IMPL-202608060837 / ADR-0013〜0015）。`web_backend` が MCP クライアントとして Knowledge MCP のツールを呼び出す BFF（`/api/*`）を提供し、`chatbot_db` への直接書き込みは行いません。
+`front_dev` の `/admin` 配下に、QAデータとタグ階層を登録・編集するための管理画面を追加しました（IMPL-202608060837 / ADR-0013〜0015）。`web_backend` が MCP クライアントとして Knowledge MCP のツールを呼び出す BFF（`/api/*`）を提供し、ナレッジ DB への直接書き込みは行いません。
 
 - 画面（`react-router-dom` を `/admin` 配下のみで使用。既存3画面の分岐方式は不変）:
   - `http://localhost:5173/admin/qa` … QA一覧（キーワード・カテゴリ・タグで絞り込み、ページング）
@@ -445,7 +448,7 @@ curl -f http://localhost:${TAG_SELECTOR_MCP_PORT:-8200}/health
 
 ### 事前準備
 
-Knowledge MCP サーバ（上記）が起動していることが前提です。`question_altered.is_primary` 列を含むスキーマ移行は `db_hiroba_qa_init` が自動適用します（IMPL-202608061016）。`web_backend` は `KNOWLEDGE_MCP_URL` で Knowledge MCP へ接続します。
+Knowledge MCP サーバ（上記）が起動していることが前提です。`question_altered.is_primary` 列を含むスキーマ移行は `db_init` が自動適用します（IMPL-202608061016）。`web_backend` は `KNOWLEDGE_MCP_URL` で Knowledge MCP へ接続します。
 
 `.env` 設定項目（`.env.example` 参照）:
 

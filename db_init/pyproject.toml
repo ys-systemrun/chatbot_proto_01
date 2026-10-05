@@ -1,5 +1,5 @@
 [project]
-name = "db_hiroba_qa_init"
+name = "db_init"
 version = "0.1.0"
 description = "One-shot DB migration & seed service for chatbot_invitro (IMPL-202608061016)"
 requires-python = ">=3.11"

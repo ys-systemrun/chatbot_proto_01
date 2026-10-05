@@ -17,7 +17,7 @@ def tf_root() -> Path:
 
 
 def repo_root() -> Path:
-    # docker build コンテキスト（db_hiroba_qa_init / knowledge_mcp 等）は terraform/ の親に置かれている。
+    # docker build コンテキスト（db_init / knowledge_mcp 等）は terraform/ の親に置かれている。
     return tf_root().parent
 
 

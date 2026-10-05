@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import psycopg2
 
 from src.export import dump, tables, zipper
-from src.export.tables import CHATBOT_TABLES, CONVERSATION_TABLES
+from src.export.tables import KNOWLEDGE_TABLES, CONVERSATION_TABLES
 from src.log import log_export
 from src.main import config
 
@@ -22,7 +22,7 @@ from src.main import config
 def _timestamp() -> str:
     """ファイル名のタイムスタンプ（Asia/Tokyo, YYYYMMDDHHmmss）。
 
-    db_hiroba_qa_init のログ出力（_now, Asia/Tokyo）に合わせる（Open Issue #5）。
+    db_init のログ出力（_now, Asia/Tokyo）に合わせる（Open Issue #5）。
     """
     return datetime.now(ZoneInfo("Asia/Tokyo")).strftime("%Y%m%d%H%M%S")
 
@@ -30,9 +30,9 @@ def _timestamp() -> str:
 def _build_csv_files() -> dict[str, bytes]:
     """CSV 形式: 12テーブルそれぞれを "{table}.csv" として束ねる（embedding は除外, ADR-0066）。"""
     files: dict[str, bytes] = {}
-    with closing(psycopg2.connect(config.CHATBOT_EXPORT_DB_URL)) as chatbot_conn:
-        for spec in CHATBOT_TABLES:
-            files[f"{spec.name}.csv"] = dump.fetch_table_csv(chatbot_conn, spec)
+    with closing(psycopg2.connect(config.KNOWLEDGE_EXPORT_DB_URL)) as knowledge_conn:
+        for spec in KNOWLEDGE_TABLES:
+            files[f"{spec.name}.csv"] = dump.fetch_table_csv(knowledge_conn, spec)
     with closing(psycopg2.connect(config.CONVERSATION_DB_URL)) as conv_conn:
         for spec in CONVERSATION_TABLES:
             files[f"{spec.name}.csv"] = dump.fetch_table_csv(conv_conn, spec)
@@ -40,17 +40,17 @@ def _build_csv_files() -> dict[str, bytes]:
 
 
 def _build_sql_files() -> dict[str, bytes]:
-    """SQL 形式: データベースごとに "chatbot.sql" / "conversation.sql" の2ファイルを束ねる。"""
+    """SQL 形式: データベースごとに "knowledge.sql" / "conversation.sql" の2ファイルを束ねる。"""
     files: dict[str, bytes] = {}
 
-    with closing(psycopg2.connect(config.CHATBOT_EXPORT_DB_URL)) as chatbot_conn:
+    with closing(psycopg2.connect(config.KNOWLEDGE_EXPORT_DB_URL)) as knowledge_conn:
         embedding_dim = dump.detect_vector_dim(
-            chatbot_conn, "hiroba_question_altered", "embedding"
+            knowledge_conn, "hiroba_question_altered", "embedding"
         )
-        parts = [tables.CHATBOT_SQL_HEADER]
-        for spec in CHATBOT_TABLES:
-            parts.append(dump.fetch_table_sql(chatbot_conn, spec, embedding_dim))
-        files["chatbot.sql"] = "\n".join(parts).encode("utf-8")
+        parts = [tables.KNOWLEDGE_SQL_HEADER]
+        for spec in KNOWLEDGE_TABLES:
+            parts.append(dump.fetch_table_sql(knowledge_conn, spec, embedding_dim))
+        files["knowledge.sql"] = "\n".join(parts).encode("utf-8")
 
     with closing(psycopg2.connect(config.CONVERSATION_DB_URL)) as conv_conn:
         parts = []

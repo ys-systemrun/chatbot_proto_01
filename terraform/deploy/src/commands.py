@@ -209,16 +209,16 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
     log.step("database 構成 init（S3 バックエンド）")
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_database)
 
-    log.step("ECR リポジトリ作成（db-hiroba-qa-init）")
+    log.step("ECR リポジトリ作成（db-init）")
     tf.apply(d, targets=["module.ecr"], what="ECR apply")
     repos = tf.output_json(d, "ecr_repository_urls")
-    registry = repos["db-hiroba-qa-init"].split("/")[0]
+    registry = repos["db-init"].split("/")[0]
 
-    log.step("Docker イメージ build / push（db-hiroba-qa-init）")
+    log.step("Docker イメージ build / push（db-init）")
     log.info(f"ECR ログイン: {registry}")
     dockercli.login(registry, cfg.aws_region)
-    image = f"{repos['db-hiroba-qa-init']}:{image_tag}"
-    dockercli.build_and_push(paths.repo_root() / "db_hiroba_qa_init", image, "db_hiroba_qa_init", "db-hiroba-qa-init")
+    image = f"{repos['db-init']}:{image_tag}"
+    dockercli.build_and_push(paths.repo_root() / "db_init", image, "db_init", "db-init")
     log.ok("シード用イメージ push 完了")
 
     log.step("database 構成 apply（RDS / ネットワーク / シードタスク定義）")
@@ -226,7 +226,7 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
 
     log.step("database 構成 apply 完了")
     _info_output(d, "rds_endpoint", "RDS    ")
-    _info_output(d, "db_name", "DB name")
+    _info_output(d, "knowledge_db_name", "DB name")
     log.info("次: apply-app（アプリ層）→ seed（データ投入）の順で実行します。")
 
 
@@ -305,7 +305,7 @@ def _run_db_init_task(cfg: config.Config, *, migrate_only: bool, label: str) -> 
     """db_init_task_family を run-task 起動し exitCode=0 まで待つ共通処理（seed / migrate 共用）。
 
     migrate_only=True のとき、run-task に MIGRATE_ONLY=true の environment オーバーライドを付与して
-    起動し、db_hiroba_qa_init のシード投入（手順3）のみをスキップさせる（ADR-0075）。それ以外の
+    起動し、db_init のシード投入（手順3）のみをスキップさせる（ADR-0075）。それ以外の
     処理（両構成 apply 済み確認・output 取得・run-task・STOPPED 待機・exitCode 確認）は seed と同一。
     IMPORT_MODE と同型の environment オーバーライド機構（run_import_task, ADR-0066）を再利用する。
     """
@@ -368,7 +368,7 @@ def cmd_seed(assume_yes: bool = False, skip_seed: bool = False) -> None:
 
 
 def cmd_migrate() -> None:
-    """マイグレーション専用モードで db_hiroba_qa_init の run-task を起動する（ADR-0075）。
+    """マイグレーション専用モードで db_init の run-task を起動する（ADR-0075）。
 
     cmd_seed(skip_seed=True) と同一結果（MIGRATE_ONLY=true）。シード投入（embedding 計算を伴いうる
     手順3）を除外し、両データベースのロール作成・マイグレーション適用・権限付与・エクスポート専用
@@ -383,26 +383,26 @@ def cmd_migrate() -> None:
 # 全データインポート（ADR-0066）: 停止すべきサービスは、ADR-0095 で常駐4サービスを1タスクに集約した
 # ため、対象データベースによらず集約サービス1つ（app 構成の output app_service_name）になる。
 # agent_invitro も一緒に止まるが、インポート中はチャットも使えないため実害はない（ADR-0095 決定4）。
-_IMPORT_DUMP_DEFAULT = {"chatbot": "chatbot.sql", "conversation": "conversation.sql"}
+_IMPORT_DUMP_DEFAULT = {"knowledge": "knowledge.sql", "conversation": "conversation.sql"}
 
 
 def _import_labels(target: str) -> list[str]:
     if target == "both":
-        return ["chatbot", "conversation"]
-    if target in ("chatbot", "conversation"):
+        return ["knowledge", "conversation"]
+    if target in ("knowledge", "conversation"):
         return [target]
-    raise DeployError(f"--target は chatbot / conversation / both のいずれか（指定: {target!r}）。")
+    raise DeployError(f"--target は knowledge / conversation / both のいずれか（指定: {target!r}）。")
 
 
 def cmd_import_data(
     target: str = "both",
-    chatbot_sql: str | None = None,
+    knowledge_sql: str | None = None,
     conversation_sql: str | None = None,
     assume_yes: bool = False,
 ) -> None:
     """全データインポート（全消去→上書き）バッチ（ADR-0066）。
 
-    ローカルの SQL ダンプを S3 へアップロード → 対象サービス停止 → db_hiroba_qa_init を
+    ローカルの SQL ダンプを S3 へアップロード → 対象サービス停止 → db_init を
     IMPORT_MODE で run-task（事前バックアップ→全消去→上書き投入）→ 完了後サービス再開。
     破壊的操作のため、実行前に対象クラスタ名のタイプ確認を必須とする（§6）。
     """
@@ -418,7 +418,7 @@ def cmd_import_data(
 
     # 投入ダンプ（ローカルファイル）の解決・存在確認。
     dump_paths: dict[str, str] = {}
-    overrides = {"chatbot": chatbot_sql, "conversation": conversation_sql}
+    overrides = {"knowledge": knowledge_sql, "conversation": conversation_sql}
     for label in labels:
         path = overrides[label] or _IMPORT_DUMP_DEFAULT[label]
         if not os.path.isfile(path):
@@ -540,10 +540,10 @@ def _print_sql_preview(sql_text: str) -> None:
     log.info("------------------------------")
 
 
-def cmd_query(target: str = "chatbot", sql_file: str | None = None) -> None:
+def cmd_query(target: str = "knowledge", sql_file: str | None = None) -> None:
     """アドホック SQL 実行（ADR-0083, QUERY_MODE）。
 
-    ローカルの terraform/query.sql（--sql-file で上書き可）を読み込み、db_hiroba_qa_init を
+    ローカルの terraform/query.sql（--sql-file で上書き可）を読み込み、db_init を
     QUERY_MODE の environment オーバーライドで run-task 起動する。タスク終了後、CloudWatch Logs から
     標準出力（SELECT 結果を含む）を取得して表示し、exitCode を確認する。query.sql には破壊的 SQL が
     書かれうるため、実行前に対象データベース名のタイプ確認を必須とする（--yes バイパスなし, §4）。
@@ -552,8 +552,8 @@ def cmd_query(target: str = "chatbot", sql_file: str | None = None) -> None:
     prerequisites(cfg)
     region = cfg.aws_region
 
-    if target not in ("chatbot", "conversation", "both"):
-        raise DeployError(f"--target は chatbot / conversation / both のいずれか（指定: {target!r}）。")
+    if target not in ("knowledge", "conversation", "both"):
+        raise DeployError(f"--target は knowledge / conversation / both のいずれか（指定: {target!r}）。")
 
     # query.sql（アドホックな実行内容, Git 管理外）の解決・読み込み。
     sql_path = sql_file or "query.sql"

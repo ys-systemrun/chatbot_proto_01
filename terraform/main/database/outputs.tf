@@ -23,7 +23,7 @@ output "sg_app_task_id" {
 }
 
 output "sg_verification_task_id" {
-  description = "run-task（db_hiroba_qa_init / mcp-inspector）の securityGroups に使う"
+  description = "run-task（db_init / mcp-inspector）の securityGroups に使う"
   value       = module.network.sg_verification_task_id
 }
 
@@ -50,22 +50,22 @@ output "conversation_db_url_secret_arn" {
   value       = module.database.conversation_db_url_secret_arn
 }
 
-# ADR-0046 / IMPL-202608241600 T11: admin_ui の CHATBOT_EXPORT_DB_URL に注入する。
-# app 構成が terraform_remote_state 経由で local.db.chatbot_export_db_url_secret_arn として参照する。
-output "chatbot_export_db_url_secret_arn" {
-  description = "CHATBOT_EXPORT_DB_URL を1本の文字列として持つシークレット ARN（app 構成が参照, ADR-0046）"
-  value       = module.database.chatbot_export_db_url_secret_arn
+# ADR-0046 / IMPL-202608241600 T11: admin_ui の KNOWLEDGE_EXPORT_DB_URL に注入する。
+# app 構成が terraform_remote_state 経由で local.db.knowledge_export_db_url_secret_arn として参照する。
+output "knowledge_export_db_url_secret_arn" {
+  description = "KNOWLEDGE_EXPORT_DB_URL を1本の文字列として持つシークレット ARN（app 構成が参照, ADR-0046）"
+  value       = module.database.knowledge_export_db_url_secret_arn
 }
 
 # ADR-0052 / IMPL-202608261022 T19: アプリ用ロール（_app）の接続文字列シークレットを app 構成へ渡す。
-# chatbot_app は knowledge_mcp / tag_selector_mcp の DATABASE_URL、conversation_app は
+# knowledge_app は knowledge_mcp / tag_selector_mcp の DATABASE_URL、conversation_app は
 # admin_ui の CONVERSATION_DB_URL に注入する。app 構成が terraform_remote_state 経由で
-# local.db.chatbot_app_db_url_secret_arn / local.db.conversation_app_db_url_secret_arn として参照する。
+# local.db.knowledge_app_db_url_secret_arn / local.db.conversation_app_db_url_secret_arn として参照する。
 # migrator/app の生パスワードシークレットは db_init_task が同一 root 内で直接参照するため再エクスポートしない
 # （export_reader_password_secret_arn と同じ扱い）。
-output "chatbot_app_db_url_secret_arn" {
-  description = "chatbot_app ロールでの DATABASE_URL を持つシークレット ARN（app 構成が参照, ADR-0052）"
-  value       = module.database.chatbot_app_db_url_secret_arn
+output "knowledge_app_db_url_secret_arn" {
+  description = "knowledge_app ロールでの DATABASE_URL を持つシークレット ARN（app 構成が参照, ADR-0052）"
+  value       = module.database.knowledge_app_db_url_secret_arn
 }
 
 output "conversation_app_db_url_secret_arn" {
@@ -81,8 +81,8 @@ output "rds_port" {
   value = module.database.port
 }
 
-output "db_name" {
-  value = module.database.db_name
+output "knowledge_db_name" {
+  value = module.database.knowledge_db_name
 }
 
 output "db_init_task_family" {
@@ -98,6 +98,6 @@ output "import_bucket_name" {
 }
 
 output "ecr_repository_urls" {
-  description = "シード用 ECR リポジトリ（db-hiroba-qa-init のみ）のマップ"
+  description = "シード用 ECR リポジトリ（db-init のみ）のマップ"
   value       = module.ecr.repository_urls
 }

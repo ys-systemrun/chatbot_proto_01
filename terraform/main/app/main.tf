@@ -17,7 +17,7 @@ data "terraform_remote_state" "database" {
 locals {
   db = data.terraform_remote_state.database.outputs
 
-  # app 構成が push 先とする ECR リポジトリ（db-hiroba-qa-init は database 構成へ移設済み, §5.3）。
+  # app 構成が push 先とする ECR リポジトリ（db-init は database 構成へ移設済み, §5.3）。
   # admin-ui（管理UI, IMPL-202608211050 T14）を追加。
   repo_names = ["knowledge-mcp", "tag-selector-mcp", "agent-invitro", "mcp-inspector", "admin-ui"]
 
@@ -98,9 +98,9 @@ module "app" {
         TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD = "0.0"
       }
       # ロール分離（ADR-0052 / IMPL-202608261022 T19）: マスター権限の db_url ではなく DML 専用の
-      # chatbot_app ロール接続文字列を使う。tag_selector_mcp はタグ台帳の読み取りのみ。
+      # knowledge_app ロール接続文字列を使う。tag_selector_mcp はタグ台帳の読み取りのみ。
       secrets = {
-        DATABASE_URL = local.db.chatbot_app_db_url_secret_arn
+        DATABASE_URL = local.db.knowledge_app_db_url_secret_arn
       }
       health_check_command = ["CMD", "curl", "-f", "http://localhost:${local.tag_selector_port}/health"]
     }
@@ -119,9 +119,9 @@ module "app" {
         # SEARCH_CANDIDATE_POOL_SIZE は未設定のままとし、アプリケーション側の既定計算式に委ねる
         # （5.1節、max(top_k * 10, 50)）。値を固定したくなった場合のみ追加する。
       }
-      # ロール分離（ADR-0052 / IMPL-202608261022 T19）: DML 専用の chatbot_app ロール接続文字列。
+      # ロール分離（ADR-0052 / IMPL-202608261022 T19）: DML 専用の knowledge_app ロール接続文字列。
       secrets = {
-        DATABASE_URL = local.db.chatbot_app_db_url_secret_arn
+        DATABASE_URL = local.db.knowledge_app_db_url_secret_arn
       }
       health_check_command = ["CMD", "curl", "-f", "http://localhost:${local.knowledge_port}/health"]
     }
@@ -172,12 +172,12 @@ module "app" {
         VERIFICATION_MIN_SCORE            = "0.0"
       }
       # 資格情報スコープの徹底（ADR-0045 / ADR-0095 決定5）: conversation 用とエクスポート読み取り用のみ。
-      # マスター権限・chatbot_app の DATABASE_URL は注入しない。
+      # マスター権限・knowledge_app の DATABASE_URL は注入しない。
       secrets = {
         # ロール分離（ADR-0052）: DML 専用の conversation_app ロール接続文字列。
         CONVERSATION_DB_URL = local.db.conversation_app_db_url_secret_arn
-        # 全データエクスポート（/api/export）用の読み取り専用ロール chatbot_export_reader（ADR-0046）。
-        CHATBOT_EXPORT_DB_URL = local.db.chatbot_export_db_url_secret_arn
+        # 全データエクスポート（/api/export）用の読み取り専用ロール knowledge_export_reader（ADR-0046）。
+        KNOWLEDGE_EXPORT_DB_URL = local.db.knowledge_export_db_url_secret_arn
       }
       # ALB ヘルスチェック（/health）でタスク健全性を判定するため、コンテナ healthCheck は付けない
       # （python:3.11 ベースイメージに curl を前提しない, 10章）。

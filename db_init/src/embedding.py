@@ -4,7 +4,7 @@ provider に応じて接続先を切り替える（IMPL-202608101616 4.3 / ADR-0
 - "lmstudio"（既定）: LM Studio の OpenAI 互換 /v1/embeddings エンドポイント。
 - "bedrock": Amazon Bedrock InvokeModel API（boto3）。
 
-knowledge_mcp 側（4.2）と同等の分岐を db_hiroba_qa_init 独自の実装として複製する
+knowledge_mcp 側（4.2）と同等の分岐を db_init 独自の実装として複製する
 （コード共有はしない、ADR-0016〜0018 の方針を踏襲）。
 web_backend 側はチャット機能（/ask のクエリ embedding 計算）で同等の関数を
 引き続き保持する（要件定義書10章）。

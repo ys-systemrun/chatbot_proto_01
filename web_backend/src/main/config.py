@@ -13,11 +13,11 @@ from pathlib import Path
 DATABASE_URL = os.environ.get("DATABASE_URL", "")
 CONVERSATION_DB_URL = os.environ.get("CONVERSATION_DB_URL", "")
 
-# 全データエクスポート機能（/api/export）が chatbot データベースを読むための接続文字列
-# （ADR-0046 / IMPL-202608241600 T14）。AWS 環境では読み取り専用ロール chatbot_export_reader の
+# 全データエクスポート機能（/api/export）が ナレッジ データベースを読むための接続文字列
+# （ADR-0046 / IMPL-202608241600 T14）。AWS 環境では読み取り専用ロール knowledge_export_reader の
 # 接続文字列が Terraform secrets 経由で注入される。ローカル docker-compose では未設定のままとし、
-# 追加設定なしで動作させるため既存の DATABASE_URL（chatbot データベース）にフォールバックする。
-CHATBOT_EXPORT_DB_URL = os.environ.get("CHATBOT_EXPORT_DB_URL") or DATABASE_URL
+# 追加設定なしで動作させるため既存の DATABASE_URL（ナレッジ データベース）にフォールバックする。
+KNOWLEDGE_EXPORT_DB_URL = os.environ.get("KNOWLEDGE_EXPORT_DB_URL") or DATABASE_URL
 LMSTUDIO_CHAT_URL = os.environ.get("LMSTUDIO_CHAT_URL", "")
 MODEL_CHAT = os.environ.get("MODEL_CHAT", "")
 EMBEDDING_URL = os.environ.get("LMSTUDIO_EMBEDDING_URL", "")

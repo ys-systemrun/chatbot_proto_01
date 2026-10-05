@@ -299,7 +299,7 @@ class QaManagementRepository:
           → qa_original
         の順に削除し、孤立行（qa_id が存在しない question_altered）が残らないようにする。
 
-        検証実行履歴（verification_run_source）・会話ログへの参照は、chatbot と
+        検証実行履歴（verification_run_source）・会話ログへの参照は、knowledge と
         conversation データベース間に外部キー制約がないため（ADR-0048）カスケードしない。
         削除後もこれらの参照は残存し得る（利用者への告知は front_dev の確認ダイアログで行う）。
         """

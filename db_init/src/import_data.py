@@ -1,6 +1,6 @@
 """全データインポート（全消去→上書き）バッチ処理（ADR-0066）。
 
-db_hiroba_qa_init を IMPORT_MODE で起動したときに実行される破壊的な処理。通常の
+db_init を IMPORT_MODE で起動したときに実行される破壊的な処理。通常の
 マイグレーション・冪等シード（ADR-0018）とは性質が正反対（全消去・要確認）のため、
 main.py の起動モード分岐で明確に分離する。
 
@@ -10,7 +10,7 @@ main.py の起動モード分岐で明確に分離する。
   2. 全消去（§4）: 対象テーブルを 1 トランザクション内で TRUNCATE ... RESTART IDENTITY
      CASCADE する。
   3. 上書き投入（§4/§7）: S3 の import プレフィックスから取得した SQL ダンプ（エクスポート
-     機能が生成した chatbot.sql / conversation.sql）を同一トランザクションで適用する。
+     機能が生成した knowledge.sql / conversation.sql）を同一トランザクションで適用する。
      ダンプの CREATE EXTENSION / CREATE TABLE IF NOT EXISTS は既存スキーマに対して素通りし、
      テーブル定義は変更しない（本方式はエクスポート元と投入先が同一スキーマ状態であることを前提）。
 
@@ -34,8 +34,8 @@ from psycopg2 import sql
 INSERT_BATCH_SIZE = 500
 
 # 対象テーブル（親→子の順。FK 制約を満たす INSERT 順序。TRUNCATE は CASCADE で順不同可）。
-# web_backend/src/export/tables.py の CHATBOT_TABLES / CONVERSATION_TABLES と一致させる（ADR-0066）。
-CHATBOT_TABLES = [
+# web_backend/src/export/tables.py の KNOWLEDGE_TABLES / CONVERSATION_TABLES と一致させる（ADR-0066）。
+KNOWLEDGE_TABLES = [
     "hiroba_category",
     "hiroba_qa_original",
     "tag_folder",  # ADR-0072/0077: tag.folder_id の参照先のため tag より前
@@ -57,7 +57,7 @@ CONVERSATION_TABLES = [
     "verification_run_source",
 ]
 
-VALID_TARGETS = ("chatbot", "conversation", "both")
+VALID_TARGETS = ("knowledge", "conversation", "both")
 
 
 def _now() -> datetime:
@@ -75,12 +75,12 @@ def parse_targets(target: str) -> list[str]:
             f"IMPORT_TARGET は {VALID_TARGETS} のいずれかである必要があります: {target!r}"
         )
     if target == "both":
-        return ["chatbot", "conversation"]
+        return ["knowledge", "conversation"]
     return [target]
 
 
 def tables_for(label: str) -> list[str]:
-    return CHATBOT_TABLES if label == "chatbot" else CONVERSATION_TABLES
+    return KNOWLEDGE_TABLES if label == "knowledge" else CONVERSATION_TABLES
 
 
 # ---------------------------------------------------------------------------
@@ -256,7 +256,7 @@ def upload_backup(s3, bucket: str, key: str, body: str) -> None:
 def run_import(
     *,
     target: str,
-    chatbot_url: str,
+    knowledge_url: str,
     conversation_url: str,
     bucket: str,
     import_prefix: str = "import",
@@ -266,15 +266,15 @@ def run_import(
 ) -> None:
     """全データインポート（全消去→上書き）を実行する（ADR-0066）。
 
-    - target: "chatbot" / "conversation" / "both"
-    - chatbot_url / conversation_url: 各データベースへの作業接続（migrator ロール推奨, §末尾）。
+    - target: "knowledge" / "conversation" / "both"
+    - knowledge_url / conversation_url: 各データベースへの作業接続（migrator ロール推奨, §末尾）。
     - bucket: import/ ・ rollback/ を置く S3 バケット名。
     - import_prefix: 投入元ダンプの S3 プレフィックス（<prefix>/<label>.sql）。
     - rollback_prefix: 退避先の S3 プレフィックス（<prefix>/<label>/<ts>/<label>.sql）。
     """
     labels = parse_targets(target)
     ts = timestamp or _now().strftime("%Y%m%d%H%M%S")
-    urls = {"chatbot": chatbot_url, "conversation": conversation_url}
+    urls = {"knowledge": knowledge_url, "conversation": conversation_url}
     s3 = _s3_client(region)
 
     print(f"{_now()} ====== IMPORT MODE start (target={target}, bucket={bucket}, ts={ts}).")

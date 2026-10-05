@@ -1,6 +1,6 @@
 """管理UI向け /api/troubleshooting_articles のレスポンス生成ロジック（ADR-0079 / REQ 9章）。
 
-qa_controller と同様、すべて Knowledge MCP のツール経由で処理し、chatbot_db への直接書き込みは
+qa_controller と同様、すべて Knowledge MCP のツール経由で処理し、ナレッジ DB への直接書き込みは
 行わない。一覧・詳細・更新（構造化フィールド編集＋タグ付け）のみを提供する。新規作成・削除は
 初期スコープ外（ADR-0079 決定3。新規追加は HTML インポート処理が唯一の経路）。
 """

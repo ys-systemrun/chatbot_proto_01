@@ -274,7 +274,7 @@ def _build_article(
 def fetch_existing_state(conn) -> dict:
     """既存レコードの {(source_key, title): embedding_is_null(bool)} を返す。
 
-    embedding_is_null=True の行は、ダンプ再インポート（chatbot.sql には embedding を
+    embedding_is_null=True の行は、ダンプ再インポート（knowledge.sql には embedding を
     含めない）直後などで embedding 未計算の状態。次回シードで埋め込みをバックフィルする。
     """
     with conn.cursor() as cur:

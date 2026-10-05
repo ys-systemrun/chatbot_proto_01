@@ -1,7 +1,7 @@
 """管理UI向け /api/hiroba_question_altered のレスポンス生成ロジック（IMPL-202608281100 / ADR-0064）。
 
 言い換え行（is_primary=false）を対象とした一覧・詳細・新規作成・編集・削除・CSV一括インポート・
-CSVエクスポートを、すべて Knowledge MCP のツール経由で処理する（chatbot_db への直接アクセスなし、
+CSVエクスポートを、すべて Knowledge MCP のツール経由で処理する（ナレッジ DB への直接アクセスなし、
 ADR-0013）。既存 qa_controller / tag_controller と同様、薄い BFF 層に留める。
 """
 

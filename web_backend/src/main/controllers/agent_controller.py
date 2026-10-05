@@ -8,7 +8,7 @@
 - `ask_agentic()`  … agent_invitro の `POST /ask-agentic`（Agentic 探索ループ, ADR-0088）へ中継
 
 リクエスト・レスポンスのスキーマは両者で完全に同一で、中継先パスだけが異なる。
-本モジュールは LLM 呼び出し・`chatbot` データベースへのクエリを一切行わない（ADR-0045 決定1）。
+本モジュールは LLM 呼び出し・`knowledge` データベースへのクエリを一切行わない（ADR-0045 決定1）。
 """
 
 import httpx

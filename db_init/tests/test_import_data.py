@@ -15,8 +15,8 @@ import import_data
 
 
 def test_parse_targets():
-    assert import_data.parse_targets("both") == ["chatbot", "conversation"]
-    assert import_data.parse_targets("chatbot") == ["chatbot"]
+    assert import_data.parse_targets("both") == ["knowledge", "conversation"]
+    assert import_data.parse_targets("knowledge") == ["knowledge"]
     assert import_data.parse_targets("conversation") == ["conversation"]
     with pytest.raises(ValueError):
         import_data.parse_targets("nope")
@@ -25,7 +25,7 @@ def test_parse_targets():
 def test_tables_for_covers_chatbot_tables():
     # ADR-0072/0077: tag_folder を追加（tag.folder_id の参照先のため tag より前）。
     # ADR-0076: troubleshooting_article / troubleshooting_article_tag を末尾に追加。
-    assert import_data.tables_for("chatbot") == [
+    assert import_data.tables_for("knowledge") == [
         "hiroba_category",
         "hiroba_qa_original",
         "tag_folder",

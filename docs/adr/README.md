@@ -99,6 +99,8 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0093](./0093-is-searchable-admin-ui-toggle.md) | 検索対象フラグの切り替え方式（専用ツール・専用エンドポイントを新設せず既存の部分更新を使用、一覧は楽観的更新による即時保存、編集ページはフォーム保存、一覧に3値の絞り込み） | Accepted |
 | [0094](./0094-is-searchable-csv-column-addition.md) | CSV一括インポート／エクスポートへのis_searchable列追加（省略時は「新規はtrue・既存は変更なし」、タグCSVは対象外） | Accepted |
 | [0095](./0095-verification-env-cost-reduction-single-task-single-az-endpoints.md) | 検証環境のコスト削減（常駐4サービスを1タスク・4コンテナへ集約、Interface VPCエンドポイントとECSタスクを単一AZに限定） | Accepted |
+| [0097](./0097-knowledge-data-versioning-with-dvc-pull-before-build.md) | ナレッジデータのバージョン管理にDVC（S3リモート）を導入し、イメージビルド前の`dvc pull`で同梱する（ADR-0034の同梱方針は維持） | Proposed |
+| [0098](./0098-naming-reorganization-db-init-and-knowledge-identifiers.md) | 環境destroyを機にした命名の全面整理（`db_hiroba_qa_init`→`db_init`、ナレッジDB系識別子の`chatbot`→`knowledge`統一、シード元データの情報源別ディレクトリ化、ローカルボリューム再配置。ADR-0069/0077の命名方針を一部上書き） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

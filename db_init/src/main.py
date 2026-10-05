@@ -1,11 +1,11 @@
-"""db_hiroba_qa_init エントリポイント（IMPL-202608061016、IMPL-202608261022 で拡張）。
+"""db_init エントリポイント（IMPL-202608061016、IMPL-202608261022 で拡張）。
 
 処理順序:
-  1. chatbot ロール分離: migrator / app ロールを作成（マスター接続, ADR-0052）。
-  2. chatbot マイグレーション適用（yoyo, migrator 接続, ADR-0017）。
-  3. chatbot シード（hiroba_category / hiroba_qa_original / hiroba_question_altered / backfill / tag 説明 /
+  1. knowledge ロール分離: migrator / app ロールを作成（マスター接続, ADR-0052）。
+  2. knowledge マイグレーション適用（yoyo, migrator 接続, ADR-0017）。
+  3. knowledge シード（hiroba_category / hiroba_qa_original / hiroba_question_altered / backfill / tag 説明 /
      トラブルシューティング記事 HTML インポート, migrator 接続）。
-  4. chatbot app ロールへ DML 権限を付与（全テーブル作成後, マスター接続）。
+  4. knowledge app ロールへ DML 権限を付与（全テーブル作成後, マスター接続）。
   5. conversation データベースの作成（AWS のみ）→ ロール作成 → yoyo マイグレーション → app 権限付与。
   6. エクスポート専用読み取りロールの作成（AWS のみ, ADR-0046）。
 
@@ -22,12 +22,12 @@
 
 実行モード（environment オーバーライドで切替, ADR-0066/0075）:
   - 通常起動（未設定）: 上記6ステップを全て実行する。
-  - MIGRATE_ONLY=true（ADR-0075）: 手順3（chatbot シード投入）のみをスキップし、それ以外の
+  - MIGRATE_ONLY=true（ADR-0075）: 手順3（knowledge シード投入）のみをスキップし、それ以外の
     手順1・2・4・5・6は通常どおり実行する。スキーマ変更のみを反映したいとき（データ投入は後日
     import-data で行う）に使う。非破壊的。
   - IMPORT_MODE=true（ADR-0066）: 通常フローを実行せず、全消去→上書き投入バッチのみを実行する。
   - QUERY_MODE=true（ADR-0083）: 通常フローを実行せず、QUERY_SQL に渡されたアドホック SQL を
-    QUERY_TARGET_DB（chatbot / conversation / both）へマスター接続で1トランザクション実行する。
+    QUERY_TARGET_DB（knowledge / conversation / both）へマスター接続で1トランザクション実行する。
     SELECT 結果（最終文のみ）または影響行数を標準出力へ出力する。
 """
 
@@ -64,17 +64,17 @@ DATABASE_URL = os.environ["DATABASE_URL"]
 CONVERSATION_DB_NAME = os.environ.get("CONVERSATION_DB_NAME", "conversation")
 CONVERSATION_DB_URL = os.environ.get("CONVERSATION_DB_URL", "")
 # エクスポート専用読み取りロール（ADR-0046 / IMPL-202608241600 T1）。
-CHATBOT_DB_NAME = os.environ.get("CHATBOT_DB_NAME", "db_chatbot_knowledge_base")
-EXPORT_READER_ROLE_NAME = os.environ.get("EXPORT_READER_ROLE_NAME", "chatbot_export_reader")
+KNOWLEDGE_DB_NAME = os.environ.get("KNOWLEDGE_DB_NAME", "db_chatbot_knowledge_base")
+EXPORT_READER_ROLE_NAME = os.environ.get("EXPORT_READER_ROLE_NAME", "knowledge_export_reader")
 EXPORT_READER_PASSWORD = os.environ.get("EXPORT_READER_PASSWORD", "")
 
 # 用途別ロール（ADR-0052 / IMPL-202608261022 T1・T5）。ローカルは docker-compose の .env、
 # AWS は Terraform Secrets Manager からパスワードを注入する。パスワード未設定時はロール分離を
 # 行わず、従来どおりマスター接続でマイグレーション・シードを実行する（後方互換）。
-CHATBOT_MIGRATOR_ROLE_NAME = os.environ.get("CHATBOT_MIGRATOR_ROLE_NAME", "chatbot_migrator")
-CHATBOT_MIGRATOR_PASSWORD = os.environ.get("CHATBOT_MIGRATOR_PASSWORD", "")
-CHATBOT_APP_ROLE_NAME = os.environ.get("CHATBOT_APP_ROLE_NAME", "chatbot_app")
-CHATBOT_APP_PASSWORD = os.environ.get("CHATBOT_APP_PASSWORD", "")
+KNOWLEDGE_MIGRATOR_ROLE_NAME = os.environ.get("KNOWLEDGE_MIGRATOR_ROLE_NAME", "knowledge_migrator")
+KNOWLEDGE_MIGRATOR_PASSWORD = os.environ.get("KNOWLEDGE_MIGRATOR_PASSWORD", "")
+KNOWLEDGE_APP_ROLE_NAME = os.environ.get("KNOWLEDGE_APP_ROLE_NAME", "knowledge_app")
+KNOWLEDGE_APP_PASSWORD = os.environ.get("KNOWLEDGE_APP_PASSWORD", "")
 CONVERSATION_MIGRATOR_ROLE_NAME = os.environ.get(
     "CONVERSATION_MIGRATOR_ROLE_NAME", "conversation_migrator"
 )
@@ -88,7 +88,7 @@ CONVERSATION_APP_PASSWORD = os.environ.get("CONVERSATION_APP_PASSWORD", "")
 IMPORT_MODE = os.environ.get("IMPORT_MODE", "").strip().lower() in ("1", "true", "yes")
 # マイグレーション専用モード（ADR-0075）。run-task の environment オーバーライドで
 # MIGRATE_ONLY=true を注入されたときのみ有効になる。通常のシード起動（未設定）では既存動作を
-# 完全に維持する（後方互換）。真の場合、main() の6ステップのうち chatbot シード投入（手順3）
+# 完全に維持する（後方互換）。真の場合、main() の6ステップのうち knowledge シード投入（手順3）
 # のみをスキップし、ロール作成・マイグレーション適用・権限付与・エクスポート専用ロール作成は
 # 通常どおり実行する。IMPORT_MODE と同じ真偽値判定方式を踏襲する。
 MIGRATE_ONLY = os.environ.get("MIGRATE_ONLY", "").strip().lower() in ("1", "true", "yes")
@@ -96,8 +96,8 @@ MIGRATE_ONLY = os.environ.get("MIGRATE_ONLY", "").strip().lower() in ("1", "true
 # QUERY_TARGET_DB / QUERY_SQL を注入されたときのみ有効になる。通常起動（未設定）では一切実行されない。
 # IMPORT_MODE / MIGRATE_ONLY と同じ真偽値判定方式を踏襲する。
 QUERY_MODE = os.environ.get("QUERY_MODE", "").strip().lower() in ("1", "true", "yes")
-# 実行対象データベース（chatbot | conversation | both）。既定は chatbot（QA・タグ等の参照・保守が主用途）。
-QUERY_TARGET_DB = os.environ.get("QUERY_TARGET_DB", "chatbot").strip()
+# 実行対象データベース（knowledge | conversation | both）。既定は knowledge（QA・タグ等の参照・保守が主用途）。
+QUERY_TARGET_DB = os.environ.get("QUERY_TARGET_DB", "knowledge").strip()
 # 実行する SQL 本文（全文）。セミコロン区切りで複数文を含みうる。
 QUERY_SQL = os.environ.get("QUERY_SQL", "")
 IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
@@ -117,16 +117,19 @@ else:
     EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
     BEDROCK_REGION = None
 # ADR-0034: シード元データはイメージに /data として同梱済み。
+# ADR-0098: /data 配下は情報源別ディレクトリ（hiroba_qa/・troubleshooting/）。
+# QA_ORIGINAL_FILE 等は CSV_DATA_DIR からの相対パス（例: hiroba_qa/exportjson_withguid.json）で指定する。
 CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
 CATEGORY_FILE = os.environ["CATEGORY_FILE"]
 
 # トラブルシューティング記事の HTML ソース（ADR-0076 / REQ-202609071337 10章）。
-# (ファイル名, source_key)。ADR-0034 に従いイメージ同梱の /data から読み込む。
+# (CSV_DATA_DIR からの相対パス, source_key)。ADR-0034 に従いイメージ同梱の /data から読み込む。
+# ADR-0098: 情報源別ディレクトリ troubleshooting/ に配置（source_key は変更しない）。
 TROUBLESHOOTING_SOURCES = [
-    ("trouble_shooting.html", "trouble_shooting"),
-    ("trouble_shooting_netauth.html", "trouble_shooting_netauth"),
+    ("troubleshooting/trouble_shooting.html", "trouble_shooting"),
+    ("troubleshooting/trouble_shooting_netauth.html", "trouble_shooting_netauth"),
 ]
 
 MIGRATIONS_DIR = os.path.join(
@@ -161,8 +164,8 @@ def _same_server(url_a: str, url_b: str) -> bool:
 
 
 def migrator_database_url() -> str:
-    """chatbot データベースへの migrator 接続文字列（T2）。"""
-    return _swap_userinfo(DATABASE_URL, CHATBOT_MIGRATOR_ROLE_NAME, CHATBOT_MIGRATOR_PASSWORD)
+    """ナレッジ データベースへの migrator 接続文字列（T2）。"""
+    return _swap_userinfo(DATABASE_URL, KNOWLEDGE_MIGRATOR_ROLE_NAME, KNOWLEDGE_MIGRATOR_PASSWORD)
 
 
 def conversation_migrator_database_url() -> str:
@@ -266,24 +269,24 @@ def _grant_app_privileges(master_url: str, app_role: str) -> None:
         conn.close()
 
 
-def ensure_chatbot_roles() -> None:
-    """chatbot データベースに migrator / app ロールを冪等に作成する（T1, ADR-0052）。"""
-    print(f"{_now()} ====== Ensuring chatbot roles (migrator / app) ...")
+def ensure_knowledge_roles() -> None:
+    """ナレッジ データベースに migrator / app ロールを冪等に作成する（T1, ADR-0052）。"""
+    print(f"{_now()} ====== Ensuring knowledge roles (migrator / app) ...")
     _ensure_roles(
         DATABASE_URL,
-        CHATBOT_DB_NAME,
-        CHATBOT_MIGRATOR_ROLE_NAME,
-        CHATBOT_MIGRATOR_PASSWORD,
-        CHATBOT_APP_ROLE_NAME,
-        CHATBOT_APP_PASSWORD,
-        create_vector_extension=True,  # chatbot は question_altered.embedding で pgvector を使う
+        KNOWLEDGE_DB_NAME,
+        KNOWLEDGE_MIGRATOR_ROLE_NAME,
+        KNOWLEDGE_MIGRATOR_PASSWORD,
+        KNOWLEDGE_APP_ROLE_NAME,
+        KNOWLEDGE_APP_PASSWORD,
+        create_vector_extension=True,  # knowledge は question_altered.embedding で pgvector を使う
     )
     print(f"{_now()} Chatbot roles ensured.")
 
 
-def grant_chatbot_app_privileges() -> None:
-    print(f"{_now()} ====== Granting chatbot app privileges (DML only) ...")
-    _grant_app_privileges(DATABASE_URL, CHATBOT_APP_ROLE_NAME)
+def grant_knowledge_app_privileges() -> None:
+    print(f"{_now()} ====== Granting knowledge app privileges (DML only) ...")
+    _grant_app_privileges(DATABASE_URL, KNOWLEDGE_APP_ROLE_NAME)
     print(f"{_now()} Chatbot app privileges granted.")
 
 
@@ -308,7 +311,7 @@ def grant_conversation_app_privileges() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 1. マイグレーション（chatbot / conversation）
+# 1. マイグレーション（knowledge / conversation）
 # ---------------------------------------------------------------------------
 def migrate(url: str):
     print(f"{_now()} ====== Applying migrations from {MIGRATIONS_DIR} ...")
@@ -373,7 +376,7 @@ def ensure_conversation_database():
 # エクスポート専用読み取りロールの作成（ADR-0046 / IMPL-202608241600 T2）
 # ---------------------------------------------------------------------------
 def ensure_export_reader_role():
-    """chatbot データベース向けの読み取り専用ロールを冪等に作成・権限付与する（T2, ADR-0046）。
+    """ナレッジ データベース向けの読み取り専用ロールを冪等に作成・権限付与する（T2, ADR-0046）。
 
     admin_ui のエクスポート機能が使う専用ロール。SELECT 権限のみを付与し、
     conversation データベースへの接続は禁止する（詳細は ADR-0046）。
@@ -401,7 +404,7 @@ def ensure_export_reader_role():
                 print(f"{_now()} Role '{EXPORT_READER_ROLE_NAME}' created.")
             cur.execute(
                 sql.SQL("GRANT CONNECT ON DATABASE {} TO {}").format(
-                    sql.Identifier(CHATBOT_DB_NAME), role
+                    sql.Identifier(KNOWLEDGE_DB_NAME), role
                 )
             )
             cur.execute(sql.SQL("GRANT USAGE ON SCHEMA public TO {}").format(role))
@@ -575,25 +578,25 @@ def seed_if_empty(url: str):
 
 
 def _resolve_import_work_urls() -> "tuple[str, str]":
-    """インポート作業用の接続 URL（chatbot / conversation）を返す。
+    """インポート作業用の接続 URL（knowledge / conversation）を返す。
 
     ロール分離が有効（migrator パスワード設定済み）なら migrator 接続を、そうでなければ
     マスター接続を使う。TRUNCATE には DDL/DML 権限が要るため migrator を使う（ADR-0052/0066）。
     """
-    if CHATBOT_MIGRATOR_PASSWORD:
-        chatbot_url = migrator_database_url()
+    if KNOWLEDGE_MIGRATOR_PASSWORD:
+        knowledge_url = migrator_database_url()
     else:
-        chatbot_url = DATABASE_URL
+        knowledge_url = DATABASE_URL
     if CONVERSATION_DB_URL and CONVERSATION_MIGRATOR_PASSWORD:
         conversation_url = conversation_migrator_database_url()
     else:
         conversation_url = CONVERSATION_DB_URL
-    return chatbot_url, conversation_url
+    return knowledge_url, conversation_url
 
 
 def run_import_mode():
     """全データインポート（全消去→上書き）を実行して終了する（ADR-0066, IMPORT_MODE）。"""
-    print(f"{_now()} ====== db_hiroba_qa_init start (IMPORT MODE, ADR-0066).")
+    print(f"{_now()} ====== db_init start (IMPORT MODE, ADR-0066).")
     print(
         f"{_now()} WARNING: 破壊的モードで起動しました。対象データベースの既存データを全消去し、\n"
         f"{_now()}          S3 の投入ダンプで上書きします（事前バックアップは自動取得）。"
@@ -601,10 +604,10 @@ def run_import_mode():
     try:
         if not IMPORT_BUCKET:
             raise RuntimeError("IMPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です。")
-        chatbot_url, conversation_url = _resolve_import_work_urls()
+        knowledge_url, conversation_url = _resolve_import_work_urls()
         import_data.run_import(
             target=IMPORT_TARGET,
-            chatbot_url=chatbot_url,
+            knowledge_url=knowledge_url,
             conversation_url=conversation_url,
             bucket=IMPORT_BUCKET,
             import_prefix=IMPORT_PREFIX,
@@ -612,10 +615,10 @@ def run_import_mode():
             region=AWS_REGION,
         )
     except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
-        print(f"{_now()} ERROR: db_hiroba_qa_init import failed: {exc}", file=sys.stderr)
+        print(f"{_now()} ERROR: db_init import failed: {exc}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
-    print(f"{_now()} ====== db_hiroba_qa_init import completed successfully.")
+    print(f"{_now()} ====== db_init import completed successfully.")
     sys.exit(0)
 
 
@@ -625,10 +628,10 @@ def run_import_mode():
 def _query_targets() -> "list[tuple[str, str]]":
     """QUERY_TARGET_DB に対応する (ラベル, マスター接続 URL) の実行順リストを返す。
 
-    both 指定時は chatbot -> conversation の順で返す（同一 SQL を逐次実行する, ADR-0083）。
+    both 指定時は knowledge -> conversation の順で返す（同一 SQL を逐次実行する, ADR-0083）。
     """
-    if QUERY_TARGET_DB == "chatbot":
-        return [("chatbot", DATABASE_URL)]
+    if QUERY_TARGET_DB == "knowledge":
+        return [("knowledge", DATABASE_URL)]
     if QUERY_TARGET_DB == "conversation":
         if not CONVERSATION_DB_URL:
             raise RuntimeError(
@@ -640,9 +643,9 @@ def _query_targets() -> "list[tuple[str, str]]":
             raise RuntimeError(
                 "QUERY_TARGET_DB=both ですが CONVERSATION_DB_URL が未設定です。"
             )
-        return [("chatbot", DATABASE_URL), ("conversation", CONVERSATION_DB_URL)]
+        return [("knowledge", DATABASE_URL), ("conversation", CONVERSATION_DB_URL)]
     raise RuntimeError(
-        f"QUERY_TARGET_DB は chatbot / conversation / both のいずれか（指定: {QUERY_TARGET_DB!r}）。"
+        f"QUERY_TARGET_DB は knowledge / conversation / both のいずれか（指定: {QUERY_TARGET_DB!r}）。"
     )
 
 
@@ -684,11 +687,11 @@ def run_query_mode():
     """アドホック SQL を実行して終了する（ADR-0083, QUERY_MODE）。
 
     QUERY_TARGET_DB で指定されたデータベースへ、対応するマスター接続で QUERY_SQL を実行する。
-    both 指定時は chatbot -> conversation の順に同一 SQL を逐次実行し、対象ごとに区切って結果を出力する。
+    both 指定時は knowledge -> conversation の順に同一 SQL を逐次実行し、対象ごとに区切って結果を出力する。
     いずれかの対象で例外が発生した場合、rollback の上、ログ出力して非0終了する。
     """
     print(
-        f"{_now()} ====== db_hiroba_qa_init start (QUERY MODE, ADR-0083). "
+        f"{_now()} ====== db_init start (QUERY MODE, ADR-0083). "
         f"target={QUERY_TARGET_DB}"
     )
     try:
@@ -697,10 +700,10 @@ def run_query_mode():
         for label, url in _query_targets():
             _run_query_on(label, url)
     except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
-        print(f"{_now()} ERROR: db_hiroba_qa_init query failed: {exc}", file=sys.stderr)
+        print(f"{_now()} ERROR: db_init query failed: {exc}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
-    print(f"{_now()} ====== db_hiroba_qa_init query completed successfully.")
+    print(f"{_now()} ====== db_init query completed successfully.")
     sys.exit(0)
 
 
@@ -711,30 +714,30 @@ def main():
     if IMPORT_MODE:
         run_import_mode()
         return  # run_import_mode は sys.exit する（保険で return）
-    print(f"{_now()} ====== db_hiroba_qa_init start.")
+    print(f"{_now()} ====== db_init start.")
     try:
-        # --- chatbot: ロール分離 → migrate → seed → app 権限付与 -----------------
-        chatbot_roles_enabled = bool(CHATBOT_MIGRATOR_PASSWORD and CHATBOT_APP_PASSWORD)
-        if chatbot_roles_enabled:
-            ensure_chatbot_roles()
-            chatbot_work_url = migrator_database_url()
+        # --- knowledge: ロール分離 → migrate → seed → app 権限付与 -----------------
+        knowledge_roles_enabled = bool(KNOWLEDGE_MIGRATOR_PASSWORD and KNOWLEDGE_APP_PASSWORD)
+        if knowledge_roles_enabled:
+            ensure_knowledge_roles()
+            knowledge_work_url = migrator_database_url()
         else:
             print(
-                f"{_now()} chatbot role passwords not set; "
+                f"{_now()} knowledge role passwords not set; "
                 "using master connection for migrate/seed (role separation disabled)."
             )
-            chatbot_work_url = DATABASE_URL
+            knowledge_work_url = DATABASE_URL
 
-        migrate(chatbot_work_url)
+        migrate(knowledge_work_url)
         if MIGRATE_ONLY:
             print(
-                f"{_now()} MIGRATE_ONLY is set; skipping chatbot seed insertion "
+                f"{_now()} MIGRATE_ONLY is set; skipping knowledge seed insertion "
                 "(ADR-0075). Roles / migrations / grants are still applied."
             )
         else:
-            seed_if_empty(chatbot_work_url)
-        if chatbot_roles_enabled:
-            grant_chatbot_app_privileges()
+            seed_if_empty(knowledge_work_url)
+        if knowledge_roles_enabled:
+            grant_knowledge_app_privileges()
 
         # --- conversation: DB作成 → ロール分離 → migrate → app 権限付与 ----------
         if CONVERSATION_DB_URL:
@@ -768,10 +771,10 @@ def main():
                 "skipping export reader role setup (local docker-compose)."
             )
     except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
-        print(f"{_now()} ERROR: db_hiroba_qa_init failed: {exc}", file=sys.stderr)
+        print(f"{_now()} ERROR: db_init failed: {exc}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(1)
-    print(f"{_now()} ====== db_hiroba_qa_init completed successfully.")
+    print(f"{_now()} ====== db_init completed successfully.")
     sys.exit(0)
 
 

@@ -14,12 +14,12 @@ rem
 rem Prereq:
 rem   - Docker Desktop running; terraform\.env filled (AWS creds + all TF_VAR_*).
 rem   - Both database and app constructions already applied.
-rem   - Export dumps placed in this folder: terraform\chatbot.sql and terraform\conversation.sql
-rem     (or pass --chatbot-sql / --conversation-sql with a path).
+rem   - Export dumps placed in this folder: terraform\knowledge.sql and terraform\conversation.sql
+rem     (or pass --knowledge-sql / --conversation-sql with a path).
 rem
 rem Usage (double-click = both databases), or from a prompt:
 rem   import-data.bat                       (target=both)
-rem   import-data.bat --target chatbot
+rem   import-data.bat --target knowledge
 rem   import-data.bat --target conversation
 call "%~dp0deploy\run.bat" import-data %*
 echo.

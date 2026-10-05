@@ -7,7 +7,7 @@ if not defined _CHATBOT_KEEPOPEN (
   exit /b
 )
 setlocal
-rem chatbot_invitro - run the db_hiroba_qa_init seed task and wait for exitCode=0. ADR-0040.
+rem chatbot_invitro - run the db_init seed task and wait for exitCode=0. ADR-0040.
 rem Prereq: both database and app constructions applied. Can also be used to re-seed.
 call "%~dp0deploy\run.bat" seed
 echo.

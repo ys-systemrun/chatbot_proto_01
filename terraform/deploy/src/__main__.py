@@ -37,20 +37,20 @@ def build_parser() -> argparse.ArgumentParser:
     imp = add("import-data")
     imp.add_argument(
         "--target",
-        choices=["chatbot", "conversation", "both"],
+        choices=["knowledge", "conversation", "both"],
         default="both",
         help="全消去→上書きの対象データベース（既定: both, ADR-0066）",
     )
-    imp.add_argument("--chatbot-sql", default=None, help="chatbot 投入ダンプのパス（既定: chatbot.sql）")
+    imp.add_argument("--knowledge-sql", default=None, help="knowledge 投入ダンプのパス（既定: knowledge.sql）")
     imp.add_argument(
         "--conversation-sql", default=None, help="conversation 投入ダンプのパス（既定: conversation.sql）"
     )
     qry = add("query")
     qry.add_argument(
         "--target",
-        choices=["chatbot", "conversation", "both"],
-        default="chatbot",
-        help="アドホック SQL の実行対象データベース（既定: chatbot, ADR-0083）",
+        choices=["knowledge", "conversation", "both"],
+        default="knowledge",
+        help="アドホック SQL の実行対象データベース（既定: knowledge, ADR-0083）",
     )
     qry.add_argument("--sql-file", default=None, help="実行する SQL ファイルのパス（既定: query.sql）")
     add("destroy-app")
@@ -77,7 +77,7 @@ def main(argv=None) -> None:
         elif args.command == "import-data":
             commands.cmd_import_data(
                 target=args.target,
-                chatbot_sql=args.chatbot_sql,
+                knowledge_sql=args.knowledge_sql,
                 conversation_sql=args.conversation_sql,
             )
         elif args.command == "query":

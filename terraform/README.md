@@ -38,7 +38,7 @@ terraform/
 │   ├── database/         RDS PostgreSQL(pgvector) + DATABASE_URL シークレット（§5.3）
 │   ├── ecs-cluster/      Fargate クラスタ（§5.4）
 │   ├── ecs-app-task/     常駐4サービスを1タスク・4コンテナで起動（ADR-0095）
-│   ├── db-init-task/     db_hiroba_qa_init の Run Task 定義（database 構成が呼び出し）（§5.6）
+│   ├── db-init-task/     db_init の Run Task 定義（database 構成が呼び出し）（§5.6）
 │   ├── mcp-inspector-task/ MCP Inspector 検証用タスク（app 構成）（§5.7）
 │   └── cost-alert/       Bedrock 月額予算アラート（AWS Budgets）（app 構成）
 ├── deploy/                  デプロイオーケストレータ（コンテナ内 Python, ADR-0040）
@@ -55,7 +55,7 @@ terraform/
 > 名称が似ているため、ログ・会話では「db モジュール」「database 構成」等で呼び分けること（ADR-0039 §10）。
 
 **state 分割の要点（ADR-0039）:**
-- **database 構成**: 既存VPC参照 + SG + VPCエンドポイント（旧 network）、RDS + DBサブネットグループ + `DATABASE_URL` シークレット（旧 database）、`db_hiroba_qa_init` シードタスク定義 + シード用 ECR 1件（旧 app から移設）。RDS を永続化（`deletion_protection=true` 既定）。**通常の `destroy-app` の対象外**（再シード＝Bedrock 再計算を避ける）。
+- **database 構成**: 既存VPC参照 + SG + VPCエンドポイント（旧 network）、RDS + DBサブネットグループ + `DATABASE_URL` シークレット（旧 database）、`db_init` シードタスク定義 + シード用 ECR 1件（旧 app から移設）。RDS を永続化（`deletion_protection=true` 既定）。**通常の `destroy-app` の対象外**（再シード＝Bedrock 再計算を避ける）。
 - **app 構成**: database 構成の出力（VPC/サブネット・各 SG・`db_url_secret_arn`）を `terraform_remote_state` で参照。ECS クラスタ + 集約サービス（常駐4サービスを1タスク・4コンテナ, ADR-0095）+ admin_ui 用 ALB + MCP Inspector タスク定義 + 予算アラート + 残り4リポジトリの ECR。`destroy-app` はこの構成のみ破棄。
 
 ## かんたん実行（bat ダブルクリック）
@@ -138,12 +138,12 @@ terraform/bootstrap.bat   ← ダブルクリック（内部で deploy bootstrap
 cd terraform/main/database
 terraform init -backend-config="bucket=<state-bucket>" -backend-config="region=<region>" \
   -backend-config="key=database/state.tfstate" -backend-config="use_lockfile=true"
-terraform apply -target=module.ecr          # シード用 ECR(db-hiroba-qa-init) を先行作成
+terraform apply -target=module.ecr          # シード用 ECR(db-init) を先行作成
 terraform output ecr_repository_urls        # push 先 URI を確認
 
 aws ecr get-login-password --region <region> | docker login --username AWS --password-stdin <acct>.dkr.ecr.<region>.amazonaws.com
-docker build -t <acct>.dkr.ecr.<region>.amazonaws.com/db-hiroba-qa-init:latest ../../../db_hiroba_qa_init
-docker push  <acct>.dkr.ecr.<region>.amazonaws.com/db-hiroba-qa-init:latest
+docker build -t <acct>.dkr.ecr.<region>.amazonaws.com/db-init:latest ../../../db_init
+docker push  <acct>.dkr.ecr.<region>.amazonaws.com/db-init:latest
 
 terraform apply                             # RDS/ネットワーク/シードタスク定義を作成
 ```
@@ -186,7 +186,7 @@ aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
   --task-definition $TD --enable-execute-command \
   --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}"
 
-# CloudWatch Logs /ecs/db-hiroba-qa-init でマイグレーション・シードを確認し、exitCode=0 を確認
+# CloudWatch Logs /ecs/db-init でマイグレーション・シードを確認し、exitCode=0 を確認
 aws ecs describe-tasks --cluster $CLUSTER --tasks <task-arn> --query 'tasks[].containers[].exitCode'
 ```
 
@@ -205,12 +205,12 @@ RDS（`db_chatbot_knowledge_base` / conversation）に対し、運用者がそ�
 
 使い方:
 1. `terraform/query.sql.example` をコピーして **`terraform/query.sql`**（Git 管理外）を作り、実行する SQL を書く。
-2. `query.bat` をダブルクリック（既定 `--target chatbot`）。対象を変えるなら
+2. `query.bat` をダブルクリック（既定 `--target knowledge`）。対象を変えるなら
    `query.bat --target conversation` / `query.bat --target both`。別ファイルなら `--sql-file <path>`。
-3. 実行前に **query.sql の内容** と対象が表示され、**対象データベース名（`chatbot`/`conversation`/`both`）の
+3. 実行前に **query.sql の内容** と対象が表示され、**対象データベース名（`knowledge`/`conversation`/`both`）の
    タイプ入力**を求められる（一致しなければ中止）。`import-data` と同じ `confirm_typed` 方式で、`--yes`
    バイパスは無い。
-4. タスク終了後、標準出力（SELECT 結果を含む）を CloudWatch Logs `/ecs/db-hiroba-qa-init` から取得して表示し、
+4. タスク終了後、標準出力（SELECT 結果を含む）を CloudWatch Logs `/ecs/db-init` から取得して表示し、
    exitCode=0 を確認する。
 
 注意点（README 明記事項, ADR-0083）:
@@ -222,7 +222,7 @@ RDS（`db_chatbot_knowledge_base` / conversation）に対し、運用者がそ�
 - **短いアドホック SQL 向け**（数KB程度まで。ECS RunTask の環境変数サイズ上限による）。大規模な一括投入・
   全消去上書きは引き続き `import-data`（S3 経由）を使う。
 - **IAM**: `query` を実行する運用者の AWS 認証情報（`terraform/.env` の `AWS_ACCESS_KEY_ID` 等）に、
-  ロググループ `/ecs/db-hiroba-qa-init` に対する `logs:GetLogEvents` 権限が必要（結果表示のため）。
+  ロググループ `/ecs/db-init` に対する `logs:GetLogEvents` 権限が必要（結果表示のため）。
 - データ喪失が心配な操作の前は、エクスポート機能でのバックアップ取得を推奨（運用ルール。本機能の対象外）。
 
 ### Phase 5: app 構成 再 apply（ゲート開）
@@ -335,4 +335,4 @@ database 構成を apply すること（逆順だと SG の削除が ENI の使�
 - **admin_ui の ALB コスト（ADR-0041）**: ALB は時間課金＋LCU で常時発生する。`admin_ui`・ALB は `app` 構成に含まれるため `destroy-app` で ECS 等と一緒に破棄される（RDS は残る）。検証終了後にコストを止めたい場合は `destroy-app` を実行する。
 - **admin_ui タスクは非公開（ADR-0041 T13）**: ALB はパブリックサブネットだが、集約タスク自体はプライベートサブネット・`assign_public_ip=false`。ALB SG からは admin_ui のコンテナポートのみ受ける（ADR-0095）。
 - **ローカル docker-compose は不変（ADR-0042）**: `Dockerfile.admin_ui` は AWS 専用の追加ファイル。既存 `web_backend/Dockerfile`・`front_dev/Dockerfile`・`docker-compose.yml` は変更しないため、ローカル開発フローに影響しない。
-- **CSV/JSON データ（ADR-0034）**: ECS にホストマウントは無いが、シード元データは db-hiroba-qa-init イメージに `/data` として同梱済み（`Dockerfile` の `COPY data /data`）。EFS 等の追加ストレージは不要。`CSV_DATA_DIR` は `data`（main.py が先頭に `/` を付与 → `/data`）。
+- **CSV/JSON データ（ADR-0034）**: ECS にホストマウントは無いが、シード元データは db-init イメージに `/data` として同梱済み（`Dockerfile` の `COPY data /data`）。EFS 等の追加ストレージは不要。`CSV_DATA_DIR` は `data`（main.py が先頭に `/` を付与 → `/data`）。

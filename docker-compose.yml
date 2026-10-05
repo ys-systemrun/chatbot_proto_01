@@ -6,17 +6,15 @@ services:
       - "${BOT_PORT:-8000}:8000"
     environment:
       # ADR-0052: アプリは用途別 app ロールで接続する（DDL 権限なし）。ロール・パスワードは
-      # db_hiroba_qa_init が冪等に作成する。
-      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_support_knowledge:5432/db_chatbot_knowledge_base
+      # db_init が冪等に作成する。
+      - DATABASE_URL=postgresql://knowledge_app:${KNOWLEDGE_APP_PASSWORD:-knowledge_app_pw}@knowledge_db:5432/db_chatbot_knowledge_base
       - CONVERSATION_DB_URL=postgresql://conversation_app:${CONVERSATION_APP_PASSWORD:-conversation_app_pw}@conversation_db:5432/conversation
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
       - MODEL_CHAT=${MODEL_CHAT}
+      # 評価スクリプト（src/main/evaluate.py）の入力。リポジトリ直下 data/ を /data にマウントして読む。
       - CSV_DATA_DIR=${CSV_DATA_DIR}
-      - QA_ORIGINAL_FILE=${QA_ORIGINAL_FILE}
-      - QUESTION_ALTERED_FILE=${QUESTION_ALTERED_FILE}
-      - CATEGORY_FILE=${CATEGORY_FILE}
       - EVAL_QUERIES_CSV=${EVAL_QUERIES_CSV}
       - EVAL_NOISE_QUERIES_CSV=${EVAL_NOISE_QUERIES_CSV}
       # 管理UI（IMPL-202608060837）: Knowledge MCP へ MCPクライアントとして接続する
@@ -32,9 +30,9 @@ services:
       - ./web_backend:/app
       - ./${CSV_DATA_DIR:-data}:/data
     depends_on:
-      db_support_knowledge:
+      knowledge_db:
         condition: service_healthy
-      db_hiroba_qa_init:
+      db_init:
         condition: service_completed_successfully
       conversation_db:
         condition: service_healthy
@@ -55,9 +53,9 @@ services:
     depends_on:
       - web_backend
 
-  db_support_knowledge:
+  knowledge_db:
     image: pgvector/pgvector:pg15
-    container_name: chatbot_db
+    container_name: chatbot_knowledge_db
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -65,9 +63,8 @@ services:
     ports:
       - "${DB_PORT:-5432}:5432"
     volumes:
-      # IMPL-202608061016: スキーマ作成は db_hiroba_qa_init に集約したため
-      # init.sql のマウントは廃止。データ永続化ボリュームのみ残す。
-      - ./${DB_DIR:-db_nomic}/data:/var/lib/postgresql/data
+      # データ永続化ボリューム（ADR-0098: ローカルボリュームは .local/volumes/ に集約、Git 管理外）。
+      - ./.local/volumes/knowledge_db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d db_chatbot_knowledge_base"]
       interval: 5s
@@ -76,21 +73,21 @@ services:
 
   # IMPL-202608061016 / ADR-0016〜0018:
   # スキーマ作成（マイグレーション）とシード（embedding計算を含む）を一度だけ実行し
-  # 終了するワンショットサービス。db_support_knowledge の healthy 後に起動し、正常終了（exit 0）を
+  # 終了するワンショットサービス。knowledge_db の healthy 後に起動し、正常終了（exit 0）を
   # もって web_backend / knowledge_mcp / tag_selector_mcp の起動条件を満たす。
-  db_hiroba_qa_init:
-    build: ./db_hiroba_qa_init
+  db_init:
+    build: ./db_init
     container_name: chatbot_db_init
     environment:
       # マスター接続（ロール作成・CREATE DATABASE 用）。マイグレーション・シードは
-      # db_hiroba_qa_init が内部で migrator ロールへ差し替えて実行する（ADR-0052）。
-      - DATABASE_URL=postgresql://postgres:postgres@db_support_knowledge:5432/db_chatbot_knowledge_base
+      # db_init が内部で migrator ロールへ差し替えて実行する（ADR-0052）。
+      - DATABASE_URL=postgresql://postgres:postgres@knowledge_db:5432/db_chatbot_knowledge_base
       # IMPL-202608261022 / ADR-0051: conversation もマスター接続で受け取り、内部で
       # conversation_migrator へ差し替えて yoyo を適用する。ローカルでも常に設定する。
       - CONVERSATION_DB_URL=postgresql://postgres:postgres@conversation_db:5432/conversation
       # 用途別ロールのパスワード（ADR-0052）。ローカルは既定値、AWS は Secrets Manager。
-      - CHATBOT_MIGRATOR_PASSWORD=${CHATBOT_MIGRATOR_PASSWORD:-chatbot_migrator_pw}
-      - CHATBOT_APP_PASSWORD=${CHATBOT_APP_PASSWORD:-chatbot_app_pw}
+      - KNOWLEDGE_MIGRATOR_PASSWORD=${KNOWLEDGE_MIGRATOR_PASSWORD:-knowledge_migrator_pw}
+      - KNOWLEDGE_APP_PASSWORD=${KNOWLEDGE_APP_PASSWORD:-knowledge_app_pw}
       - CONVERSATION_MIGRATOR_PASSWORD=${CONVERSATION_MIGRATOR_PASSWORD:-conversation_migrator_pw}
       - CONVERSATION_APP_PASSWORD=${CONVERSATION_APP_PASSWORD:-conversation_app_pw}
       - EMBEDDING_VECTOR_DIM=${EMBEDDING_VECTOR_DIM}
@@ -106,15 +103,15 @@ services:
       - BEDROCK_REGION=${BEDROCK_REGION:-}
       # マイグレーション専用モード（ADR-0075）。既定は空（＝通常起動: シード投入あり）。
       # スキーマ変更のみを反映したいときは MIGRATE_ONLY=true で起動してシード投入をスキップする。
-      # 例: MIGRATE_ONLY=true docker compose run --rm db_hiroba_qa_init
+      # 例: MIGRATE_ONLY=true docker compose run --rm db_init
       - MIGRATE_ONLY=${MIGRATE_ONLY:-}
     volumes:
       # ADR-0034: シード元データはイメージに同梱済み（/data に焼き込み）。
-      # このマウントはローカル開発でホストの data/ に差し替えたい場合の任意の上書き。
-      # AWS(ECS) では同梱データがそのまま使われる（マウント不要）。
-      - ./${CSV_DATA_DIR:-data}:/data
+      # ローカルではイメージと同じ db_init/data/（情報源別ディレクトリ, ADR-0098）をマウントし、
+      # 再ビルドなしで差し替えられるようにする。AWS(ECS) では同梱データがそのまま使われる。
+      - ./db_init/data:/data
     depends_on:
-      db_support_knowledge:
+      knowledge_db:
         condition: service_healthy
       conversation_db:
         condition: service_healthy
@@ -126,8 +123,8 @@ services:
     ports:
       - "${KNOWLEDGE_MCP_PORT:-8100}:8100"
     environment:
-      # ADR-0052: chatbot_app ロール（DML のみ）で接続する。
-      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_support_knowledge:5432/db_chatbot_knowledge_base
+      # ADR-0052: knowledge_app ロール（DML のみ）で接続する。
+      - DATABASE_URL=postgresql://knowledge_app:${KNOWLEDGE_APP_PASSWORD:-knowledge_app_pw}@knowledge_db:5432/db_chatbot_knowledge_base
       - LMSTUDIO_EMBEDDING_URL=${LMSTUDIO_EMBEDDING_URL}
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       # Bedrock 切り替え（IMPL-202608101616）。ローカルは lmstudio 既定で無効。
@@ -139,9 +136,9 @@ services:
       - TAG_SIMILARITY_WEIGHT=${TAG_SIMILARITY_WEIGHT:-0.5}
       - SEARCH_CANDIDATE_POOL_SIZE=${SEARCH_CANDIDATE_POOL_SIZE:-}
     depends_on:
-      db_support_knowledge:
+      knowledge_db:
         condition: service_healthy
-      db_hiroba_qa_init:
+      db_init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8100/health"]
@@ -155,8 +152,8 @@ services:
     ports:
       - "${TAG_SELECTOR_MCP_PORT:-8200}:8200"
     environment:
-      # ADR-0052: chatbot_app ロール（DML のみ）で接続する。
-      - DATABASE_URL=postgresql://chatbot_app:${CHATBOT_APP_PASSWORD:-chatbot_app_pw}@db_support_knowledge:5432/db_chatbot_knowledge_base
+      # ADR-0052: knowledge_app ロール（DML のみ）で接続する。
+      - DATABASE_URL=postgresql://knowledge_app:${KNOWLEDGE_APP_PASSWORD:-knowledge_app_pw}@knowledge_db:5432/db_chatbot_knowledge_base
       - LLM_PROVIDER=${LLM_PROVIDER:-lmstudio}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
       - LMSTUDIO_CHAT_MODEL=${LMSTUDIO_CHAT_MODEL:-${MODEL_CHAT}}
@@ -167,9 +164,9 @@ services:
       - TAG_SELECTOR_DEFAULT_MAX_TAGS=${TAG_SELECTOR_DEFAULT_MAX_TAGS:-3}
       - TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD=${TAG_SELECTOR_DEFAULT_CONFIDENCE_THRESHOLD:-0.0}
     depends_on:
-      db_support_knowledge:
+      knowledge_db:
         condition: service_healthy
-      db_hiroba_qa_init:
+      db_init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8200/health"]
@@ -212,9 +209,8 @@ services:
     ports:
       - "${CONVERSATION_DB_PORT:-5433}:5432"
     volumes:
-      # IMPL-202608261022 / ADR-0051: スキーマ作成は db_hiroba_qa_init の yoyo に集約したため
-      # init.sql のマウントは廃止。データ永続化ボリュームのみ残す。
-      - ./db_conversation/data:/var/lib/postgresql/data
+      # データ永続化ボリューム（ADR-0098: ローカルボリュームは .local/volumes/ に集約、Git 管理外）。
+      - ./.local/volumes/conversation_db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d conversation"]
       interval: 5s

@@ -1,3 +1,5 @@
+# ADR-0098: ローカル DB ボリュームの置き場（旧 db_nomic/data・db_conversation/data から移設）
+.local/
 db_nomic/data/
 .env
 app/chatbot_invitro.egg-info/
@@ -21,6 +23,8 @@ web_backend/chatbot_invitro.egg-info/
 # アドホック SQL 実行（ADR-0083）: query.sql は運用者が都度書き換える環境固有の実行内容のため
 # Git 管理外とする（terraform/.env と同じ性質）。テンプレート query.sql.example は追跡される。
 terraform/query.sql
+terraform/knowledge.sql
+# ADR-0098 以前の名前のダンプ（chatbot.sql → knowledge.sql に改名）も誤コミット防止のため除外する。
 terraform/chatbot.sql
 terraform/chatbot_o.sql
 terraform/conversation.sql

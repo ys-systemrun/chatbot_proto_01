@@ -464,7 +464,7 @@ def save_verification_evaluation(
 # 全データエクスポート: /api/export（ADR-0046/0047, IMPL-202608241600 T19）
 # ---------------------------------------------------------------------------
 # format は sql / csv のみ許可（pattern バリデーションにより sql/csv 以外は 422）。
-# chatbot（読み取り専用ロール）・conversation 両データベースを読み、CSV は8ファイル・
+# knowledge（読み取り専用ロール）・conversation 両データベースを読み、CSV は8ファイル・
 # SQL は2ファイルを ZIP にまとめて application/zip + attachment で返す（5.5 節）。
 @app.get("/api/export")
 def export_data(format: str = Query(..., pattern="^(sql|csv)$")) -> Response:

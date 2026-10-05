@@ -63,15 +63,15 @@ resource "aws_security_group" "app_task" {
 
 resource "aws_security_group" "rds" {
   name        = "${var.name_prefix}-sg-rds"
-  description = "RDS: inbound 5432 from app task / verification (db_hiroba_qa_init) only"
+  description = "RDS: inbound 5432 from app task / verification (db_init) only"
   vpc_id      = data.aws_vpc.this.id
   tags        = { Name = "${var.name_prefix}-sg-rds" }
 }
 
-# db_hiroba_qa_init と mcp-inspector-task が共用（§5.1）
+# db_init と mcp-inspector-task が共用（§5.1）
 resource "aws_security_group" "verification_task" {
   name        = "${var.name_prefix}-sg-verification-task"
-  description = "db_hiroba_qa_init / MCP Inspector verification task"
+  description = "db_init / MCP Inspector verification task"
   vpc_id      = data.aws_vpc.this.id
   tags        = { Name = "${var.name_prefix}-sg-verification-task" }
 }
@@ -127,7 +127,7 @@ resource "aws_vpc_security_group_ingress_rule" "knowledge_from_verification" {
   description                  = "MCP Inspector to knowledge_mcp"
 }
 
-# 集約タスク -> rds (5432): knowledge_mcp / tag_selector_mcp（chatbot）と admin_ui（conversation・
+# 集約タスク -> rds (5432): knowledge_mcp / tag_selector_mcp（knowledge）と admin_ui（conversation・
 # エクスポート）が接続する。到達は1ルールで許可するが、注入する資格情報はコンテナ単位で限定する
 # （ADR-0045 / ADR-0052 の資格情報スコープ, ADR-0095 決定5）。
 resource "aws_vpc_security_group_ingress_rule" "rds_from_app_task" {
@@ -139,14 +139,14 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_app_task" {
   description                  = "app task (knowledge_mcp / tag_selector_mcp / admin_ui)"
 }
 
-# verification (db_hiroba_qa_init) -> rds (5432)（ADR-0030）
+# verification (db_init) -> rds (5432)（ADR-0030）
 resource "aws_vpc_security_group_ingress_rule" "rds_from_verification" {
   security_group_id            = aws_security_group.rds.id
   referenced_security_group_id = aws_security_group.verification_task.id
   from_port                    = 5432
   to_port                      = 5432
   ip_protocol                  = "tcp"
-  description                  = "db_hiroba_qa_init migration/seed"
+  description                  = "db_init migration/seed"
 }
 
 # VPC エンドポイント: 443 を VPC 内から

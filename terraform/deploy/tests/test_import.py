@@ -18,7 +18,7 @@ def _dummy_cfg():
 def _output_raw(_cwd, name):
     return {
         "sg_verification_task_id": "sg-1",
-        "db_init_task_family": "db-hiroba-qa-init",
+        "db_init_task_family": "db-init",
         "import_bucket_name": "prefix-import-acct-us-east-1",
         "cluster_name": "prefix-cluster",
         "app_service_name": "prefix-app",
@@ -98,7 +98,7 @@ def test_import_restarts_services_on_failure(monkeypatch):
     _wire_common(monkeypatch, calls, exit_code="1")  # 異常終了 → DeployError
 
     with pytest.raises(commands.DeployError):
-        commands.cmd_import_data(target="chatbot")
+        commands.cmd_import_data(target="knowledge")
 
     # 失敗しても停止したサービスは元の desired_count(=1) へ復元される。
     restored = {c[1] for c in calls if c[0] == "set" and c[2] == 1}

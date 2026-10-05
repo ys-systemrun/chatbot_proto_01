@@ -22,7 +22,7 @@ def _dummy_cfg():
 def _output_raw(_cwd, name):
     return {
         "sg_verification_task_id": "sg-1",
-        "db_init_task_family": "db-hiroba-qa-init",
+        "db_init_task_family": "db-init",
         "cluster_name": "prefix-cluster",
     }[name]
 

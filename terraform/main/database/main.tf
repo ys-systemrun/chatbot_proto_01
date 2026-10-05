@@ -43,17 +43,17 @@ module "database" {
   skip_final_snapshot = var.skip_final_snapshot
 }
 
-# --- シード用イメージの ECR リポジトリ（db-hiroba-qa-init のみ, ADR-0039 §5.3）---
+# --- シード用イメージの ECR リポジトリ（db-init のみ, ADR-0039 §5.3）---
 module "ecr" {
   source           = "../../modules/ecr"
-  repository_names = ["db-hiroba-qa-init"]
+  repository_names = ["db-init"]
 }
 
-# --- db_hiroba_qa_init（タスク定義のみ, run-task で実行, ADR-0030。旧 verify から移設）---
+# --- db_init（タスク定義のみ, run-task で実行, ADR-0030。旧 verify から移設）---
 module "db_init_task" {
   source    = "../../modules/db-init-task"
   region    = var.aws_region
-  image_uri = "${module.ecr.repository_urls["db-hiroba-qa-init"]}:${var.image_tag}"
+  image_uri = "${module.ecr.repository_urls["db-init"]}:${var.image_tag}"
 
   environment = {
     EMBEDDING_VECTOR_DIM       = tostring(var.embedding_vector_dim)
@@ -67,9 +67,9 @@ module "db_init_task" {
     # conversation データベースの作成・スキーマ適用（ADR-0044 / IMPL-202608241104 T29）。
     CONVERSATION_DB_NAME = var.conversation_db_name
     # エクスポート専用ロールの GRANT CONNECT ON DATABASE の対象名（ADR-0046 / IMPL-202608241600 T10）。
-    # db_hiroba_qa_init 側デフォルト "db_chatbot_knowledge_base"（ADR-0077）と一致する
-    # module.database.db_name を渡す。
-    CHATBOT_DB_NAME = module.database.db_name
+    # db_init 側デフォルト "db_chatbot_knowledge_base"（ADR-0077）と一致する
+    # module.database.knowledge_db_name を渡す。
+    KNOWLEDGE_DB_NAME = module.database.knowledge_db_name
     # 全データインポート（全消去→上書き）バッチ用の S3 バケット名（ADR-0066）。IMPORT_MODE の
     # コンテナがここから投入ダンプ（import/）を取得し、退避バックアップ（rollback/）を保存する。
     # 通常のシード起動では未使用（IMPORT_MODE のときだけ参照）。
@@ -84,11 +84,11 @@ module "db_init_task" {
     # ensure_export_reader_role() が CREATE ROLE / ALTER ROLE ... PASSWORD に使う生パスワード
     # （ADR-0046 / IMPL-202608241600 T9）。
     EXPORT_READER_PASSWORD = module.database.export_reader_password_secret_arn
-    # ロール分離（ADR-0052 / IMPL-202608261022 T18〜T20）: db_hiroba_qa_init が
-    # ensure_chatbot_roles() / ensure_conversation_roles() の CREATE/ALTER ROLE ... PASSWORD と、
+    # ロール分離（ADR-0052 / IMPL-202608261022 T18〜T20）: db_init が
+    # ensure_knowledge_roles() / ensure_conversation_roles() の CREATE/ALTER ROLE ... PASSWORD と、
     # migrator/app 接続文字列の組み立てに使う生パスワード。EXPORT_READER_PASSWORD と同一パターン。
-    CHATBOT_MIGRATOR_PASSWORD      = module.database.chatbot_migrator_password_secret_arn
-    CHATBOT_APP_PASSWORD           = module.database.chatbot_app_password_secret_arn
+    KNOWLEDGE_MIGRATOR_PASSWORD    = module.database.knowledge_migrator_password_secret_arn
+    KNOWLEDGE_APP_PASSWORD         = module.database.knowledge_app_password_secret_arn
     CONVERSATION_MIGRATOR_PASSWORD = module.database.conversation_migrator_password_secret_arn
     CONVERSATION_APP_PASSWORD      = module.database.conversation_app_password_secret_arn
   }
@@ -101,10 +101,10 @@ module "db_init_task" {
 }
 
 # --- 全データインポート（全消去→上書き）用 S3 バケット（ADR-0066）------------------
-# 投入ダンプ（import/chatbot.sql・import/conversation.sql）の受け渡しと、全消去直前の
+# 投入ダンプ（import/knowledge.sql・import/conversation.sql）の受け渡しと、全消去直前の
 # 自動バックアップ（rollback/<対象>/<時刻>/<対象>.sql）の保存に使う。Terraform state バケット
 # とは分離する（ADR-0055 の運用方針）。バッチ（terraform/deploy import-data）が
-# 投入ダンプをここへアップロードし、db_hiroba_qa_init（IMPORT_MODE）が取得・退避に使う。
+# 投入ダンプをここへアップロードし、db_init（IMPORT_MODE）が取得・退避に使う。
 data "aws_caller_identity" "current" {}
 
 resource "aws_s3_bucket" "import_data" {

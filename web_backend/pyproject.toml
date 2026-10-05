@@ -30,7 +30,7 @@ where = ["."]
 entrypoint = "src.main.app:app"
 
 [project.scripts]
-# シード機能は db_hiroba_qa_init サービスへ移管した（IMPL-202608061016）。
+# シード機能は db_init サービスへ移管した（IMPL-202608061016）。
 # CLI スクリプトは main/ 配下から src/main/ 配下へ移設（モジュールパスを src.main.* へ変更）。
 debug = "src.main.debug:main"
 debug_question = "src.main.debug_question:main"

@@ -20,7 +20,7 @@ def _apply(conn):
     if not raw:
         raise RuntimeError(
             "EMBEDDING_VECTOR_DIM is not set (or empty). "
-            "Set it in .env to match DB_DIR (db_nomic -> 768, db_multilingual -> 384)."
+            "Set it in .env to match the embedding model output dimension (e.g. nomic-embed-text -> 768)."
         )
     dim = int(raw)
     with conn.cursor() as cur:
