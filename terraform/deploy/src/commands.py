@@ -687,6 +687,10 @@ def cmd_destroy_app() -> None:
     log.info("DB も破棄するなら destroy-database を実行してください（app 破棄後に実行すること）。")
 
 
+# 削除保護（deletion_protection）を持つ RDS インスタンスの state アドレス（modules/database）。
+_RDS_INSTANCE_ADDRESS = "module.database.aws_db_instance.this"
+
+
 def cmd_destroy_database() -> None:
     cfg = config.load_config()
     prerequisites(cfg)
@@ -704,9 +708,26 @@ def cmd_destroy_database() -> None:
     d = paths.database_dir()
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_database)
 
+    addresses = tf.state_list(d)
+    if not addresses:
+        log.ok("database 構成の state は空です（破棄対象なし）。")
+        return
+
     # 1) 削除保護を解除（deletion_protection=true のままでは destroy できない）。
-    log.step("削除保護の解除（apply）")
-    tf.apply(d, variables={"deletion_protection": "false"}, what="deletion_protection 解除 apply")
+    #    RDS インスタンスだけに -target で絞る。対象を絞らない apply は state と定義の差分をすべて
+    #    埋めに行くため、RDS が既に消えている（前回の destroy が途中で止まった等）と、削除のつもりが
+    #    RDS を新規作成しようとして失敗・課金する（2026-10-05 の InsufficientDBInstanceCapacity 事象）。
+    #    RDS が state に無ければ削除保護は存在しないので、この段をスキップして destroy に進む。
+    if _RDS_INSTANCE_ADDRESS in addresses:
+        log.step("削除保護の解除（RDS インスタンスのみ apply）")
+        tf.apply(
+            d,
+            targets=[_RDS_INSTANCE_ADDRESS],
+            variables={"deletion_protection": "false"},
+            what="deletion_protection 解除 apply",
+        )
+    else:
+        log.info(f"{_RDS_INSTANCE_ADDRESS} は state に無いため、削除保護の解除をスキップします。")
 
     # 2) 破棄。
     log.step("database 構成 破棄（destroy）")

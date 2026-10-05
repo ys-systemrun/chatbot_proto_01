@@ -49,6 +49,12 @@ def destroy(cwd: Path, variables: dict | None = None, what: str = "terraform des
     proc.run(cmd, cwd=cwd, what=what)
 
 
+def state_list(cwd: Path) -> list[str]:
+    """state に記録されている管理リソースのアドレス一覧（state が空なら空リスト）。"""
+    out = proc.capture([TERRAFORM, "state", "list"], cwd=cwd, what="terraform state list")
+    return [line.strip() for line in out.splitlines() if line.strip()]
+
+
 def output_raw(cwd: Path, name: str) -> str:
     return proc.capture([TERRAFORM, "output", "-raw", name], cwd=cwd, what=f"terraform output {name}").strip()
 
