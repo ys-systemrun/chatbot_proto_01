@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 
-from . import aws, config, dockercli, log, paths, proc, prompts, tf, tfvars
+from . import aws, config, dockercli, kbdata, log, paths, proc, prompts, tf, tfvars
 from .errors import DeployError
 
 
@@ -193,6 +193,36 @@ def cmd_bootstrap(assume_yes: bool = False) -> None:
     log.info("次: terraform 変数（TF_VAR_*）を terraform/.env に記入し、apply-database（または apply-all）を実行します。")
 
 
+def cmd_apply_datastore(assume_yes: bool = False) -> None:
+    """DVC リモート用 S3 バケット（datastore 構成, ADR-0097）を作成・更新する。冪等。
+
+    database / app と独立した長寿命の層で、破棄コマンドは用意しない（prevent_destroy）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg, no_docker=True)
+    d = paths.datastore_dir()
+    log.info(f"region={cfg.aws_region} / state_bucket={cfg.state_bucket} / key={cfg.state_key_datastore}")
+    prompts.confirm_or_exit(
+        f"AWS 上にナレッジデータの DVC リモート用 S3 バケットを作成・更新します（リージョン: {cfg.aws_region}）。",
+        assume_yes,
+    )
+    ensure_state_bucket(cfg)
+
+    log.step("datastore 構成 init（S3 バックエンド）")
+    tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_datastore)
+    log.step("datastore 構成 apply（DVC リモート用 S3 バケット）")
+    tf.apply(d, what="datastore apply")
+    _info_output(d, "dvc_remote_url", "DVC remote")
+    log.info(".dvc/config の remote URL が上記と一致していることを確認してください。")
+
+
+def cmd_dvc(dvc_args: list[str]) -> None:
+    """.env の AWS 認証情報を環境に載せ、リポジトリルートで dvc をそのまま実行する（ADR-0097）。"""
+    config.load_config()
+    os.chdir(paths.repo_root())
+    os.execvp("dvc", ["dvc", *dvc_args])
+
+
 def cmd_apply_database(assume_yes: bool = False) -> None:
     cfg = config.load_config()
     prerequisites(cfg)
@@ -214,12 +244,18 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
     repos = tf.output_json(d, "ecr_repository_urls")
     registry = repos["db-init"].split("/")[0]
 
+    # ADR-0097: シード元データを DVC リモートから取得・検証し、版をイメージとタスクに残す。
+    kb_version = kbdata.prepare()
+    os.environ["TF_VAR_kb_data_version"] = kb_version.env_value()
+
     log.step("Docker イメージ build / push（db-init）")
     log.info(f"ECR ログイン: {registry}")
     dockercli.login(registry, cfg.aws_region)
     image = f"{repos['db-init']}:{image_tag}"
-    dockercli.build_and_push(paths.repo_root() / "db_init", image, "db_init", "db-init")
-    log.ok("シード用イメージ push 完了")
+    dockercli.build_and_push(
+        paths.repo_root() / "db_init", image, "db_init", "db-init", labels=kb_version.labels()
+    )
+    log.ok(f"シード用イメージ push 完了（KB_DATA_VERSION={kb_version.env_value()}）")
 
     log.step("database 構成 apply（RDS / ネットワーク / シードタスク定義）")
     tf.apply(d, what="database apply")
@@ -647,12 +683,15 @@ def cmd_query(target: str = "knowledge", sql_file: str | None = None) -> None:
 def cmd_apply_all(assume_yes: bool = False) -> None:
     cfg = config.load_config()
     prerequisites(cfg)
-    log.step("apply-all: database -> app(gate closed) -> seed -> app(gate open)")
+    log.step("apply-all: datastore -> database -> app(gate closed) -> seed -> app(gate open)")
     log.info(f"state_bucket={cfg.state_bucket} / database key={cfg.state_key_database} / app key={cfg.state_key_app}")
     prompts.confirm_or_exit(
         f"AWS 上に database 構成（RDS 等）と app 構成（ECS 等）の課金リソースを作成し、シードまで一括実行します（リージョン: {cfg.aws_region}）。",
         assume_yes,
     )
+
+    log.step("[0/4] datastore 構成 apply（DVC リモート, 冪等）")
+    cmd_apply_datastore(assume_yes=True)
 
     log.step("[1/4] database 構成 apply")
     cmd_apply_database(assume_yes=True)

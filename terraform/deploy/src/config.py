@@ -52,6 +52,8 @@ class Config:
     state_key_database: str
     state_key_app: str
     raw: dict[str, str] = field(default_factory=dict)
+    # ADR-0097: DVC リモート用 S3 バケットを持つ datastore 構成の state key。
+    state_key_datastore: str = "datastore/state.tfstate"
 
 
 def default_env_path() -> Path:
@@ -81,6 +83,7 @@ def load_config(env_path: Path | None = None) -> Config:
     name_prefix = cfg.get("NAME_PREFIX", "").strip()
     state_key_database = cfg.get("STATE_KEY_DATABASE", "").strip() or "database/state.tfstate"
     state_key_app = cfg.get("STATE_KEY_APP", "").strip() or "app/state.tfstate"
+    state_key_datastore = cfg.get("STATE_KEY_DATASTORE", "").strip() or "datastore/state.tfstate"
 
     # --- 共通値を TF_VAR / AWS ランタイム変数へ反映（ADR-0038）---
     os.environ["AWS_DEFAULT_REGION"] = aws_region
@@ -122,4 +125,5 @@ def load_config(env_path: Path | None = None) -> Config:
         state_key_database=state_key_database,
         state_key_app=state_key_app,
         raw=cfg,
+        state_key_datastore=state_key_datastore,
     )

@@ -9,7 +9,7 @@ ARG TERRAFORM_VERSION=1.15.7
 ARG DOCKER_VERSION=27.3.1
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl unzip ca-certificates bash \
+    && apt-get install -y --no-install-recommends curl unzip ca-certificates bash git \
     && rm -rf /var/lib/apt/lists/*
 
 # Terraform（ピン留め）
@@ -24,6 +24,14 @@ RUN curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${
     && mv /tmp/docker/docker /usr/local/bin/docker \
     && rm -rf /tmp/docker /tmp/docker.tgz \
     && docker --version
+
+# ナレッジデータのバージョン管理（ADR-0097）。dvc は git リポジトリ（/work にマウント）を前提にする。
+# ホスト（Windows）とコンテナでファイル所有者が異なるため、git の safe.directory を許可しておく。
+ARG DVC_VERSION=3.59.1
+# pathspec 1.x は dvc 3.59 が参照する内部名（_DIR_MARK）を削除したため 1 未満に固定する。
+RUN pip install --no-cache-dir "dvc[s3]==${DVC_VERSION}" "pathspec<1" \
+    && git config --system --add safe.directory "*" \
+    && dvc --version
 
 WORKDIR /app
 COPY pyproject.toml /app/

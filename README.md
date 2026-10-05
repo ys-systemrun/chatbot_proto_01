@@ -1,7 +1,8 @@
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
 2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。埋め込みモデルの出力次元に合わせた `EMBEDDING_VECTOR_DIM`（nomic-embed-text なら 768）を必ず設定してください。
-3. `docker compose up` を実行してください。スキーマ作成（マイグレーション）と初期データ投入（シード、embedding計算を含む）は、専用のワンショットサービス `db_init` が自動的に実行します（IMPL-202608061016 / ADR-0016〜0018）。手動でのシーディング操作は不要です。既存データが投入済みの場合は、テーブル単位の存在チェックにより自動的にスキップされます。
+3. シード元データを取得してください（ADR-0097）。データ本体は git ではなく DVC リモート（S3）で管理しています。`terraform\dvc.bat pull` を実行すると `db_init/data/hiroba_qa/`・`db_init/data/troubleshooting/` に展開されます（`terraform/.env` の AWS 認証情報を使用。詳細は `terraform/README.md` の Phase 0.5）。
+4. `docker compose up` を実行してください。スキーマ作成（マイグレーション）と初期データ投入（シード、embedding計算を含む）は、専用のワンショットサービス `db_init` が自動的に実行します（IMPL-202608061016 / ADR-0016〜0018）。手動でのシーディング操作は不要です。既存データが投入済みの場合は、テーブル単位の存在チェックにより自動的にスキップされます。
 
 > **注意**: シードは `question_altered` の各行について LM Studio の embedding エンドポイントを呼び出します。`docker compose up` の前に LM Studio を起動し、embedding 用モデルをロードしておいてください。未起動のままだと `db_init` がシードに失敗し（非0終了）、これに依存する `web_backend` / `knowledge_mcp` / `tag_selector_mcp` は起動しません。ログは `docker compose logs db_init` で確認できます。
 

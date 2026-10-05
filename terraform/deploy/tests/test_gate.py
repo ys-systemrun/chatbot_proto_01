@@ -15,16 +15,18 @@ def test_apply_all_gate_sequence(monkeypatch):
     monkeypatch.setattr(commands.config, "load_config", lambda *a, **k: dummy)
     monkeypatch.setattr(commands, "prerequisites", lambda *a, **k: None)
     monkeypatch.setattr(commands.prompts, "confirm_or_exit", lambda *a, **k: None)
+    monkeypatch.setattr(commands, "cmd_apply_datastore", lambda **k: calls.append(("datastore", k)))
     monkeypatch.setattr(commands, "cmd_apply_database", lambda **k: calls.append(("database", k)))
     monkeypatch.setattr(commands, "cmd_apply_app", lambda **k: calls.append(("app", k)))
     monkeypatch.setattr(commands, "cmd_seed", lambda **k: calls.append(("seed", k)))
 
     commands.cmd_apply_all(assume_yes=True)
 
-    assert [name for name, _ in calls] == ["database", "app", "seed", "app"]
+    # ADR-0097: DVC リモート（datastore）を先に冪等 apply してから database を build する。
+    assert [name for name, _ in calls] == ["datastore", "database", "app", "seed", "app"]
     # ゲート閉→開（ADR-0095: 集約サービス全体の desired_count）
-    assert calls[1][1]["app_desired_count"] == 0
-    assert calls[3][1]["app_desired_count"] == 1
+    assert calls[2][1]["app_desired_count"] == 0
+    assert calls[4][1]["app_desired_count"] == 1
 
 
 def test_apply_app_desired_count_flag_and_legacy_alias():

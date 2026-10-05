@@ -1,6 +1,6 @@
 # ADR-0097: ナレッジデータのバージョン管理に DVC（S3 リモート）を導入し、イメージビルド前の `dvc pull` で同梱する
 
-- ステータス: Proposed（草案）
+- ステータス: Accepted
 - 日付: 2026-10-05
 - 関連: ADR-0016〜0018（yoyo マイグレーション・シード再実行安全性）、ADR-0030（db_hiroba_qa_init の AWS 展開）、ADR-0034（シード元データのイメージ同梱。本ADRは同梱方針を維持したまま供給元を変更）、ADR-0035（embedding キャッシュ再利用）、ADR-0037 / ADR-0039（Terraform state 分割・2層構成）、ADR-0038 / ADR-0040（`.env` 一元化・デプロイオーケストレーターのコンテナ化）、ADR-0047（全データエクスポート）、ADR-0066（全データインポートの全消去上書き方式）、ADR-0098（命名整理。本ADRの決定以降のパスは同ADR適用後の名称で記載）
 
@@ -51,7 +51,9 @@
 
 ### 2. DVC リモート（S3 バケット）
 
-- `terraform/bootstrap`（state バケットと同じ、destroy の対象にならない層）に、DVC リモート専用の S3 バケットを新設する。
+- DVC リモート専用の S3 バケットを、新設する **datastore 構成**（`terraform/main/datastore`、S3 バックエンドの state key `datastore/state.tfstate`）に置く。database / app とは独立した長寿命の層で、破棄コマンドは用意せず、`prevent_destroy` で terraform からの破棄も拒否する。作成・更新は冪等な `apply-datastore`（`apply-all` も先頭で実行）で行う。
+  - 草案では `terraform/bootstrap` に同居させる予定だったが、実装時に変更した。bootstrap の state はローカルファイルで、state バケットが既にあると apply がスキップされる（`ensure_state_bucket`）。そのため、後から追加したリソースを別のマシンからも冪等に apply できない。
+  - バケット名は `<name_prefix>-dvc-<アカウントID>-<リージョン>`。
   - バージョニングを有効にする
   - パブリックアクセスをブロックする
   - SSE-S3 で暗号化する
@@ -61,8 +63,9 @@
 ### 3. 実行環境
 
 - `dvc[s3]` と `git` をデプロイオーケストレーターのイメージ（`terraform/deploy/Dockerfile`）に追加する。ホストに Python や dvc を入れる必要がない状態を保つ（ADR-0040 の方針）。
+  - dvc のバージョンは固定する（実装時点で 3.59.1）。pathspec 1.x は dvc 3.59 が参照する内部名を削除しているため、`pathspec<1` も固定する。
 - 開発者が使う操作（`dvc add` / `dvc push` / `dvc pull` / `dvc status` / `dvc diff`）は、`deploy` に dvc のコマンドをそのまま渡すサブコマンドを追加して提供する。呼び出し口として `terraform/dvc.bat` を新設する。
-- `/work` にマウントしたリポジトリの所有者がコンテナ内のユーザーと異なると、git の `safe.directory` チェックで失敗する。オーケストレーター側で `safe.directory=/work` を設定して回避する。
+- `/work` にマウントしたリポジトリの所有者がコンテナ内のユーザーと異なると、git の `safe.directory` チェックで失敗する。イメージのシステム設定で `safe.directory` を許可して回避する。
 
 ### 4. デプロイ時の取得と同梱（案1）
 
@@ -126,7 +129,7 @@ apply-database.bat → seed.bat    （データを反映）
 - **データ本体は git の外（S3）に置かれ**、リポジトリの肥大化と機密データの混入を避けられる。
 - **運用上の新しい注意点**として、`dvc push` を忘れると他の開発者やデプロイが `dvc pull` できない。デプロイ時はビルド前に中止されるので、壊れたイメージは作られない。手順書（`terraform/README.md`）に、push まで含めた手順を明記する。
 - **実装時の変更点**
-  - `terraform/bootstrap`: DVC リモート用の S3 バケットを追加する。
+  - `terraform/main/datastore`: DVC リモート用の S3 バケットを持つ構成を新設する。`apply-datastore`（`terraform/apply-datastore.bat`）で作成する。
   - `terraform/deploy/Dockerfile`: `dvc[s3]` と `git` を追加する。
   - `terraform/deploy/src/commands.py`: dvc パススルーのサブコマンドと、ビルド前の pull・status 検証・ラベル付与を追加する。
   - `terraform/dvc.bat`: 新設する。コメントは英語で書く。

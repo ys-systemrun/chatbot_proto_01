@@ -26,9 +26,13 @@ def build_and_push(
     dir_label: str,
     repo_label: str,
     dockerfile: str | None = None,
+    labels: dict[str, str] | None = None,
 ) -> None:
     log.info(f"build: {dir_label} -> {image}")
     build_cmd = ["docker", "build", "-t", image]
+    # イメージに焼き込んだデータ・コードの版を後から確認できるようにする（ADR-0097）。
+    for key, value in (labels or {}).items():
+        build_cmd += ["--label", f"{key}={value}"]
     # admin_ui はビルドコンテキストをリポジトリルートにし、Dockerfile を明示指定する
     # （front_dev/ と web_backend/ の両方を COPY するため, IMPL-202608211050 T6/5.5）。
     # dockerfile はコンテキスト（context）からの相対パスで渡す。

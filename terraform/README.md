@@ -22,6 +22,7 @@ state を2構成に分割（ADR-0039）。依存は database ← app の一方�
 terraform/
 ├── bootstrap/                Phase 0: state 用 S3 バケット（メイン構成の外で管理, 循環依存回避）
 ├── main/
+│   ├── datastore/            [datastore構成] ナレッジデータの DVC リモート用 S3 バケット（ADR-0097。破棄しない長寿命の層）
 │   ├── database/             [database構成] ネットワーク基盤 + RDS(pgvector) + シード用 ECS 周辺
 │   │   ├── backend.tf        （旧 verify-network + verify-database + verify の db_init 部分を統合）
 │   │   ├── variables.tf
@@ -68,9 +69,11 @@ Phase 4→5 のゲート（seed 完了まで knowledge_mcp を起動しない）
 ```
 terraform/
 ├── bootstrap.bat        Phase 0 前半のみ（state 用 S3 バケット作成。バケット名は .env の STATE_BUCKET）
+├── apply-datastore.bat  DVC リモート用 S3 バケットを作成・更新（冪等。ADR-0097。apply-all も先頭で実行）
+├── dvc.bat              コンテナ内で dvc を実行（add / push / pull / status / checkout / diff。ADR-0097）
 ├── apply-database.bat   database 構成のみ apply（ネットワーク+RDS+シード用イメージ）
 ├── apply-app.bat        app 構成のみ apply（要: database 構成 apply 済み）
-├── apply-all.bat        フルパイプライン（database → app閉 → seed → app開）
+├── apply-all.bat        フルパイプライン（datastore → database → app閉 → seed → app開）
 ├── seed.bat             シード run-task のみ実行（再シード用途。要: 両構成 apply 済み）
 ├── migrate.bat          マイグレーション専用 run-task（シード投入をスキップ。ADR-0075。要: 両構成 apply 済み）
 ├── query.bat            アドホック SQL 実行 run-task（query.sql を実行。ADR-0083。対象DB名入力の確認あり）
@@ -132,8 +135,41 @@ terraform/bootstrap.bat   ← ダブルクリック（内部で deploy bootstrap
 
 事前準備は `terraform/.env` の記入のみ（旧 `terraform.tfvars` のコピーは不要。ADR-0040 で `.env` に集約）。
 
+### Phase 0.5: ナレッジデータ（DVC, ADR-0097）
+
+シード元データ（`db_init/data/hiroba_qa/`・`db_init/data/troubleshooting/`）の本体は git に入れず、
+DVC リモート（datastore 構成の S3 バケット）に置く。git には情報源ごとの `.dvc`（内容ハッシュ）だけを記録する。
+
+```
+terraform\apply-datastore.bat               ← 初回のみ（DVC リモート用 S3 バケット作成。冪等）
+terraform\dvc.bat pull                      ← 手元にデータを取得（ローカルの docker compose 前にも必要）
+```
+
+データを改善したときの流れ（`dvc.bat` のパスはリポジトリルートからの相対・スラッシュ区切り）:
+
+```
+terraform\dvc.bat add db_init/data/hiroba_qa     （変更した情報源のみ）
+git add db_init/data/hiroba_qa.dvc
+git commit -m "kb: <変更理由>"
+terraform\dvc.bat push                            ← push を忘れると他の人・デプロイが pull できない
+git tag kb-YYYY.MM.DD-N                           （意味のある版のみ）
+apply-database.bat → seed.bat                     （AWS へ反映）
+```
+
+- 過去の版を再現: `git checkout <tag>` → `terraform\dvc.bat checkout`
+- 版どうしの差分（どのファイルが変わったか）: `terraform\dvc.bat diff <旧> <新>`
+- `.dvc/config` の remote URL は `apply-datastore` が表示する `DVC remote` と一致させる。
+
 ### Phase 1: database 構成（ネットワーク + RDS + シード用イメージ）
-`apply-database.bat` が次を自動化する（手動なら以下を database ディレクトリで実行）:
+`apply-database.bat` は、シード用イメージを build する直前に**ナレッジデータの取得と検証**を行う（ADR-0097）:
+
+1. `dvc pull db_init/data/*.dvc` で DVC リモートからデータを取得する（取得できなければ build 前に中止。push 忘れの可能性）。
+2. `dvc status` でワークスペースが `.dvc` と一致するか確認する（`dvc add` していない編集があれば中止）。
+3. 情報源ごとの md5 と git commit を、イメージのラベル（`kb.data.<情報源>.md5` / `org.opencontainers.image.revision`）と
+   シードタスクの環境変数 `KB_DATA_VERSION`（例: `hiroba_qa=<md5>,troubleshooting=<md5>`）に記録する。
+   db_init は起動時にこの値をログ（CloudWatch `/ecs/db-init`）へ出力する。
+
+そのうえで次を自動化する（手動なら以下を database ディレクトリで実行）:
 ```bash
 cd terraform/main/database
 terraform init -backend-config="bucket=<state-bucket>" -backend-config="region=<region>" \

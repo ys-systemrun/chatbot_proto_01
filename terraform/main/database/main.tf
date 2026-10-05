@@ -61,9 +61,11 @@ module "db_init_task" {
     BEDROCK_EMBEDDING_MODEL_ID = var.bedrock_embedding_model_id
     BEDROCK_REGION             = var.aws_region
     CSV_DATA_DIR               = var.csv_data_dir
-    QA_ORIGINAL_FILE           = var.qa_original_file
-    QUESTION_ALTERED_FILE      = var.question_altered_file
-    CATEGORY_FILE              = var.category_file
+    # イメージに同梱したシード元データの版（ADR-0097, deploy が dvc の md5 から設定）。
+    KB_DATA_VERSION       = var.kb_data_version
+    QA_ORIGINAL_FILE      = var.qa_original_file
+    QUESTION_ALTERED_FILE = var.question_altered_file
+    CATEGORY_FILE         = var.category_file
     # conversation データベースの作成・スキーマ適用（ADR-0044 / IMPL-202608241104 T29）。
     CONVERSATION_DB_NAME = var.conversation_db_name
     # エクスポート専用ロールの GRANT CONNECT ON DATABASE の対象名（ADR-0046 / IMPL-202608241600 T10）。

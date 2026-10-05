@@ -1,0 +1,6 @@
+outs:
+- md5: 98eb662a043a02f3d521f55ba1140a62.dir
+  size: 2194418
+  nfiles: 5
+  hash: md5
+  path: hiroba_qa

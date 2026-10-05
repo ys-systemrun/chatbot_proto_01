@@ -31,3 +31,12 @@ def database_dir() -> Path:
 
 def app_dir() -> Path:
     return tf_root() / "main" / "app"
+
+
+def datastore_dir() -> Path:
+    return tf_root() / "main" / "datastore"
+
+
+def kb_data_dir() -> Path:
+    """DVC で管理するシード元データ（情報源別ディレクトリ, ADR-0097 / ADR-0098）。"""
+    return repo_root() / "db_init" / "data"

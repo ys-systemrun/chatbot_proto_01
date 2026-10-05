@@ -121,6 +121,8 @@ else:
 # QA_ORIGINAL_FILE 等は CSV_DATA_DIR からの相対パス（例: hiroba_qa/exportjson_withguid.json）で指定する。
 CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
+# イメージに同梱したシード元データの版（ADR-0097）。ローカル実行では未設定。
+KB_DATA_VERSION = os.environ.get("KB_DATA_VERSION", "")
 QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
 CATEGORY_FILE = os.environ["CATEGORY_FILE"]
 
@@ -715,6 +717,7 @@ def main():
         run_import_mode()
         return  # run_import_mode は sys.exit する（保険で return）
     print(f"{_now()} ====== db_init start.")
+    print(f"{_now()} seed data version (KB_DATA_VERSION): {KB_DATA_VERSION or '(not set)'}")
     try:
         # --- knowledge: ロール分離 → migrate → seed → app 権限付与 -----------------
         knowledge_roles_enabled = bool(KNOWLEDGE_MIGRATOR_PASSWORD and KNOWLEDGE_APP_PASSWORD)

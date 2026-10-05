@@ -20,6 +20,9 @@ def build_parser() -> argparse.ArgumentParser:
         return sp
 
     add("bootstrap", with_yes=True)
+    add("apply-datastore", with_yes=True)
+    dv = add("dvc")
+    dv.add_argument("dvc_args", nargs=argparse.REMAINDER, help="dvc にそのまま渡す引数（例: add / push / pull / status）")
     add("apply-database", with_yes=True)
     ap = add("apply-app", with_yes=True)
     # ADR-0095: ゲートは集約サービス全体に効く。旧名 --knowledge-mcp-desired-count も互換のため受け付ける。
@@ -64,6 +67,10 @@ def main(argv=None) -> None:
     try:
         if args.command == "bootstrap":
             commands.cmd_bootstrap(args.yes)
+        elif args.command == "apply-datastore":
+            commands.cmd_apply_datastore(args.yes)
+        elif args.command == "dvc":
+            commands.cmd_dvc(args.dvc_args)
         elif args.command == "apply-database":
             commands.cmd_apply_database(args.yes)
         elif args.command == "apply-app":

@@ -1,0 +1,6 @@
+outs:
+- md5: 55537b51dd84d989d04b85e0d6a429c8.dir
+  size: 197672
+  nfiles: 2
+  hash: md5
+  path: troubleshooting

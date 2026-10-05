@@ -119,6 +119,13 @@ variable "image_tag" {
 # 先頭に "/" を付けるため、ここでは先頭スラッシュ無しの "data" を渡す（→ /data）。
 # シード元データは ADR-0034 によりイメージに /data として同梱済み。
 # 各ファイル名は /data からの相対パス（情報源別ディレクトリ, ADR-0098）。
+# ADR-0097: イメージに同梱したシード元データの版（例: hiroba_qa=<md5>,troubleshooting=<md5>）。
+# apply-database が dvc の .dvc ファイルから算出して TF_VAR_kb_data_version に設定する（.env には書かない）。
+variable "kb_data_version" {
+  type    = string
+  default = ""
+}
+
 variable "csv_data_dir" {
   type    = string
   default = "data"
