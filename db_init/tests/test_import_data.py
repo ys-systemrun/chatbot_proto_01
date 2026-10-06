@@ -40,6 +40,7 @@ def test_tables_for_covers_chatbot_tables():
     assert import_data.tables_for("conversation") == [
         "conversation",
         "message",
+        "release",
         "verification_question",
         "verification_run",
         "verification_run_tag",

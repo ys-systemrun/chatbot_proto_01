@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getEvaluatedMessages } from "../../api";
-import type { EvaluatedConversation, EvaluatedMessage } from "../../domain/evaluated";
+import type { EvaluatedConversation, EvaluatedMessage, Release } from "../../domain/evaluated";
 
 /**
  * 列の定義（見出し・既定幅・最小幅）。REQ-202609141030 6.4節の表に対応する（ADR-0087 決定4）。
@@ -11,6 +11,10 @@ const COLUMNS = [
   { label: "#", defaultWidth: 40, minWidth: 32 },
   { label: "役割", defaultWidth: 72, minWidth: 48 },
   { label: "評価", defaultWidth: 56, minWidth: 40 },
+  // ADR-0099 §1・§4: 評価の理由・回答方式・リリース
+  { label: "理由", defaultWidth: 200, minWidth: 80 },
+  { label: "方式", defaultWidth: 80, minWidth: 56 },
+  { label: "リリース", defaultWidth: 120, minWidth: 80 },
   { label: "モデル", defaultWidth: 140, minWidth: 80 },
   { label: "本文", defaultWidth: 320, minWidth: 120 },
   { label: "LLM 入力", defaultWidth: 260, minWidth: 120 },
@@ -22,20 +26,24 @@ const TH_CLASSES = [
   "ev-th ev-td-num",
   "ev-th",
   "ev-th ev-td-center",
+  "ev-th",
+  "ev-th ev-td-center",
+  "ev-th ev-td-model",
   "ev-th ev-td-model",
   "ev-th",
   "ev-th",
   "ev-th ev-td-date",
 ] as const;
 
-/** 列幅の localStorage キー（ADR-0087 決定6。列構成を変えるときは _v2 …と上げる）。 */
-const STORAGE_KEY = "ev_column_widths_v1";
+/** 列幅の localStorage キー（ADR-0087 決定6。列構成を変えるときは _v2 …と上げる）。
+ * v2: ADR-0099 で「理由・方式・リリース」の3列を追加。 */
+const STORAGE_KEY = "ev_column_widths_v2";
 
 const defaultWidths = (): number[] => COLUMNS.map((c) => c.defaultWidth);
 
 /**
  * localStorage から列幅を読み込む（REQ 6.3）。
- * (a) JSON 配列としてパース可能 (b) 要素数が 7 (c) 全要素が有限の数値かつ対応する列の最小幅以上、
+ * (a) JSON 配列としてパース可能 (b) 要素数が列数と一致 (c) 全要素が有限の数値かつ対応する列の最小幅以上、
  * のすべてを満たす場合のみ採用し、それ以外は既定幅へフォールバックする。
  */
 function loadWidths(): number[] {
@@ -83,15 +91,41 @@ function ExpandableCell({ text, className }: { text: string | null; className: s
   );
 }
 
+const ASK_MODE_LABELS: Record<string, string> = {
+  pipeline: "パイプライン",
+  agentic: "エージェント",
+};
+
+/** リリースの詳細（ホバーで表示）。release テーブル未登録なら ID のみ。 */
+function releaseTitle(msg: EvaluatedMessage): string {
+  const r = msg.release;
+  if (!r) return msg.release_id ? `${msg.release_id}（詳細未登録）` : "";
+  return [
+    `release: ${r.release_id}`,
+    `commit: ${r.git_commit ?? "不明"}${r.git_dirty ? "（未コミット変更あり）" : ""}`,
+    `prompt: ${r.prompt_hash ?? "不明"}`,
+    `chat model: ${r.chat_model_id ?? "不明"}`,
+    `embedding: ${r.embedding_model_id ?? "不明"}`,
+    `params: ${r.params ? JSON.stringify(r.params) : "不明"}`,
+    `初回: ${r.first_seen_at ? formatDate(r.first_seen_at) : "不明"}`,
+  ].join("\n");
+}
+
 function MessageRow({ msg }: { msg: EvaluatedMessage }) {
   const roleLabel = msg.role === 1 ? "ユーザー" : "アシスタント";
   const evalLabel = msg.evaluation === 1 ? "👍" : msg.evaluation === 2 ? "👎" : "－";
+  const modeLabel = msg.ask_mode ? ASK_MODE_LABELS[msg.ask_mode] ?? msg.ask_mode : "－";
 
   return (
     <tr className={`ev-row ev-role-${msg.role === 1 ? "user" : "assistant"}`}>
       <td className="ev-td ev-td-num">{msg.order}</td>
       <td className="ev-td">{roleLabel}</td>
       <td className="ev-td ev-td-center">{evalLabel}</td>
+      <td className="ev-td ev-td-comment">{msg.evaluation_comment ?? "－"}</td>
+      <td className="ev-td ev-td-center">{modeLabel}</td>
+      <td className="ev-td ev-td-model" title={releaseTitle(msg)}>
+        {msg.release_id ? msg.release_id.slice(0, 8) : "－"}
+      </td>
       <td className="ev-td ev-td-model">{msg.model ?? "－"}</td>
       <ExpandableCell text={msg.content} className="ev-td ev-td-content" />
       <ExpandableCell text={msg.input} className="ev-td ev-td-input" />
@@ -216,6 +250,29 @@ export default function EvaluatedMessagesPage() {
   const [data, setData] = useState<EvaluatedConversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // リリースでの絞り込み（ADR-0099 §4）。"" はすべて。
+  const [releaseFilter, setReleaseFilter] = useState("");
+
+  /** 画面内に現れるリリース（初回日時の新しい順。詳細未登録のものは末尾）。 */
+  const releases = useMemo(() => {
+    const byId = new Map<string, Release | null>();
+    for (const c of data) {
+      for (const m of c.messages) {
+        if (m.release_id && !byId.get(m.release_id)) byId.set(m.release_id, m.release);
+      }
+    }
+    return [...byId.entries()].sort(
+      ([, a], [, b]) => (b?.first_seen_at ?? "").localeCompare(a?.first_seen_at ?? ""),
+    );
+  }, [data]);
+
+  const visible = useMemo(
+    () =>
+      releaseFilter
+        ? data.filter((c) => c.messages.some((m) => m.release_id === releaseFilter))
+        : data,
+    [data, releaseFilter],
+  );
 
   // 列幅は本ページで一元管理し、全 ConversationCard へ props として配る（ADR-0087 決定1）。
   // これにより、どのテーブルでドラッグしても画面内の全テーブルへ同時に反映される。
@@ -268,6 +325,18 @@ export default function EvaluatedMessagesPage() {
     <div className="ev-page">
       <h1 className="ev-title">評価済みメッセージ</h1>
       <div className="ev-toolbar">
+        <label className="ev-filter">
+          リリース
+          <select value={releaseFilter} onChange={(e) => setReleaseFilter(e.target.value)}>
+            <option value="">すべて</option>
+            {releases.map(([id, r]) => (
+              <option key={id} value={id}>
+                {id.slice(0, 8)}
+                {r?.first_seen_at ? `（${formatDate(r.first_seen_at)}〜）` : "（詳細未登録）"}
+              </option>
+            ))}
+          </select>
+        </label>
         <button className="ev-reset-btn" onClick={handleResetAll}>
           列幅をリセット
         </button>
@@ -277,7 +346,10 @@ export default function EvaluatedMessagesPage() {
       {!loading && !error && data.length === 0 && (
         <p className="ev-status">データがありません</p>
       )}
-      {data.map((conv) => (
+      {!loading && !error && data.length > 0 && visible.length === 0 && (
+        <p className="ev-status">このリリースの会話はありません</p>
+      )}
+      {visible.map((conv) => (
         <ConversationCard
           key={conv.id}
           conv={conv}

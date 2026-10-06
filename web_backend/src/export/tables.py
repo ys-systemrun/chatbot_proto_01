@@ -1,8 +1,8 @@
 """エクスポート対象テーブルの定義（IMPL-202608241600 T15、5.4 節）。
 
-対象は ナレッジ データベース7テーブル・conversation データベース6テーブルの計13テーブル。
-カラム定義は既存マイグレーション（db_init/migrations/0001〜0008 および
-migrations_conversation/0001〜0003）に基づく（0006 で tag_folder / tag.folder_id 追加, ADR-0072、
+対象は ナレッジ データベース9テーブル・conversation データベース7テーブルの計16テーブル。
+カラム定義は既存マイグレーション（db_init/migrations/0001〜0010 および
+migrations_conversation/0001〜0004）に基づく（0006 で tag_folder / tag.folder_id 追加, ADR-0072、
 0007 で tag_folder.parent_folder_id 追加・name UNIQUE 撤廃, ADR-0073、
 0008 で tag / tag_folder に display_order 追加, ADR-0074）。
 各テーブルについて次を保持する:
@@ -18,12 +18,12 @@ SQL 出力時の INSERT 順序（外部キー制約を満たす順序）は、�
 CONVERSATION_TABLES のリスト順で固定する（5.4 節）。
   - knowledge     : category → qa_original → tag_folder → tag → question_altered → tag_alias → qa_tag
                   → troubleshooting_article → troubleshooting_article_tag（ADR-0076）
-  - conversation: conversation → message → verification_question → verification_run
-                  → verification_run_tag → verification_run_source
+  - conversation: conversation → message → release → verification_question → verification_run
+                  → verification_run_tag → verification_run_source（release は ADR-0099。外部キーなし）
 
 ADR-0066: conversation の検証4テーブル（verification_*）を追加し、全データエクスポート／
 全消去インポートが会話評価・検証データも含めて往復できるようにした（旧: conversation は
-conversation / message の2テーブルのみ）。全消去インポート（ADR-0066）はここで定義する全13
+conversation / message の2テーブルのみ）。全消去インポート（ADR-0066）はここで定義する全16
 テーブルを唯一の対象集合とし、バックアップ・TRUNCATE・再投入をこの集合で一致させる。
 """
 
@@ -262,7 +262,7 @@ KNOWLEDGE_TABLES: list[TableSpec] = [
 
 
 # --------------------------------------------------------------------------- #
-# conversation データベース（migrations_conversation 0001〜0003 の最終形）
+# conversation データベース（migrations_conversation 0001〜0004 の最終形）
 # --------------------------------------------------------------------------- #
 CONVERSATION_TABLES: list[TableSpec] = [
     TableSpec(
@@ -290,6 +290,11 @@ CONVERSATION_TABLES: list[TableSpec] = [
             "model",
             "content",
             "created_at",
+            # ADR-0099 §1・§4（migrations_conversation/0004）
+            "release_id",
+            "ask_mode",
+            "evaluation_comment",
+            "evaluated_at",
         ],
         order_by=["id"],
         _create_ddl=(
@@ -303,7 +308,39 @@ CONVERSATION_TABLES: list[TableSpec] = [
             "    model           VARCHAR,\n"
             "    content         TEXT,\n"
             "    created_at      TIMESTAMP WITH TIME ZONE DEFAULT NOW(),\n"
+            "    release_id      VARCHAR,\n"
+            "    ask_mode        VARCHAR,\n"
+            "    evaluation_comment TEXT,\n"
+            "    evaluated_at    TIMESTAMP WITH TIME ZONE,\n"
             '    UNIQUE(conversation_id, "order")\n'
+            ");"
+        ),
+    ),
+    # 回答を生成した構成（リリース, ADR-0099 §1 / migrations_conversation/0004）。
+    TableSpec(
+        db="conversation",
+        name="release",
+        columns=[
+            "release_id",
+            "git_commit",
+            "git_dirty",
+            "prompt_hash",
+            "chat_model_id",
+            "embedding_model_id",
+            "params",
+            "first_seen_at",
+        ],
+        order_by=["release_id"],
+        _create_ddl=(
+            "CREATE TABLE IF NOT EXISTS release (\n"
+            "    release_id          VARCHAR PRIMARY KEY,\n"
+            "    git_commit          VARCHAR,\n"
+            "    git_dirty           BOOLEAN,\n"
+            "    prompt_hash         VARCHAR,\n"
+            "    chat_model_id       VARCHAR,\n"
+            "    embedding_model_id  VARCHAR,\n"
+            "    params              TEXT,\n"
+            "    first_seen_at       TIMESTAMP WITH TIME ZONE DEFAULT NOW()\n"
             ");"
         ),
     ),

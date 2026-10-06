@@ -119,7 +119,14 @@ async def ask_agentic(req: Request, components: dict) -> Response:
 
     messages.append(conversation.build_user_message(order, context, req.text))
     messages.append(
-        conversation.build_assistant_message(order + 1, answer, prompt, model_id)
+        conversation.build_assistant_message(
+            order + 1,
+            answer,
+            prompt,
+            model_id,
+            release_id=conversation.release_id_of(components),
+            ask_mode="agentic",
+        )
     )
 
     return Response(

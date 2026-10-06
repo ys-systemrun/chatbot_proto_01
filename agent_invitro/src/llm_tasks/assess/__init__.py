@@ -7,9 +7,12 @@
 from .base import SufficiencyAssessor
 from .bedrock import SufficiencyAssessorBedrock
 from .parsing import parse_assessment
+# リリースの prompt_hash 算出用に公開する（ADR-0099 §1）。
+from .prompts import SYSTEM_PROMPT as ASSESS_SYSTEM_PROMPT
 
 __all__ = [
     "SufficiencyAssessor",
     "SufficiencyAssessorBedrock",
     "parse_assessment",
+    "ASSESS_SYSTEM_PROMPT",
 ]

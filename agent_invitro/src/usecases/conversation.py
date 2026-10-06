@@ -96,9 +96,17 @@ def build_user_message(order: int, context: str, text: str) -> Message:
 
 
 def build_assistant_message(
-    order: int, answer: str, prompt: str, model_id: str
+    order: int,
+    answer: str,
+    prompt: str,
+    model_id: str,
+    release_id: str | None = None,
+    ask_mode: str | None = None,
 ) -> Message:
-    """assistant メッセージ（input=LLM へ渡したプロンプト / evaluation=0 未評価, F-6.1.4）。"""
+    """assistant メッセージ（input=LLM へ渡したプロンプト / evaluation=0 未評価, F-6.1.4）。
+
+    release_id / ask_mode は、回答を生成した構成と方式（ADR-0099 §1）。
+    """
     return Message(
         order=order,
         role="assistant",
@@ -106,7 +114,15 @@ def build_assistant_message(
         input=prompt,
         model=model_id,
         evaluation=0,
+        release_id=release_id,
+        ask_mode=ask_mode,
     )
+
+
+def release_id_of(components: dict) -> str | None:
+    """components に載せたリリース（dependencies.get_components が構築）の ID。無ければ None。"""
+    release = components.get("release")
+    return release.get("release_id") if release else None
 
 
 async def condense_query(

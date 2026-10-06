@@ -5,7 +5,7 @@ import type { Message } from "../../../domain/stateless/message";
 interface props {
   messages: Message[];
   isLoading?: boolean;
-  onEvaluate: (order: number, value: number) => void;
+  onEvaluate: (order: number, value: number, comment?: string | null) => void;
 }
 
 export default function MessageList({ messages, isLoading = false, onEvaluate }: props) {
@@ -23,8 +23,9 @@ export default function MessageList({ messages, isLoading = false, onEvaluate }:
           role={msg.role}
           content={msg.content}
           evaluation={msg.evaluation}
+          evaluationComment={msg.evaluation_comment}
           onEvaluate={msg.role === "assistant"
-            ? (value) => onEvaluate(msg.order, value)
+            ? (value, comment) => onEvaluate(msg.order, value, comment)
             : undefined}
         />
       ))}

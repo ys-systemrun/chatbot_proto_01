@@ -51,6 +51,7 @@ KNOWLEDGE_TABLES = [
 CONVERSATION_TABLES = [
     "conversation",
     "message",
+    "release",  # ADR-0099: 回答を生成した構成（外部キーなし）
     "verification_question",
     "verification_run",
     "verification_run_tag",

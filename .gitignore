@@ -29,3 +29,6 @@ terraform/chatbot.sql
 terraform/chatbot_o.sql
 terraform/conversation.sql
 terraform/conversation_o.sql
+
+# 評価ランナーの設定（ADR-0099）。evals/.env.example は追跡される。
+evals/.env

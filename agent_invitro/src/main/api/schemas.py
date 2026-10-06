@@ -17,6 +17,10 @@ class Message(BaseModel):
     input: str | None = None        # assistant: LLM に渡したプロンプト
     model: str | None = None        # assistant: 使用モデル名
     evaluation: int | None = None   # user: null / assistant: 0=未評価 1=good 2=bad
+    # --- ADR-0099 §1・§4: 回答を生成した構成と評価理由（assistant のみ）---
+    release_id: str | None = None   # assistant: 回答を生成したリリース（GET /release で内容を取得）
+    ask_mode: str | None = None     # assistant: "pipeline" | "agentic"
+    evaluation_comment: str | None = None  # assistant: 評価の理由（画面で任意入力）
 
 
 class Summary(BaseModel):

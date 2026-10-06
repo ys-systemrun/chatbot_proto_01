@@ -34,7 +34,7 @@ export default function ExportPage() {
       </div>
 
       <p className="admin-muted">
-        ナレッジ データベース（7テーブル）と conversation データベース（6テーブル）の全13テーブルの
+        ナレッジ データベース（9テーブル）と conversation データベース（7テーブル）の全16テーブルの
         全データを ZIP でダウンロードします。CSV は表計算ソフト用（埋め込みベクトルは除外）、SQL は空の
         PostgreSQL へ再投入できる形式です。
       </p>

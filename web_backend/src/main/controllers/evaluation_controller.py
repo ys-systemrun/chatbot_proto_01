@@ -23,6 +23,10 @@ class EvaluateMessage(BaseModel):
     evaluation: int | None = None
     input: str | None = None    # assistant メッセージ生成時の LLM 入力
     model: str | None = None    # assistant メッセージ生成に使ったモデル名
+    # --- ADR-0099 §1・§4 ---
+    release_id: str | None = None          # 回答を生成したリリース
+    ask_mode: str | None = None            # "pipeline" | "agentic"
+    evaluation_comment: str | None = None  # 評価の理由（任意）
 
 
 class EvaluateRequest(BaseModel):
@@ -35,6 +39,17 @@ class EvaluateResponse(BaseModel):
 
 
 # --- /evaluated_messages --------------------------------------------------- #
+class ReleaseOut(BaseModel):
+    release_id: str
+    git_commit: str | None
+    git_dirty: bool | None
+    prompt_hash: str | None
+    chat_model_id: str | None
+    embedding_model_id: str | None
+    params: dict | None
+    first_seen_at: str | None
+
+
 class EvaluatedMessageOut(BaseModel):
     id: str
     order: int
@@ -44,6 +59,11 @@ class EvaluatedMessageOut(BaseModel):
     model: str | None
     content: str | None
     created_at: str
+    release_id: str | None = None
+    ask_mode: str | None = None
+    evaluation_comment: str | None = None
+    evaluated_at: str | None = None
+    release: ReleaseOut | None = None  # release テーブル未登録なら None（release_id のみ）
 
 
 class EvaluatedConversationOut(BaseModel):
@@ -61,6 +81,9 @@ def evaluate_response(req: EvaluateRequest) -> EvaluateResponse:
             input=m.input,
             model=m.model,
             content=m.content,
+            release_id=m.release_id,
+            ask_mode=m.ask_mode,
+            evaluation_comment=m.evaluation_comment,
         )
         for m in req.messages
     ]
@@ -86,6 +109,11 @@ def get_evaluated_messages() -> list[EvaluatedConversationOut]:
                     model=m.model,
                     content=m.content,
                     created_at=m.created_at,
+                    release_id=m.release_id,
+                    ask_mode=m.ask_mode,
+                    evaluation_comment=m.evaluation_comment,
+                    evaluated_at=m.evaluated_at,
+                    release=ReleaseOut(**vars(m.release)) if m.release else None,
                 )
                 for m in c.messages
             ],

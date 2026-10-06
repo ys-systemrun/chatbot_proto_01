@@ -67,6 +67,18 @@ variable "app_task_memory" {
 }
 
 # --- Bedrock（ADR-0031, モデルIDは実装時に確定）---
+# ADR-0099 §1: agent_invitro のリリースに含めるコードの版。apply-app が git から算出して
+# TF_VAR_git_commit / TF_VAR_git_dirty に設定する（.env には書かない）。
+variable "git_commit" {
+  type    = string
+  default = ""
+}
+
+variable "git_dirty" {
+  type    = string
+  default = ""
+}
+
 variable "bedrock_chat_model_id" {
   type        = string
   description = "チャット用 Bedrock モデルID（tag_selector_mcp / agent_invitro）"

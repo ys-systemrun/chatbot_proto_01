@@ -11,7 +11,7 @@ interface props {
   askMode: AskMode;
   onChangeAskMode: (mode: AskMode) => void;
   onSubmit: (text: string) => void;
-  onEvaluate: (order: number, value: number) => void;
+  onEvaluate: (order: number, value: number, comment?: string | null) => void;
 }
 
 export const LayoutContainer: React.FC<props> = ({

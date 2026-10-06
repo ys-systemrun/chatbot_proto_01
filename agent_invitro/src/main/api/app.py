@@ -19,7 +19,7 @@ import logging
 
 from fastapi import FastAPI
 
-from .routers import ask_agentic, ask_pipeline, health
+from .routers import ask_agentic, ask_pipeline, health, release
 
 
 def create_app() -> FastAPI:
@@ -29,6 +29,7 @@ def create_app() -> FastAPI:
 
     app = FastAPI()
     app.include_router(health.router)
+    app.include_router(release.router)
     app.include_router(ask_pipeline.router)
     app.include_router(ask_agentic.router)
     return app

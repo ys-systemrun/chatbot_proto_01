@@ -308,9 +308,13 @@ def test_ask_agentic_uses_same_contract_as_ask_pipeline():
     agentic_resp = asyncio.run(ask_agentic(build_request(), build_components()))
 
     assert pipeline_resp.model_dump().keys() == agentic_resp.model_dump().keys()
-    assert [m.model_dump() for m in pipeline_resp.messages] == [
-        m.model_dump() for m in agentic_resp.messages
-    ]
+    # ask_mode だけは方式を記録するため異なる（ADR-0099 §1）。それ以外は同一。
+    def without_mode(resp):
+        return [{k: v for k, v in m.model_dump().items() if k != "ask_mode"} for m in resp.messages]
+
+    assert without_mode(pipeline_resp) == without_mode(agentic_resp)
+    assert pipeline_resp.messages[-1].ask_mode == "pipeline"
+    assert agentic_resp.messages[-1].ask_mode == "agentic"
 
 
 def test_clarify_fallback_constant_matches_generate_rule_3():

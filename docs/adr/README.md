@@ -101,6 +101,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0095](./0095-verification-env-cost-reduction-single-task-single-az-endpoints.md) | 検証環境のコスト削減（常駐4サービスを1タスク・4コンテナへ集約、Interface VPCエンドポイントとECSタスクを単一AZに限定） | Accepted |
 | [0097](./0097-knowledge-data-versioning-with-dvc-pull-before-build.md) | ナレッジデータのバージョン管理にDVC（S3リモート）を導入し、イメージビルド前の`dvc pull`で同梱する（ADR-0034の同梱方針は維持） | Accepted |
 | [0098](./0098-naming-reorganization-db-init-and-knowledge-identifiers.md) | 環境destroyを機にした命名の全面整理（`db_hiroba_qa_init`→`db_init`、ナレッジDB系識別子の`chatbot`→`knowledge`統一、シード元データの情報源別ディレクトリ化、ローカルボリューム再配置。ADR-0069/0077の命名方針を一部上書き） | Accepted |
+| [0099](./0099-improvement-loop-release-tracking-and-offline-evaluation.md) | 回答品質の改善ループ（回答ごとにリリース＝コード・プロンプト・モデル・設定とナレッジのリビジョンを記録、評価理由の入力、ゴールデンセット評価ランナーと人手評価のリポジトリ取り込み、改善記録。ADR-0097の持ち越し事項を引き取る） | Accepted |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

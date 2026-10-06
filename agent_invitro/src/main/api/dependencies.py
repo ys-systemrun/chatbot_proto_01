@@ -21,6 +21,7 @@ from ...config import load_settings
 from ...generate import GenerateAnswerLLMBedrock
 from ...llm_tasks.assess import SufficiencyAssessorBedrock
 from ...mcp_clients.client import build_mcp_client, load_tools
+from ...release import build_release
 from ...summarize import SummarizeLLMBedrock
 
 logger = logging.getLogger(__name__)
@@ -85,6 +86,9 @@ async def get_components() -> dict:
             "condenser": CondenseQueryLLMBedrock(model_id=model_id, region_name=region),
             "assessor": SufficiencyAssessorBedrock(model_id=model_id, region_name=region),
             "clarifier": ClarifyQuestionLLMBedrock(model_id=model_id, region_name=region),
+            # 回答を生成した構成（ADR-0099 §1）。assistant メッセージに release_id を付ける。
+            "release": build_release(settings),
         }
+        logger.info("agent_invitro release: %s", _components["release"])
         logger.info("agent_invitro components initialized (provider=bedrock)")
         return _components

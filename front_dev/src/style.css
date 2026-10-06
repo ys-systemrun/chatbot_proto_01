@@ -293,7 +293,22 @@ body.page-evaluated #app {
 .ev-toolbar {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
+  gap: 12px;
   margin-bottom: 10px;
+}
+
+/* リリースでの絞り込み（ADR-0099 §4） */
+.ev-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: #555;
+}
+.ev-filter select {
+  font-size: 0.78rem;
+  padding: 2px 4px;
 }
 
 .ev-reset-btn {
@@ -414,6 +429,7 @@ body.ev-resizing * { user-select: none !important; }
 .ev-td-center  { text-align: center; }
 .ev-td-model   { word-break: break-all; font-size: 0.78rem; color: #777; }
 .ev-td-content { white-space: pre-wrap; word-break: break-word; font-size: 0.85rem; }
+.ev-td-comment { white-space: pre-wrap; word-break: break-word; font-size: 0.8rem; color: #444; }
 .ev-td-input   { word-break: break-word; }
 .ev-td-date    { font-size: 0.78rem; color: #aaa; white-space: nowrap; }
 
@@ -480,6 +496,69 @@ body.ev-resizing * { user-select: none !important; }
 
 .eval-btn.good.active { background: #eaf6ea; }
 .eval-btn.bad.active  { background: #fdecea; }
+
+/* 評価の理由（ADR-0099 §4） */
+.eval-comment-toggle {
+  background: none;
+  border: none;
+  color: #2980b9;
+  font-size: 0.78rem;
+  cursor: pointer;
+  padding: 2px 4px;
+}
+.eval-comment-toggle:hover { text-decoration: underline; }
+
+.eval-comment-saved {
+  margin: 4px 0 0;
+  font-size: 0.8rem;
+  color: #666;
+  white-space: pre-wrap;
+}
+
+.eval-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+  width: 100%;
+  min-width: 280px;
+}
+
+.eval-comment-input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 6px 8px;
+  border: 1px solid #d0d0d0;
+  border-radius: 6px;
+  resize: vertical;
+}
+
+.eval-comment-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.eval-comment-save,
+.eval-comment-cancel {
+  font-size: 0.78rem;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.eval-comment-save {
+  background: #2980b9;
+  color: #fff;
+  border: 1px solid #2980b9;
+}
+.eval-comment-save:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.eval-comment-cancel {
+  background: #fff;
+  color: #555;
+  border: 1px solid #d0d0d0;
+}
 
 /* ── Input bar ──────────────────────────────────────────────── */
 #input-bar {

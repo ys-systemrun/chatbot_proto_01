@@ -141,6 +141,10 @@ module "app" {
         LLM_PROVIDER          = "bedrock"
         BEDROCK_CHAT_MODEL_ID = var.bedrock_chat_model_id
         BEDROCK_REGION        = var.aws_region
+        # --- リリース（回答を生成した構成）の要素（ADR-0099 §1）。deploy が apply-app 時に設定する ---
+        GIT_COMMIT                 = var.git_commit
+        GIT_DIRTY                  = var.git_dirty
+        BEDROCK_EMBEDDING_MODEL_ID = var.bedrock_embedding_model_id
         # --- 会話タグ管理機能で追加（IMPL-202608261345 T10 / ADR-0057）---
         # TAG_SEARCH_FALLBACK_ENABLED は ADR-0062 により廃止（単一呼び出し方式へ単純化）。
         TAG_SELECTOR_MAX_TAGS             = "3"

@@ -90,7 +90,14 @@ async def ask_pipeline(req: Request, components: dict) -> Response:
     logger.info("bedrock generate model=%s answer_len=%d", model_id, len(answer))
 
     messages.append(
-        conversation.build_assistant_message(order + 1, answer, prompt, model_id)
+        conversation.build_assistant_message(
+            order + 1,
+            answer,
+            prompt,
+            model_id,
+            release_id=conversation.release_id_of(components),
+            ask_mode="pipeline",
+        )
     )
 
     return Response(

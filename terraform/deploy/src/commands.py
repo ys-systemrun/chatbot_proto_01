@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import shutil
 
-from . import aws, config, dockercli, kbdata, log, paths, proc, prompts, tf, tfvars
+from . import aws, config, dockercli, gitinfo, kbdata, log, paths, proc, prompts, tf, tfvars
 from .errors import DeployError
 
 
@@ -292,6 +292,14 @@ def cmd_apply_app(assume_yes: bool = False, app_desired_count: int = 1) -> None:
     repos = tf.output_json(d, "ecr_repository_urls")
     registry = repos["knowledge-mcp"].split("/")[0]
 
+    # ADR-0099 §1: コードの版を agent_invitro のリリースに含めるため、イメージのラベルと
+    # タスク環境変数（GIT_COMMIT / GIT_DIRTY）に渡す。
+    git = gitinfo.current()
+    os.environ["TF_VAR_git_commit"] = git.commit
+    os.environ["TF_VAR_git_dirty"] = "true" if git.dirty else "false"
+    if git.dirty:
+        log.warn("追跡済みファイルに未コミットの変更があります。リリースの git_dirty=true として記録されます。")
+
     log.step("Docker イメージ build / push")
     log.info(f"ECR ログイン: {registry}")
     dockercli.login(registry, cfg.aws_region)
@@ -303,7 +311,7 @@ def cmd_apply_app(assume_yes: bool = False, app_desired_count: int = 1) -> None:
     ]
     for src_dir, repo in components:
         image = f"{repos[repo]}:{image_tag}"
-        dockercli.build_and_push(paths.repo_root() / src_dir, image, src_dir, repo)
+        dockercli.build_and_push(paths.repo_root() / src_dir, image, src_dir, repo, labels=git.labels())
 
     # admin_ui（管理UI, IMPL-202608211050 T16）: 例外的にビルドコンテキスト＝リポジトリルート、
     # Dockerfile＝web_backend/Dockerfile.admin_ui（front_dev のビルド＋web_backend のマルチステージ）。

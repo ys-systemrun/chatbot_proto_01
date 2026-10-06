@@ -63,11 +63,18 @@ export const StateContainer: React.FC<{}> = () => {
   );
 
   const handleEvaluate = useCallback(
-    async (order: number, value: number) => {
+    async (order: number, value: number, comment?: string | null) => {
       if (!conversationId) return;
 
+      // comment を省略したときは既存の理由を保持する（評価値だけの変更, ADR-0099 §4）。
       const updatedMessages = messages.map((m) =>
-        m.order === order ? { ...m, evaluation: value } : m
+        m.order === order
+          ? {
+              ...m,
+              evaluation: value,
+              ...(comment !== undefined ? { evaluation_comment: comment } : {}),
+            }
+          : m
       );
       setMessages(updatedMessages);
 
