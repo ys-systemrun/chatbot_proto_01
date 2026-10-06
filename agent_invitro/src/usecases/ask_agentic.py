@@ -126,6 +126,8 @@ async def ask_agentic(req: Request, components: dict) -> Response:
             model_id,
             release_id=conversation.release_id_of(components),
             ask_mode="agentic",
+            # 逆質問は検索結果に基づかないため出典なし。
+            sources=[] if outcome == OUTCOME_CLARIFY else conversation.build_sources(results),
         )
     )
 

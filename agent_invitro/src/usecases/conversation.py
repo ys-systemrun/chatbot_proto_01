@@ -86,6 +86,19 @@ def build_context(results: list[dict]) -> str:
     )
 
 
+def build_sources(results: list[dict]) -> list[dict]:
+    """回答の参考情報にした検索結果の識別情報（順位順, ADR-0099 §5）。本文は含めない。"""
+    return [
+        {
+            "source_type": r.get("source_type"),
+            "id": None if r.get("id") is None else str(r.get("id")),
+            "title": r.get("title"),
+            "score": r.get("score"),
+        }
+        for r in results
+    ]
+
+
 def build_user_message(order: int, context: str, text: str) -> Message:
     """コンテキスト込みの user メッセージ（web_backend の content 形式と同一, F-6.1.4）。"""
     return Message(
@@ -102,10 +115,12 @@ def build_assistant_message(
     model_id: str,
     release_id: str | None = None,
     ask_mode: str | None = None,
+    sources: list[dict] | None = None,
 ) -> Message:
     """assistant メッセージ（input=LLM へ渡したプロンプト / evaluation=0 未評価, F-6.1.4）。
 
-    release_id / ask_mode は、回答を生成した構成と方式（ADR-0099 §1）。
+    release_id / ask_mode は回答を生成した構成と方式（ADR-0099 §1）、sources は参考情報にした
+    検索結果（ADR-0099 §5）。
     """
     return Message(
         order=order,
@@ -116,6 +131,7 @@ def build_assistant_message(
         evaluation=0,
         release_id=release_id,
         ask_mode=ask_mode,
+        sources=sources,
     )
 
 

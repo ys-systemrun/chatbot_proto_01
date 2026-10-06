@@ -21,6 +21,9 @@ class Message(BaseModel):
     release_id: str | None = None   # assistant: 回答を生成したリリース（GET /release で内容を取得）
     ask_mode: str | None = None     # assistant: "pipeline" | "agentic"
     evaluation_comment: str | None = None  # assistant: 評価の理由（画面で任意入力）
+    # assistant: 回答の参考情報にした検索結果（順位順）。各要素は source_type / id / title / score。
+    # 逆質問のときは空。評価ランナーが出典の正しさを採点するのに使う（ADR-0099 §5）。
+    sources: list[dict] | None = None
 
 
 class Summary(BaseModel):

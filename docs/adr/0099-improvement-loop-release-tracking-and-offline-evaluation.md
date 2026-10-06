@@ -1,6 +1,6 @@
 # ADR-0099: 回答品質の改善ループ — 回答をリリース（コード・プロンプト・データ・モデル）に結び付け、ゴールデンセット評価と人手評価をリポジトリへ持ち帰る
 
-- ステータス: Accepted（段階①②実装済み）
+- ステータス: Accepted（段階①②③実装済み）
 - 日付: 2026-10-06
 - 関連: ADR-0031（Bedrock 接続）、ADR-0043 / ADR-0045（agent_invitro の HTTP サービス化・admin_ui 経由のチャット）、ADR-0044（conversation DB）、ADR-0047 / ADR-0066（全データエクスポート・インポート）、ADR-0048〜0050（検証機能。検索のみを対象とする）、ADR-0085 / ADR-0088 / ADR-0089（condense・Agentic 回答生成・`/ask-*` の併存）、ADR-0087（評価済みメッセージ画面）、**ADR-0097（ナレッジデータの DVC 管理。本ADRが「評価ループ側の別ADR」として持ち越し事項を引き取る）**、ADR-0098（命名整理）
 
@@ -102,20 +102,23 @@ ADR-0097 で、シード元データの版（`KB_DATA_VERSION`）をデプロイ
 - 採点に使うモデルは回答用モデルと別に設定できるようにする（`EVAL_JUDGE_MODEL_ID`）。採点プロンプトも `evals/judge_prompts/` に置き、版を記録する。
 - LLM 採点は揺れるため、採点の比較は同じ採点モデル・採点プロンプトの実行どうしに限る（結果ファイルに採点側の版も記録する）。
 
-**結果の保存先**（git で管理。テキストのみ）
+**結果の保存先**（2026-10-06 改訂: 評価データは git ではなく DVC で管理する）
 
 ```
 evals/
-  golden/<名前>.csv                 ゴールデンセット
-  judge_prompts/*.md                採点プロンプト
-  runs/<日時>_<release_id>/
+  golden/<名前>.csv                 ゴールデンセット（git。質問と正解 ID のみで、回答文は持たない）
+  judge_prompts/*.md                採点プロンプト（git）
+  history.csv                       1回の実行を1行にした数値と版の推移（git。質問・回答の文は含めない）
+  runs/<日時>_<セット>_<方式>/      ← DVC（evals/runs.dvc）
     results.jsonl                   1問1行（質問・回答・出典・各スコア・採点理由・release・kb_revision）
     summary.md                      集計と、前回実行との比較（改善・悪化した質問）
     meta.json                       リリースの全要素・kb_revision・スナップショット・採点側の版
-  feedback/<日付>.jsonl             人手評価（理由・リリース付き）の増分
+  feedback/<日時>.jsonl             ← DVC（evals/feedback.dvc）。人手評価（理由・リリース付き）の増分
 ```
 
-- 結果がリポジトリに入るので、Claude Code に `evals/runs/` と `evals/feedback/` を読ませて、悪化・低評価の原因分析と、データ・プロンプト・コードの修正案作成を依頼できる。これがループの「持ち帰り」にあたる。
+- 評価データ（`runs/`・`feedback/`）は、利用者の質問（顧客名や環境情報を含みうる）・回答・回答時の参考情報（ナレッジ本文）を含む。ナレッジ本体を git に入れない ADR-0097 の方針に合わせ、**git にはポインタ（`.dvc`）と数値の推移（`history.csv`）だけを入れ、中身は DVC リモート（S3）に置く**。git の履歴に一度入ると削除が難しいことも理由。
+- `.dvc` が git のコミットと対応するので、「このコミット時点の評価結果」を `dvc checkout` で再現できる。評価のたびに `dvc.bat add evals/feedback evals/runs` → `.dvc` と `history.csv` をコミット → `dvc.bat push` を行う（ランナーが実行後に案内する）。
+- 結果はローカルの作業ツリーにあるので、Claude Code に `evals/runs/` と `evals/feedback/` を読ませて、悪化・低評価の原因分析と、データ・プロンプト・コードの修正案作成を依頼できる。これがループの「持ち帰り」にあたる。別のマシンでは `dvc.bat pull` で取得する。
 - 実行は都度の手動で行う。定期実行（スケジュール）は、費用と効果を見てから別途判断する。
 
 ### 6. 改善の記録
@@ -154,6 +157,17 @@ evals/
 - `prompt_hash` は段階①の「モジュール内の定数から計算」から「`prompts/` のファイル一式から計算」に切り替えた。これに伴い、段階①で `llm_tasks/assess` に足した `ASSESS_SYSTEM_PROMPT` の公開は取り消した。
 - 段階①の構成でデプロイした環境とは `prompt_hash` の計算方法が違うため、段階②をデプロイすると `release_id` は文面が同じでも新しくなる（以後は文面が同じなら変わらない）。
 - 改善記録は `docs/improvements/`（`README.md` に進め方と一覧、`_template.md` にひな形）。
+
+**段階③の実装メモ（2026-10-06）**
+
+- **出典の識別**: 回答文の参考情報は「Q: タイトル / A: 本文」のテキストで ID を含まないため、assistant メッセージに `sources`（参考情報にした検索結果の `source_type`・`id`・`title`・`score`。逆質問では空）を追加した。会話 DB には保存しない（評価ランナーが応答から直接読む）。
+- **リリースの取得**: web_backend に `GET /api/release`（agent_invitro の `GET /release` の中継）を追加し、実行記録（`meta.json`）にリリースの全要素を残す。
+- **ゴールデンセットの初版**: 業務の質問一覧が無いため、手作り4問・範囲外3問に、言い換え質問文から seed 固定で抽出した20問を加えた（計27問）。言い換え質問文は検索用に埋め込み済みのため、その20問（`paraphrase_indexed`）の出典一致率は楽観的に出る。人手評価の 👎 から質問を追加して育てる前提。
+- **模範解答**: QA の回答文はゴールデンセットに複製せず、採点時に DVC 管理のシード元データから引く（ADR-0097 の、データ本体を git に入れない方針に合わせる）。
+- **採点モデル**: Claude Opus 5.5 を Amazon Bedrock で、Anthropic SDK の Bedrock Mantle クライアントから呼ぶ（effort は medium を明示）。Bedrock の Mantle エンドポイントは構造化出力（`output_config.format`）を受け付けなかったため、採点プロンプトで JSON だけを返すよう指示し、読み取れなければ1回再試行する。安全分類器による拒否は、Bedrock ではサーバー側のフォールバックが使えないため、Claude Opus 4.8 で1回だけ手動で再試行する。
+- **回答を控えたかの判定**: 定型の断り文言と「出典なしの逆質問」による決定的な判定に、LLM の判定（`declined`）を OR で合わせる。出典を返さない古い agent_invitro の逆質問を拾うため。
+- **評価データの置き場所**: 当初は git 管理としていたが、質問・回答・参考情報（ナレッジ本文）を含むため DVC 管理に改めた（§5「結果の保存先」）。git には `evals/feedback.dvc`・`evals/runs.dvc` と、数値だけの `evals/history.csv` を入れる。実行日時は日本時間で記録する（コンテナの時計は UTC。改訂前の2回分のディレクトリ名と `started_at` は UTC）。
+- **評価ランナーの実行環境**: LLM 採点に Anthropic SDK が要るため、`evals/Dockerfile`（python + `anthropic[bedrock]`）を追加し、`eval.bat` が毎回 build してリポジトリを `/work` にマウントして実行する。
 
 ## 検討した代替案
 

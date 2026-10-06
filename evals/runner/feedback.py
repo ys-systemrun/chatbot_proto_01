@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 EVALUATION_LABELS = {1: "good", 2: "bad"}
@@ -99,7 +99,7 @@ def pull(base_url: str, feedback_dir: Path, now: datetime | None = None, fetch=f
     new_rows = [r for r in flatten(fetch(base_url)) if r["key"] not in seen]
     if not new_rows:
         return None
-    now = now or datetime.now()
+    now = now or datetime.now(timezone(timedelta(hours=9)))  # 日本時間（コンテナの時計は UTC）
     path = feedback_dir / f"{now:%Y%m%d-%H%M%S}.jsonl"
     with path.open("w", encoding="utf-8", newline="\n") as f:
         for row in new_rows:

@@ -97,6 +97,7 @@ async def ask_pipeline(req: Request, components: dict) -> Response:
             model_id,
             release_id=conversation.release_id_of(components),
             ask_mode="pipeline",
+            sources=conversation.build_sources(results),
         )
     )
 

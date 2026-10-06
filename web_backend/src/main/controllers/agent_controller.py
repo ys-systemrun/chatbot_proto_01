@@ -68,6 +68,18 @@ def _relay(req: Request, path: str) -> Response:
     return response
 
 
+def get_release() -> dict:
+    """agent_invitro の GET /release をそのまま返す（ADR-0099 §1）。"""
+    url = f"{config.AGENT_INVITRO_BASE_URL}{RELEASE_PATH}"
+    try:
+        resp = httpx.get(url, timeout=10)
+    except httpx.RequestError as exc:
+        raise HTTPException(status_code=502, detail=f"agent_invitro ({url}) への接続に失敗しました: {exc}")
+    if resp.status_code >= 400:
+        raise HTTPException(status_code=resp.status_code, detail=resp.text)
+    return resp.json()
+
+
 # 登録済み（または登録を試みた）release_id。プロセス内キャッシュで、毎回の DB 照会を避ける。
 _known_release_ids: set[str] = set()
 

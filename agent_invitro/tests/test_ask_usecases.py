@@ -171,6 +171,41 @@ def test_ask_pipeline_builds_response():
     assert components["search_tool"].calls[0]["tags"] == ["タグA"]
 
 
+def test_ask_pipeline_returns_sources_in_rank_order():
+    """ADR-0099 §5: 参考情報にした検索結果の識別情報（本文なし）を assistant に付ける。"""
+    components = build_components(
+        search_tool=FakeSearchTool([[
+            {"id": 1, "source_type": "qa", "title": "T1", "content": "C1", "score": 0.9},
+            {"id": "a-b", "source_type": "troubleshooting", "title": "T2", "content": "C2", "score": 0.5},
+        ]])
+    )
+    resp = asyncio.run(ask_pipeline(build_request(), components))
+
+    assert resp.messages[-1].sources == [
+        {"source_type": "qa", "id": "1", "title": "T1", "score": 0.9},
+        {"source_type": "troubleshooting", "id": "a-b", "title": "T2", "score": 0.5},
+    ]
+
+
+def test_ask_agentic_clarification_has_no_sources():
+    class EmptySearchTool:
+        def __init__(self):
+            self.calls = []
+
+        async def ainvoke(self, args):
+            self.calls.append(args)
+            return {"results": []}
+
+    components = build_components(
+        search_tool=EmptySearchTool(),
+        assessor=FakeAssessor([insufficient("q2"), insufficient("q3")]),
+    )
+    resp = asyncio.run(ask_agentic(build_request(), components))
+
+    assert resp.messages[-1].content == "どの画面で発生しましたか？"
+    assert resp.messages[-1].sources == []
+
+
 def test_ask_pipeline_issues_conversation_id_when_absent():
     req = build_request()
     req.conversation_id = None

@@ -13,7 +13,7 @@
 - 原因の見立て:
 - 根拠:
   - `evals/feedback/<ファイル>.jsonl` の `<key>`（質問・理由・release_id）
-  - （段階③以降）`evals/runs/<実行>/` の該当質問
+  - `evals/runs/<実行>/` の該当質問（ゴールデンセット評価）
 
 ## 変更
 

@@ -60,6 +60,13 @@ def ask_agentic(req: chat_schemas.Request):
     return agent_controller.ask_agentic(req)
 
 
+# 現在 agent_invitro が回答を生成している構成（リリース, ADR-0099 §1）。評価ランナーが実行記録
+# （evals/runs/*/meta.json）に残すために使う。
+@app.get("/api/release")
+def get_release():
+    return agent_controller.get_release()
+
+
 @app.post("/api/ask-local", response_model=chat_schemas.Response)
 def ask_local(req: chat_schemas.Request):
     return chat_controller.ask(req)

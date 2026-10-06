@@ -1,0 +1,89 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/25.0.1 Chrome/128.0.6613.186 Electron/32.2.6 Safari/537.36" version="25.0.1">
+  <diagram name="ページ1" id="y9m4L-DR-ixpINryaalm">
+    <mxGraphModel dx="2216" dy="767" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1169" pageHeight="827" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-1" value="" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="320" y="280" width="120" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-2" target="lB9b2_E9S70x2NMbQkRf-3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-2" value="" style="ellipse;fillColor=strokeColor;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-930" y="90" width="30" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-3" target="lB9b2_E9S70x2NMbQkRf-6">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-3" value="&lt;div&gt;出力：&lt;/div&gt;チャットボットへようこそ。&lt;div&gt;終了するには &#39;exit&#39; または &#39;quit&#39; を&lt;/div&gt;&lt;div&gt;入力してください。&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-1017.5" y="200" width="205" height="70" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-15" target="lB9b2_E9S70x2NMbQkRf-14">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-16" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-6" target="lB9b2_E9S70x2NMbQkRf-15">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-6" value="入力待ち：&lt;div&gt;『あなた：』&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-975" y="320" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-30" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-13" target="lB9b2_E9S70x2NMbQkRf-29">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-13" value="&lt;div&gt;出力：&lt;/div&gt;終了します。" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-770" y="410" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-22" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-14" target="lB9b2_E9S70x2NMbQkRf-20">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-26" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-14" target="lB9b2_E9S70x2NMbQkRf-27">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="-915" y="640" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-14" value="&lt;div&gt;入力が&lt;/div&gt;&#39;exit&#39; または &#39;quit&#39;" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-1000" y="510" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-15" target="lB9b2_E9S70x2NMbQkRf-13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-15" value="EOFError,&lt;div&gt;&amp;nbsp;KeyboardInterrupt&lt;/div&gt;" style="rhombus;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-1000" y="400" width="170" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-18" value="Yes" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-855" y="384" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-19" value="No" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-980" y="460" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-31" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-20" target="lB9b2_E9S70x2NMbQkRf-29">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-20" value="&lt;div&gt;出力：&lt;/div&gt;終了します。" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-770" y="520" width="120" height="40" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-23" value="Yes" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-855" y="490" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-24" value="No" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-980" y="590" width="50" height="30" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-28" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" edge="1" parent="1" source="lB9b2_E9S70x2NMbQkRf-27" target="lB9b2_E9S70x2NMbQkRf-6">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="-1090" y="670" />
+              <mxPoint x="-1090" y="340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-27" value="入力内容と似たQandA&lt;div&gt;&lt;/div&gt;&lt;div&gt;を探して、それを&lt;/div&gt;&lt;div&gt;使って回答生成、出力&lt;/div&gt;" style="rounded=0;whiteSpace=wrap;html=1;" vertex="1" parent="1">
+          <mxGeometry x="-988.75" y="640" width="147.5" height="60" as="geometry" />
+        </mxCell>
+        <mxCell id="lB9b2_E9S70x2NMbQkRf-29" value="" style="ellipse;html=1;shape=endState;fillColor=strokeColor;" vertex="1" parent="1">
+          <mxGeometry x="-560" y="470" width="30" height="30" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
