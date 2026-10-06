@@ -54,15 +54,21 @@ def test_unset_git_env_is_recorded_as_unknown():
     assert r["git_dirty"] is None
 
 
-def test_prompt_hash_covers_answer_path_prompts():
-    texts = release._prompt_texts()
+def test_release_id_changes_when_a_prompt_file_changes(tmp_path, monkeypatch):
+    from src import prompt_store
 
-    for key in ("generate._SYSTEM_PROMPT", "condense._SYSTEM_PROMPT", "summarize._SYSTEM_PROMPT",
-                "summarize._SYSTEM_PROMPT_WITH_EXISTING", "clarify._SYSTEM_PROMPT",
-                "assess.ASSESS_SYSTEM_PROMPT"):
-        assert key in texts
-    changed = {**texts, "generate._SYSTEM_PROMPT": texts["generate._SYSTEM_PROMPT"] + "x"}
-    assert release.prompt_hash(changed) != release.prompt_hash(texts)
+    for name, text in prompt_store.all_prompts().items():
+        (tmp_path / f"{name}.md").write_text(text, encoding="utf-8")
+    monkeypatch.setenv("AGENT_PROMPTS_DIR", str(tmp_path))
+    before = release.build_release(_settings(), env=ENV)
+
+    (tmp_path / "generate.md").write_text(prompt_store.load_prompt("generate") + "追記", encoding="utf-8")
+    after = release.build_release(_settings(), env=ENV)
+
+    # 同じ文面なら既定ディレクトリ（agent_invitro/prompts/）と同じハッシュになる。
+    assert before["prompt_hash"] == prompt_store.prompts_hash(prompt_store._DEFAULT_DIR)
+    assert after["prompt_hash"] != before["prompt_hash"]
+    assert after["release_id"] != before["release_id"]
 
 
 def test_assistant_message_carries_release_and_mode():

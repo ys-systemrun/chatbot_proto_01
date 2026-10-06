@@ -17,6 +17,8 @@ from typing import Protocol
 
 import boto3
 
+from .prompt_store import load_prompt
+
 
 class _MessageLike(Protocol):
     """condense() が要求する最小インタフェース（.role / .content を持つ任意の型）。
@@ -31,13 +33,8 @@ class _MessageLike(Protocol):
 
 # 言い換え質問生成用のシステムプロンプト。summarize.py の _SYSTEM_PROMPT と同様に、
 # 出力を成果物（質問文）そのものだけに制約する（前置き・説明・番号を含めない）。
-_SYSTEM_PROMPT = """\
-以下はユーザーとAIアシスタントの会話文脈（要約・直近の会話履歴）と、ユーザーの「今回の発話」です。
-「今回の発話」を、会話文脈を踏まえて、それ単体で意味が通る日本語の質問文に言い換えてください。
-指示語や省略された対象・条件は、会話文脈から補って明示してください。
-言い換えた質問文以外の文字（前置き・説明・番号など）は含めないこと。
-会話文脈に十分な手がかりが無い場合は、「今回の発話」をそのまま出力すること。\
-"""
+# 文面は agent_invitro/prompts/condense.md（ADR-0099 §3）。
+_SYSTEM_PROMPT = load_prompt("condense")
 
 
 def _build_user_content(

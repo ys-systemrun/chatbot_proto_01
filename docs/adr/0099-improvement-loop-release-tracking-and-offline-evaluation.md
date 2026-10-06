@@ -1,6 +1,6 @@
 # ADR-0099: 回答品質の改善ループ — 回答をリリース（コード・プロンプト・データ・モデル）に結び付け、ゴールデンセット評価と人手評価をリポジトリへ持ち帰る
 
-- ステータス: Accepted（段階①実装済み）
+- ステータス: Accepted（段階①②実装済み）
 - 日付: 2026-10-06
 - 関連: ADR-0031（Bedrock 接続）、ADR-0043 / ADR-0045（agent_invitro の HTTP サービス化・admin_ui 経由のチャット）、ADR-0044（conversation DB）、ADR-0047 / ADR-0066（全データエクスポート・インポート）、ADR-0048〜0050（検証機能。検索のみを対象とする）、ADR-0085 / ADR-0088 / ADR-0089（condense・Agentic 回答生成・`/ask-*` の併存）、ADR-0087（評価済みメッセージ画面）、**ADR-0097（ナレッジデータの DVC 管理。本ADRが「評価ループ側の別ADR」として持ち越し事項を引き取る）**、ADR-0098（命名整理）
 
@@ -145,6 +145,15 @@ evals/
 - リリースの登録は、評価時ではなく **`/api/ask-*` の中継で回答を受け取った直後**に行う。評価までの間に再デプロイされると、agent_invitro の `GET /release` が別の構成を返しうるため。回答の `release_id` と現在のリリースが一致しない場合は登録しない（誤った内容を記録しない）。
 - `git_dirty` は追跡済みファイルの未コミット変更の有無とする（未追跡の作業ファイルは版に影響しないため対象外）。
 - `pull-feedback` は1件ごとに「会話・順序・評価・理由・評価日時」から作るキーで重複を除く。評価や理由を付け直したものは新しい行として残る。
+
+**段階②の実装メモ（2026-10-06）**
+
+- プロンプトは7ファイル（`generate`・`condense`・`summarize`・`summarize_with_existing`・`clarify`・`assess`・`react_agent`）。§3 の一覧に、既存要約がある場合の要約プロンプト `summarize_with_existing.md` が加わった。
+- 移設は、コンテナ内で各定数をそのままファイルへ書き出す方法で行い、読み込み結果が移設前の定数と完全に一致することを確認した（回答は変わらない）。
+- 読み込みは `agent_invitro/src/prompt_store.py`。改行コードは LF にそろえる（`core.autocrlf=true` の checkout で CRLF になっても、文面と `prompt_hash` が環境で変わらないように）。`prompts/README.md` は説明用で、読み込みにもハッシュにも含めない。
+- `prompt_hash` は段階①の「モジュール内の定数から計算」から「`prompts/` のファイル一式から計算」に切り替えた。これに伴い、段階①で `llm_tasks/assess` に足した `ASSESS_SYSTEM_PROMPT` の公開は取り消した。
+- 段階①の構成でデプロイした環境とは `prompt_hash` の計算方法が違うため、段階②をデプロイすると `release_id` は文面が同じでも新しくなる（以後は文面が同じなら変わらない）。
+- 改善記録は `docs/improvements/`（`README.md` に進め方と一覧、`_template.md` にひな形）。
 
 ## 検討した代替案
 

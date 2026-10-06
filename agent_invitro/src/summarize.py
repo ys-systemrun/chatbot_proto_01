@@ -11,6 +11,8 @@ from typing import Protocol
 
 import boto3
 
+from .prompt_store import load_prompt
+
 
 class _MessageLike(Protocol):
     """summarize() が要求する最小インタフェース（.role / .content を持つ任意の型）。
@@ -22,18 +24,12 @@ class _MessageLike(Protocol):
     content: str
 
 
-# web_backend/src/llm/summarize_llm.py と同一のプロンプト（複製）。
-_SYSTEM_PROMPT = """\
-以下はユーザーとAIアシスタントの会話履歴です。
-この会話の内容を3文程度の日本語で要約してください。
-要約以外の文字（前置き・説明・番号など）は含めないこと。\
-"""
+# プロンプトは移設時点（ADR-0099 §3）で web_backend/src/llm/summarize_llm.py と同一。以後は prompts/ で独立に改善する。
+# 文面は agent_invitro/prompts/summarize.md（ADR-0099 §3）。
+_SYSTEM_PROMPT = load_prompt("summarize")
 
-_SYSTEM_PROMPT_WITH_EXISTING = """\
-以下はユーザーとAIアシスタントの会話履歴です。
-「既存の要約」を踏まえたうえで、「追加の会話履歴」の内容も含めた全体を3文程度の日本語で要約してください。
-要約以外の文字（前置き・説明・番号など）は含めないこと。\
-"""
+# 文面は agent_invitro/prompts/summarize_with_existing.md（ADR-0099 §3）。
+_SYSTEM_PROMPT_WITH_EXISTING = load_prompt("summarize_with_existing")
 
 
 class SummarizeLLMBedrock:
