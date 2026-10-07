@@ -48,7 +48,7 @@ terraform\dvc.bat pull
 |---|---|
 | `evals\eval.bat pull-feedback` | チャット画面で付けた 👍/👎・理由・リリースの増分を `evals/feedback/<日時>.jsonl` に保存する |
 | `evals\eval.bat build-golden` | 初版のゴールデンセット `evals/golden/v1.csv` を作る（最初の1回だけ。既にあれば `--force` が必要） |
-| `evals\eval.bat run` | ゴールデンセット v1 を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
+| `evals\eval.bat run` | ゴールデンセット（既定 v2、`--set v1` で旧版）を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
 | `evals\eval.bat run --mode agentic --limit 5` | 1方式・先頭5問だけ試す（`--no-judge` で LLM 採点なし） |
 | `evals\eval.bat compare <実行A> <実行B>` | 2回の実行結果を質問単位で比較する（`evals/runs/` のディレクトリ名） |
 
@@ -66,6 +66,7 @@ terraform\dvc.bat pull
 | `should_answer` | `true`=回答すべき / `false`=範囲外で回答を控えるのが正解 |
 | `note` | 補足 |
 
+- 版ごとの内容と変更理由は `golden/README.md`。現在の既定は **v2（25問）**。v1 は正解設定の誤りを含むため、比較の基準にしない。
 - 初版（v1, 27問）は `data/eval_queries.csv`（4問）・`data/eval_noise_queries.csv`（3問）と、言い換え質問文から seed 固定で抽出した20問。
 - **`paraphrase_indexed` の質問は検索用に埋め込み済みの文そのもの**なので、出典の一致率は実際より高く出る。
   回答の質の比較には使えるが、検索の評価は `handpicked` と `feedback` を重視する。
