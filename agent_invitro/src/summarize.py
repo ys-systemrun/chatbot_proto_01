@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
-import boto3
+from .bedrock_client import make_bedrock_client
 
 from .prompt_store import load_prompt
 
@@ -46,7 +46,7 @@ class SummarizeLLMBedrock:
     ) -> None:
         self._model_id = model_id
         self._max_tokens = max_tokens
-        self._client = boto3.client("bedrock-runtime", region_name=region_name)
+        self._client = make_bedrock_client(region_name)
 
     def _invoke(self, system: str, user_content: str) -> str:
         # Bedrock Converse API を使う（モデル非依存の統一フォーマット, generate.py と同一方針）。

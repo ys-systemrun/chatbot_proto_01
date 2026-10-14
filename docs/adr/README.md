@@ -103,6 +103,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0097](./0097-knowledge-data-versioning-with-dvc-pull-before-build.md) | ナレッジデータのバージョン管理にDVC（S3リモート）を導入し、イメージビルド前の`dvc pull`で同梱する（ADR-0034の同梱方針は維持） | Accepted |
 | [0098](./0098-naming-reorganization-db-init-and-knowledge-identifiers.md) | 環境destroyを機にした命名の全面整理（`db_hiroba_qa_init`→`db_init`、ナレッジDB系識別子の`chatbot`→`knowledge`統一、シード元データの情報源別ディレクトリ化、ローカルボリューム再配置。ADR-0069/0077の命名方針を一部上書き） | Accepted |
 | [0099](./0099-improvement-loop-release-tracking-and-offline-evaluation.md) | 回答品質の改善ループ（回答ごとにリリース＝コード・プロンプト・モデル・設定とナレッジのリビジョンを記録、評価理由の入力、ゴールデンセット評価ランナーと人手評価のリポジトリ取り込み、改善記録。ADR-0097の持ち越し事項を引き取る） | Accepted |
+| [0102](./0102-bedrock-client-timeouts-and-alb-idle-timeout.md) | Bedrockクライアントの読み取りタイムアウト短縮（短い呼び出し20秒・回答生成60秒、standard再試行3回、環境変数で上書き可）とadmin_ui ALBのアイドルタイムアウト150秒化（長期未使用後の切れた接続による60秒待ち→ALB 504への対策） | Proposed（実装済み・デプロイ後確認待ち） |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 
-import boto3
+from ...bedrock_client import make_bedrock_client
 
 from .base import DEGRADED_ASSESSMENT, SufficiencyAssessor
 from .parsing import parse_assessment
@@ -28,7 +28,7 @@ class SufficiencyAssessorBedrock(SufficiencyAssessor):
     ) -> None:
         self._model_id = model_id
         self._max_tokens = max_tokens
-        self._client = boto3.client("bedrock-runtime", region_name=region_name)
+        self._client = make_bedrock_client(region_name)
 
     def _invoke(self, system: str, user_content: str) -> str:
         response = self._client.converse(

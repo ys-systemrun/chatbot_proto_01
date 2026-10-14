@@ -10,7 +10,25 @@ Amazon Bedrock の Converse API を用いてチャット補完を行う LLMClien
 
 from __future__ import annotations
 
+import os
+
 from .base import LLMClient
+
+
+def _bedrock_config():
+    """タイムアウトと再試行の設定（ADR-0102）。
+
+    boto3 の既定（読み取り 60 秒）のままだと、途中経路で切れた接続を再利用したときに 60 秒待ってから
+    再試行し、admin_ui の ALB で 504 になる。タグ分類の出力は短いため、読み取りを既定 20 秒に短くする。
+    """
+    from botocore.config import Config
+
+    return Config(
+        connect_timeout=float(os.environ.get("BEDROCK_CONNECT_TIMEOUT_SEC") or 5),
+        read_timeout=float(os.environ.get("BEDROCK_READ_TIMEOUT_SEC") or 20),
+        # standard モードは読み取りタイムアウト（切れた接続）を含む一時的な失敗を再試行する。
+        retries={"mode": "standard", "max_attempts": int(os.environ.get("BEDROCK_MAX_ATTEMPTS") or 3)},
+    )
 
 
 class BedrockLLMClient(LLMClient):
@@ -27,7 +45,7 @@ class BedrockLLMClient(LLMClient):
         import boto3
 
         self._model_id = model_id
-        self._client = boto3.client("bedrock-runtime", region_name=region_name)
+        self._client = boto3.client("bedrock-runtime", region_name=region_name, config=_bedrock_config())
 
     def complete(self, prompt: str) -> str:
         """Converse API で prompt を送信し、応答テキストをそのまま返す。

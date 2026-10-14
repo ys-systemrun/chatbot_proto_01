@@ -73,3 +73,22 @@ def test_factory_lmstudio_requires_url_and_model():
 def test_factory_unknown_provider():
     with pytest.raises(ValueError):
         create_llm_client("openai")
+
+
+def test_bedrock_client_uses_short_timeouts_and_standard_retries(monkeypatch):
+    """切れた接続を再利用したとき 60 秒待たないよう、読み取りタイムアウトを短くする（ADR-0102）。"""
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeBedrockClient()
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+    BedrockLLMClient(model_id="anthropic.claude", region_name="ap-northeast-1")
+    config = captured["config"]
+    assert (config.connect_timeout, config.read_timeout) == (5, 20)
+    assert config.retries == {"mode": "standard", "max_attempts": 3}
+
+    monkeypatch.setenv("BEDROCK_READ_TIMEOUT_SEC", "45")
+    BedrockLLMClient(model_id="anthropic.claude", region_name="ap-northeast-1")
+    assert captured["config"].read_timeout == 45

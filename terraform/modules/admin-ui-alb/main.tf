@@ -22,7 +22,9 @@ resource "aws_lb" "this" {
   load_balancer_type = "application"
   security_groups    = [var.alb_security_group_id]
   subnets            = var.public_subnet_ids
-  tags               = { Name = "${var.name_prefix}-admin-ui-alb" }
+  # 既定の 60 秒では、回答の生成が 60 秒を超えたときに ALB が 504 を返す（ADR-0102）。
+  idle_timeout = var.idle_timeout
+  tags         = { Name = "${var.name_prefix}-admin-ui-alb" }
 }
 
 resource "aws_lb_target_group" "this" {

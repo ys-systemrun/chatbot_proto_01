@@ -34,3 +34,9 @@ variable "health_check_path" {
   default     = "/health"
   description = "ターゲットグループの HTTP ヘルスチェックパス（web_backend の /health, T1）"
 }
+
+variable "idle_timeout" {
+  type        = number
+  default     = 150
+  description = "ALB のアイドルタイムアウト（秒）。admin_ui → agent_invitro の待ち時間（AGENT_INVITRO_TIMEOUT 既定 120 秒）より長くし、回答の待ち時間が ALB で 504 にならないようにする（ADR-0102）"
+}

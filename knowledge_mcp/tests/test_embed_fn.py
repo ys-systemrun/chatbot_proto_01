@@ -85,3 +85,18 @@ def test_lmstudio_branch_unchanged(monkeypatch):
     assert vec == [1.0, 2.0]
     assert captured["url"] == "http://lm/v1/embeddings"
     assert captured["json"] == {"model": "nomic", "input": "hi"}
+
+
+def test_bedrock_client_uses_short_timeouts_and_standard_retries(monkeypatch):
+    """切れた接続を再利用したとき 60 秒待たないよう、読み取りタイムアウトを短くする（ADR-0102）。"""
+    captured = {}
+
+    def fake_client(*args, **kwargs):
+        captured.update(kwargs)
+        return _FakeBedrockClient({"embedding": [0.1]})
+
+    monkeypatch.setattr(boto3, "client", fake_client)
+    server._make_embed_fn("bedrock", None, "amazon.titan-embed-text-v2:0", "ap-northeast-1")
+    config = captured["config"]
+    assert (config.connect_timeout, config.read_timeout) == (5, 20)
+    assert config.retries == {"mode": "standard", "max_attempts": 3}

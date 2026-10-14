@@ -7,7 +7,7 @@ agent_invitro を web_backend から独立させるため、プロンプト定�
 
 from __future__ import annotations
 
-import boto3
+from .bedrock_client import make_bedrock_client
 
 from .prompt_store import load_prompt
 
@@ -62,7 +62,7 @@ class GenerateAnswerLLMBedrock:
     ) -> None:
         self._model_id = model_id
         self._max_tokens = max_tokens
-        self._client = boto3.client("bedrock-runtime", region_name=region_name)
+        self._client = make_bedrock_client(region_name, "generate")
 
     def _invoke(self, system: str, messages: list[dict]) -> str:
         # Bedrock Converse API を使う（invoke_model の Anthropic 生ボディからの変更, Phase 6 の知見）。
