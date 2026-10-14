@@ -85,6 +85,8 @@ class FakeClient:
 PRICES = {"source": "テスト用", "models": {
     "anthropic.claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2},
     "anthropic.claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_write": 6.25, "cache_read": 0.5},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_write": 6.25, "cache_read": 0.5},
 }}
 
 
@@ -96,12 +98,12 @@ def test_judge_scores_and_retries_bad_json():
     j = _judge([("end_turn", "うまく書けませんでした"), ("end_turn", '{"correctness": 4, "faithfulness": 5, "reason": "要点を含む"}')])
     result = j.score("Q", True, "模範解答", "参考情報", "回答")
     assert (result["correctness"], result["faithfulness"], result["judge_error"]) == (4, 5, None)
-    assert len(j._client.calls) == 2
+    assert len(j._caller._client.calls) == 2
     # JSON を読めなかった1回目も課金されるため、2回分を合計する（1000×$4 + 500×$20）/ 100万 × 2
     assert (result["judge_calls"], result["judge_input_tokens"], result["judge_output_tokens"]) == (2, 2000, 1000)
     assert result["judge_cache_read_tokens"] == 0 and result["judge_cost_usd"] == 0.028
     assert result["judge_thinking_tokens"] == 600  # 出力の内数（費用は output_tokens で計算済み）
-    call = j._client.calls[0]
+    call = j._caller._client.calls[0]
     assert call["output_config"] == {"effort": "medium"} and "thinking" not in call
     assert json.loads(call["messages"][0]["content"])["reference_answer"] == "模範解答"
 

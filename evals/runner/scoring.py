@@ -152,6 +152,9 @@ def compare_markdown(before: list[dict], after: list[dict], before_name: str, af
         if (before_meta.get("judge") or {}).get("prompt_hash") != (after_meta.get("judge") or {}).get("prompt_hash") or \
                 (before_meta.get("judge") or {}).get("model") != (after_meta.get("judge") or {}).get("model"):
             warnings.append("採点モデルまたは採点プロンプトが異なるため、LLM 採点の差は参考値です。")
+        if ((before_meta.get("judge") or {}).get("backend") or "bedrock") != \
+                ((after_meta.get("judge") or {}).get("backend") or "bedrock"):
+            warnings.append("採点方式（Bedrock / Claude Code）が異なるため、LLM 採点の差は参考値です。")
         if (before_meta.get("golden") or {}).get("sha256") != (after_meta.get("golden") or {}).get("sha256"):
             warnings.append("ゴールデンセットの内容が異なります（質問 ID で突き合わせています）。")
         lines += [f"> {w}" for w in warnings] + ([""] if warnings else [])

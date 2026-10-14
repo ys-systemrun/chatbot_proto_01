@@ -6,7 +6,7 @@
 ```
 evals/
   eval.bat            評価ランナーの呼び出し口（chatbot-evals イメージで python -m runner を実行）
-  Dockerfile          評価ランナーのイメージ（python + Anthropic SDK）。eval.bat が毎回 build（キャッシュで即時）
+  Dockerfile          評価ランナーのイメージ（python + Anthropic SDK + Claude Code）。eval.bat が毎回 build（キャッシュで即時）
   .env.example        設定の雛形 → evals/.env にコピーして記入（Git 管理外）
   runner/             評価ランナー本体
   judge_prompts/      LLM 採点のプロンプト（answer.md）
@@ -40,7 +40,8 @@ terraform\dvc.bat pull
 1. `evals/.env.example` を `evals/.env` にコピーし、`EVAL_BASE_URL` に admin_ui の URL を書く。
    URL は `apply-app` の完了時に表示される `admin_ui_alb_dns_name` に `http://` を付けたもの。
 2. Docker Desktop を起動しておく。admin_ui の ALB は社内ネットワークからのみ到達できる。
-3. LLM 採点（`run`）は `terraform/.env` の AWS 認証情報で Amazon Bedrock を呼ぶ（deploy と同じ）。
+3. LLM 採点（`run`）は既定で `terraform/.env` の AWS 認証情報で Amazon Bedrock を呼ぶ（deploy と同じ）。
+   Claude Code のサブスクリプションで採点する場合は、下の「採点の実行方法」を参照。
 4. 採点の模範解答はシード元データから引くため、`terraform\dvc.bat pull` 済みであること（ADR-0097）。
 
 ## コマンド
@@ -52,6 +53,9 @@ terraform\dvc.bat pull
 | `evals\eval.bat run` | ゴールデンセット（既定 v2、`--set v1` で旧版）を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
 | `evals\eval.bat run --mode agentic --limit 5` | 1方式・先頭5問だけ試す（`--no-judge` で LLM 採点なし） |
 | `evals\eval.bat compare <実行A> <実行B>` | 2回の実行結果を質問単位で比較する（`evals/runs/` のディレクトリ名） |
+| `evals\eval.bat run --judge-backend claude-code` | 採点を Claude Code（サブスクリプション）で行う（既定は `evals/.env` の `EVAL_JUDGE_BACKEND`、無ければ bedrock） |
+| `evals\eval.bat judge <実行> --only-missing` | 未採点の質問だけを同じ実行に書き足す（使用量の上限などで採点が途中で止まった続き） |
+| `evals\eval.bat judge <実行> [--judge-backend ...]` | 保存済みの回答を全問採点し直し、新しい実行として保存する（採点方式・採点プロンプトの比較、較正） |
 
 `snapshot`（ナレッジのスナップショット）は段階④で追加します。
 
@@ -85,7 +89,30 @@ terraform\dvc.bat pull
 
 - 採点モデルは **Claude Opus 5.5**（Amazon Bedrock、Anthropic SDK の Bedrock Mantle クライアント）。`EVAL_JUDGE_MODEL_ID` で変更できる。
   安全分類器で拒否された場合は Claude Opus 4.8 で1回だけ再試行する。
-- 採点の比較は、同じ採点モデル・同じ採点プロンプトの実行どうしに限る。`summary.md` は条件が同じ前回実行と自動で比較する。
+- 採点の比較は、同じ採点モデル・同じ採点プロンプト・同じ採点方式の実行どうしに限る。`summary.md` は条件が同じ前回実行と自動で比較する。
+
+### 採点の実行方法（ADR-0101）
+
+| 方式 | 呼び出し | 認証 | 費用 |
+|---|---|---|---|
+| `bedrock`（既定） | Anthropic SDK の Bedrock Mantle クライアント（`anthropic.claude-opus-5-5`） | `terraform/.env` の AWS 認証情報 | AWS の従量課金 |
+| `claude-code` | Claude Code の非対話モード `claude -p`（`claude-opus-5-5`） | `evals/.env` の `CLAUDE_CODE_OAUTH_TOKEN` | サブスクリプションの使用量 |
+
+`claude-code` を使うとき:
+
+1. ホストで `claude setup-token` を実行し、表示されたトークンを `evals/.env` の `CLAUDE_CODE_OAUTH_TOKEN` に書く（発行した本人だけが使う）。
+2. `evals\eval.bat run --judge-backend claude-code`（または `evals/.env` に `EVAL_JUDGE_BACKEND=claude-code`）。
+   Claude Code はランナーのイメージに入っている（`evals/Dockerfile`）。
+
+- 呼び出しは `claude --safe-mode -p --tools "" --max-turns 1 --no-session-persistence --system-prompt-file <採点プロンプト>
+  --model claude-opus-5-5 --effort medium --output-format json`。採点プロンプトと入力は Bedrock と同じ。
+- 採点の前に `claude auth status` で、サブスクリプションの認証（`oauth_token` / `claude.ai`）であることを確かめる。
+  `ANTHROPIC_API_KEY`・`CLAUDE_CODE_USE_BEDROCK`・AWS の認証情報などは、課金経路が変わらないよう `claude` に渡さない。
+- **使用量の上限**に達したら、残りの質問を採点せずに止める（`summary.md` に未採点の件数が出る）。リセット後に
+  `evals\eval.bat judge <実行> --only-missing` で続きを採点する。トークンが無効な場合（401）も最初の質問で止める。
+- 費用欄は API 単価換算の値で、実際の請求額ではない。
+- 自分の端末で手動実行する場合に限る。定期実行・CI・AWS 検証環境では `bedrock` を使う。
+- 採点方式が違う実行どうしは前回比較で自動的に分かれる。切り替える前に、同じ実行を両方式で採点（`judge`）して差を確かめる。
 
 ### 採点のトークン数と費用（ADR-0100）
 
@@ -103,7 +130,7 @@ terraform\dvc.bat pull
 ## history.csv
 
 1回の実行を1行にした記録です（`run` のたびに自動で追記）。列は実行 ID・日時・ゴールデンセットとそのハッシュ・方式・
-リリース（`release_id`・commit・prompt_hash・モデル）・採点モデルと採点プロンプトのハッシュ、そして `summary.md` の
+リリース（`release_id`・commit・prompt_hash・モデル）・採点モデルと採点プロンプトのハッシュ・採点方式（`judge_backend`）、そして `summary.md` の
 集計と同じ指標、採点のトークン数と概算費用（`judge_calls` 〜 `judge_cost_usd_per_question`）です。
 質問・回答の文は含めないので git で管理し、差分で推移を追います。列が増えたときは、次の `run` で既存の行を残したまま
 新しいヘッダーに書き直します（既存行の新しい列は空欄）。
@@ -112,8 +139,8 @@ terraform\dvc.bat pull
 
 | ファイル | 内容 |
 |---|---|
-| `results.jsonl` | 1問1行。質問・回答・出典・各スコア・採点理由・`release_id`・応答時間・採点のトークン数と概算費用 |
-| `meta.json` | リリースの全要素（`/api/release`）・ゴールデンセットのハッシュ・採点モデルと採点プロンプトのハッシュ・費用の概算に使った単価表（`judge_prices`） |
+| `results.jsonl` | 1問1行。質問・回答・出典・回答時の参考情報（`context`。再採点に使う）・各スコア・採点理由・`release_id`・応答時間・採点のトークン数と概算費用 |
+| `meta.json` | リリースの全要素（`/api/release`）・ゴールデンセットのハッシュ・採点モデル・採点プロンプトのハッシュ・採点方式（`claude-code` は CLI の版も）・費用の概算に使った単価表（`judge_prices`）・採点が途中で止まった場合の理由と未採点数（`judge_incomplete`）・再採点の元の実行（`answers_from`） |
 | `summary.md` | 集計、採点のトークン数と概算費用、要確認の質問、同じ条件の前回実行との比較（悪化・改善した質問） |
 
 ## feedback/<日時>.jsonl の形式
