@@ -10,6 +10,7 @@ evals/
   .env.example        設定の雛形 → evals/.env にコピーして記入（Git 管理外）
   runner/             評価ランナー本体
   judge_prompts/      LLM 採点のプロンプト（answer.md）
+  judge_prices.json   採点モデルの単価表（採点費用の概算に使う。ADR-0100）
   golden/             ゴールデンセット（<名前>.csv）
   history.csv         実行ごとの数値と版の推移（git 管理。質問・回答の文は含めない）
   runs/               ゴールデンセット評価の結果（<日時>_<セット>_<方式>/）… DVC 管理（runs.dvc）
@@ -86,19 +87,34 @@ terraform\dvc.bat pull
   安全分類器で拒否された場合は Claude Opus 4.8 で1回だけ再試行する。
 - 採点の比較は、同じ採点モデル・同じ採点プロンプトの実行どうしに限る。`summary.md` は条件が同じ前回実行と自動で比較する。
 
+### 採点のトークン数と費用（ADR-0100）
+
+- 採点の呼び出しごとに `response.usage` を読み、1問分の合計を `results.jsonl` に残す（`judge_calls`・`judge_input_tokens`・
+  `judge_output_tokens`・`judge_thinking_tokens`・`judge_cache_write_tokens`・`judge_cache_read_tokens`・`judge_cost_usd`）。
+  拒否・JSON 読み取り失敗の再試行と Opus 4.8 へのフォールバックも、課金されるので数える。
+- 出力トークンには思考トークンが含まれる（Opus 5.5 は思考を止められない）。`judge_thinking_tokens` はその内数
+  （`usage.output_tokens_details.thinking_tokens`）で、effort を変えたときの影響を見るために残す。
+- 費用は `judge_prices.json` の単価（USD / 100万トークン）で計算した**概算**。初版は Anthropic API の定価なので、
+  Amazon Bedrock の単価を [料金ページ](https://aws.amazon.com/bedrock/pricing/) で確認し、差があれば書き換えてコミットする。
+  単価表に無いモデルを使った場合、費用は空欄になる（トークン数は残る）。
+- 回答側（Amazon Nova・Titan Embeddings）の費用は含まない。回答側は Bedrock のモデル呼び出しログから集計する。
+- 2026-10-07 以前の実行には記録が無い（空欄）。
+
 ## history.csv
 
 1回の実行を1行にした記録です（`run` のたびに自動で追記）。列は実行 ID・日時・ゴールデンセットとそのハッシュ・方式・
 リリース（`release_id`・commit・prompt_hash・モデル）・採点モデルと採点プロンプトのハッシュ、そして `summary.md` の
-集計と同じ指標です。質問・回答の文は含めないので git で管理し、差分で推移を追います。
+集計と同じ指標、採点のトークン数と概算費用（`judge_calls` 〜 `judge_cost_usd_per_question`）です。
+質問・回答の文は含めないので git で管理し、差分で推移を追います。列が増えたときは、次の `run` で既存の行を残したまま
+新しいヘッダーに書き直します（既存行の新しい列は空欄）。
 
 ## runs/<日時>_<セット>_<方式>/ の中身
 
 | ファイル | 内容 |
 |---|---|
-| `results.jsonl` | 1問1行。質問・回答・出典・各スコア・採点理由・`release_id`・応答時間 |
-| `meta.json` | リリースの全要素（`/api/release`）・ゴールデンセットのハッシュ・採点モデルと採点プロンプトのハッシュ |
-| `summary.md` | 集計、要確認の質問、同じ条件の前回実行との比較（悪化・改善した質問） |
+| `results.jsonl` | 1問1行。質問・回答・出典・各スコア・採点理由・`release_id`・応答時間・採点のトークン数と概算費用 |
+| `meta.json` | リリースの全要素（`/api/release`）・ゴールデンセットのハッシュ・採点モデルと採点プロンプトのハッシュ・費用の概算に使った単価表（`judge_prices`） |
+| `summary.md` | 集計、採点のトークン数と概算費用、要確認の質問、同じ条件の前回実行との比較（悪化・改善した質問） |
 
 ## feedback/<日時>.jsonl の形式
 

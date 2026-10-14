@@ -3,8 +3,8 @@
 結果は `evals/runs/<日時>_<ゴールデンセット>_<方式>/` に保存する。質問・回答・参考情報を含むため
 git には入れず DVC で管理する（`evals/runs.dvc`）。
   - results.jsonl : 1問1行（質問・回答・出典・各スコア・採点理由・release_id）
-  - meta.json     : リリースの全要素・ゴールデンセットの版・採点側の版
-  - summary.md    : 集計と、同じ条件の前回実行との比較
+  - meta.json     : リリースの全要素・ゴールデンセットの版・採点側の版・費用の概算に使った単価表
+  - summary.md    : 集計・採点のトークン数と概算費用（ADR-0100）と、同じ条件の前回実行との比較
 あわせて、数値だけの1行を `evals/history.csv`（git 管理）に追記し、git の差分で推移を追えるようにする。
 """
 
@@ -33,7 +33,7 @@ HISTORY_COLUMNS = [
     "run_id", "started_at", "golden", "golden_sha256", "mode", "limit",
     "release_id", "git_commit", "git_dirty", "prompt_hash", "chat_model_id",
     "judge_model", "judge_prompt_hash",
-] + [key for key, _, _ in scoring.METRIC_LABELS]
+] + [key for key, _, _ in scoring.METRIC_LABELS] + [key for key, _ in scoring.USAGE_LABELS]
 
 
 def append_history(path: Path, run_dir: Path, rows: list[dict], meta: dict) -> None:
@@ -56,12 +56,29 @@ def append_history(path: Path, run_dir: Path, rows: list[dict], meta: dict) -> N
         "judge_prompt_hash": judge.get("prompt_hash") or "",
     }
     record.update({k: ("" if v is None else v) for k, v in scoring.aggregate(rows).items()})
+    record.update({k: ("" if v is None else v) for k, v in scoring.judge_usage(rows).items()})
+    _upgrade_history_header(path)
     exists = path.exists()
     with path.open("a", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=HISTORY_COLUMNS, lineterminator="\n")
         if not exists:
             writer.writeheader()
         writer.writerow(record)
+
+
+def _upgrade_history_header(path: Path) -> None:
+    """列が増えた後の初回追記で、既存の history.csv を新しい列構成に書き直す（既存行の新しい列は空欄）。"""
+    if not path.exists():
+        return
+    with path.open(encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames == HISTORY_COLUMNS:
+            return
+        old = list(reader)
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=HISTORY_COLUMNS, lineterminator="\n", extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(old)
 
 
 def load_run(run_dir: Path) -> tuple[list[dict], dict]:
@@ -109,6 +126,13 @@ def summary_markdown(run_dir: Path, rows: list[dict], meta: dict, previous: Path
     ]
     for key, label, _ in scoring.METRIC_LABELS:
         lines.append(f"| {label} | {agg.get(key)} |")
+    if judge:
+        usage = scoring.judge_usage(rows)
+        prices = meta.get("judge_prices") or {}
+        lines += ["", "## 採点のトークン数と概算費用", "", "| 項目 | 値 |", "|---|---|"]
+        lines += [f"| {label} | {usage.get(key)} |" for key, label in scoring.USAGE_LABELS]
+        lines += ["", f"単価: `evals/judge_prices.json`（{prices.get('source') or '単価表なし'}）。"
+                      "回答側（Amazon Nova・Titan Embeddings）の費用は含まない。"]
     problems = [r for r in rows if r.get("error") or r.get("judge_error")
                 or (r["should_answer"] and (r["declined"] or (r.get("correctness") or 5) <= 2 or r.get("source_rank") == 0))
                 or (not r["should_answer"] and not r["declined"])]
@@ -164,6 +188,13 @@ def run(base_url: str, golden_path: Path, mode: str, runs_dir: Path, repo: Path,
             "judge_reason": "",
             "judge_model": None,
             "judge_error": None,
+            "judge_calls": None,
+            "judge_input_tokens": None,
+            "judge_output_tokens": None,
+            "judge_thinking_tokens": None,
+            "judge_cache_write_tokens": None,
+            "judge_cache_read_tokens": None,
+            "judge_cost_usd": None,
         }
         if judge is not None and not row["error"]:
             row.update(judge.score(
@@ -192,6 +223,8 @@ def run(base_url: str, golden_path: Path, mode: str, runs_dir: Path, repo: Path,
                    "sha256": golden_mod.file_hash(golden_path), "count": len(items), "limit": limit},
         "release": release or ({"release_id": release_id} if release_id else None),
         "judge": judge.meta() if judge is not None else None,
+        # 単価は比較条件（judge）に入れない。単価を書き換えるたびに前回実行との比較が途切れるため。
+        "judge_prices": getattr(judge, "prices", None) if judge is not None else None,
         "reference_answers": "db_init/data（DVC）" if qa_answers is not None else None,
     }
     with (run_dir / "results.jsonl").open("w", encoding="utf-8", newline="\n") as f:
