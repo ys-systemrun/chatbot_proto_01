@@ -5,6 +5,7 @@
 - run           : ゴールデンセットを AWS 検証環境に送り、出典と回答を採点する（段階③）
 - compare       : 2回の実行結果を質問単位で比較する（段階③）
 - judge         : 保存済みの回答を採点する（ADR-0101。使用量の上限で止まった続き・採点方式を変えた再採点）
+`run --repeat N` は同じ構成を N 回実行し、揺れを考慮して比べられるようにする（runner/repeat.py）。
 `snapshot` は段階④で追加する。
 """
 
@@ -100,6 +101,9 @@ def main(argv: list[str] | None = None) -> None:
     rn.add_argument("--set", dest="golden", default="v2", help="ゴールデンセット名（evals/golden/<名前>.csv, 既定 v2）")
     rn.add_argument("--mode", choices=["pipeline", "agentic", "both"], default="both")
     rn.add_argument("--limit", type=int, default=None, help="先頭から N 問だけ実行する（試行用）")
+    rn.add_argument("--repeat", type=int, default=1,
+                    help="同じ構成を N 回実行し、指標の平均とばらつきを evals/runs/groups/ に出す（既定 1。"
+                         "比較の基準や改善の判定には 3 を推奨。回答と採点の費用は N 倍）")
     rn.add_argument("--no-judge", action="store_true", help="LLM 採点をしない（出典と回答控えのみ採点）")
     rn.add_argument("--judge-backend", choices=["bedrock", "claude-code"], default=None,
                     help="採点の実行方法（既定: evals/.env の EVAL_JUDGE_BACKEND、無ければ bedrock）")
@@ -112,7 +116,7 @@ def main(argv: list[str] | None = None) -> None:
                          "付けなければ全問を採点し直し、新しい実行として保存する")
     jd.add_argument("--judge-backend", choices=["bedrock", "claude-code"], default=None)
 
-    cp = sub.add_parser("compare", help="2回の実行結果を比較する（evals/runs/ のディレクトリ名を指定）")
+    cp = sub.add_parser("compare", help="2つの実行結果を比較する（evals/runs/ のディレクトリ名か、繰り返しのグループ ID）")
     cp.add_argument("before")
     cp.add_argument("after")
 
@@ -144,13 +148,24 @@ def main(argv: list[str] | None = None) -> None:
         golden_path = EVALS_DIR / "golden" / f"{args.golden}.csv"
         if not golden_path.exists():
             sys.exit(f"{golden_path} がありません。先に build-golden を実行してください。")
+        if args.repeat < 1:
+            sys.exit("--repeat は 1 以上を指定してください。")
+        from . import repeat as repeat_mod
+
         judge = None if args.no_judge else _make_judge(args.judge_backend)
         modes = run_mod.MODES if args.mode == "both" else (args.mode,)
+        runs_dir = EVALS_DIR / "runs"
         for mode in modes:
-            print(f"== {mode}: {golden_path.name} → {base_url}")
-            run_dir = run_mod.run(base_url, golden_path, mode, EVALS_DIR / "runs", REPO_ROOT, judge=judge,
-                                  limit=args.limit)
-            print(f"保存先: evals/runs/{run_dir.name}/summary.md")
+            gid = repeat_mod.group_id(run_mod.now_jst(), args.golden, mode, args.repeat) if args.repeat > 1 else None
+            for index in range(1, args.repeat + 1):
+                label = f"（{index}/{args.repeat} 回目）" if gid else ""
+                print(f"== {mode}{label}: {golden_path.name} → {base_url}")
+                run_dir = run_mod.run(base_url, golden_path, mode, runs_dir, REPO_ROOT, judge=judge, limit=args.limit,
+                                      repeat={"group": gid, "index": index, "of": args.repeat} if gid else None)
+                print(f"保存先: evals/runs/{run_dir.name}/summary.md")
+            if gid:
+                out = repeat_mod.write_group_summary(runs_dir, gid, run_mod.load_run)
+                print(f"繰り返しの集計: evals/runs/{repeat_mod.GROUPS_DIR}/{out.name}（比較には グループ ID {gid} を使う）")
         print("数値の推移: evals/history.csv（git 管理）")
         print(DVC_REMINDER)
 
@@ -168,12 +183,22 @@ def main(argv: list[str] | None = None) -> None:
         print(DVC_REMINDER)
 
     elif args.command == "compare":
+        from . import repeat as repeat_mod
         from . import run as run_mod
-        from .scoring import compare_markdown
+        from .scoring import compare_markdown, compare_warnings
 
-        before, after = _resolve_run(args.before), _resolve_run(args.after)
-        (b_rows, b_meta), (a_rows, a_meta) = run_mod.load_run(before), run_mod.load_run(after)
-        print(compare_markdown(b_rows, a_rows, before.name, after.name, b_meta, a_meta))
+        runs_dir = EVALS_DIR / "runs"
+        (b_name, b_dirs), (a_name, a_dirs) = repeat_mod.resolve(runs_dir, args.before), repeat_mod.resolve(runs_dir, args.after)
+        for name, dirs in ((b_name, b_dirs), (a_name, a_dirs)):
+            if not dirs:
+                sys.exit(f"実行結果が見つかりません: {name}（evals/runs/ のディレクトリ名か、繰り返しのグループ ID を指定してください）")
+        b_loaded, a_loaded = [run_mod.load_run(d) for d in b_dirs], [run_mod.load_run(d) for d in a_dirs]
+        for warning in compare_warnings(b_loaded[0][1], a_loaded[0][1]):
+            print(f"> {warning}")
+        print(repeat_mod.compare_markdown(b_name, [r for r, _ in b_loaded], a_name, [r for r, _ in a_loaded]))
+        if len(b_dirs) == 1 and len(a_dirs) == 1:
+            # 1回ずつの比較では、従来どおり質問ごとの採点理由も出す（揺れとの区別は付かない点に注意）。
+            print(compare_markdown(b_loaded[0][0], a_loaded[0][0], b_name, a_name, b_loaded[0][1], a_loaded[0][1]))
 
 
 if __name__ == "__main__":

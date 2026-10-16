@@ -34,7 +34,7 @@ def now_jst() -> datetime:
 
 # evals/history.csv の列（質問・回答などの文は含めない。数値と版だけ）。
 HISTORY_COLUMNS = [
-    "run_id", "started_at", "golden", "golden_sha256", "mode", "limit",
+    "run_id", "started_at", "golden", "golden_sha256", "mode", "limit", "repeat_group", "repeat_index",
     "release_id", "git_commit", "git_dirty", "prompt_hash", "chat_model_id",
     "judge_model", "judge_prompt_hash", "judge_backend",
 ] + [key for key, _, _ in scoring.METRIC_LABELS] + [key for key, _ in scoring.USAGE_LABELS]
@@ -69,6 +69,8 @@ def append_history(path: Path, run_dir: Path, rows: list[dict], meta: dict, repl
         "golden_sha256": meta["golden"]["sha256"],
         "mode": meta["mode"],
         "limit": meta["golden"].get("limit") or "",
+        "repeat_group": (meta.get("repeat") or {}).get("group") or "",
+        "repeat_index": (meta.get("repeat") or {}).get("index") or "",
         "release_id": release.get("release_id") or "",
         "git_commit": release.get("git_commit") or "",
         "git_dirty": "" if release.get("git_dirty") is None else str(release.get("git_dirty")).lower(),
@@ -130,12 +132,16 @@ def judge_key(meta: dict) -> dict | None:
 
 
 def find_previous(runs_dir: Path, meta: dict, exclude: Path) -> Path | None:
-    """同じゴールデンセット名・方式・採点モデル・採点プロンプト・採点方式の直近の実行（比較の基準）。"""
+    """同じゴールデンセット名・方式・採点モデル・採点プロンプト・採点方式の直近の実行（比較の基準）。
+    同じ繰り返しグループの他の回は除く（同じ構成どうしの差は揺れでしかないため）。"""
+    group = (meta.get("repeat") or {}).get("group")
     candidates = []
     for run_dir in sorted(runs_dir.glob("*/meta.json")):
         if run_dir.parent == exclude:
             continue
         other = json.loads(run_dir.read_text(encoding="utf-8"))
+        if group and (other.get("repeat") or {}).get("group") == group:
+            continue
         same = (
             (other.get("golden") or {}).get("name") == (meta.get("golden") or {}).get("name")
             and other.get("mode") == meta.get("mode")
@@ -257,7 +263,8 @@ def _save(run_dir: Path, rows: list[dict], meta: dict, runs_dir: Path, history_p
 
 def run(base_url: str, golden_path: Path, mode: str, runs_dir: Path, repo: Path, judge=None,
         limit: int | None = None, ask=client_mod.ask, fetch_release=client_mod.fetch_release,
-        now=now_jst, log=print, history_path: Path | None = None) -> Path:
+        now=now_jst, log=print, history_path: Path | None = None, repeat: dict | None = None) -> Path:
+    """repeat: 繰り返し実行の1回として保存するとき {"group", "index", "of"}（runner/repeat.py）。"""
     items = golden_mod.load(golden_path)
     if limit:
         items = items[:limit]
@@ -297,7 +304,8 @@ def run(base_url: str, golden_path: Path, mode: str, runs_dir: Path, repo: Path,
         stopped = judge_rows(rows, {item["id"]: item for item in items}, judge, qa_answers, log=log)
 
     release_id = (release or {}).get("release_id") or next((r["release_id"] for r in rows if r["release_id"]), None)
-    run_dir = runs_dir / f"{started:%Y%m%d-%H%M%S}_{golden_path.stem}_{mode}"
+    suffix = f"_r{repeat['index']}" if repeat else ""
+    run_dir = runs_dir / f"{started:%Y%m%d-%H%M%S}_{golden_path.stem}_{mode}{suffix}"
     run_dir.mkdir(parents=True, exist_ok=False)
     meta = {
         "started_at": started.isoformat(timespec="seconds"),
@@ -312,6 +320,7 @@ def run(base_url: str, golden_path: Path, mode: str, runs_dir: Path, repo: Path,
         "judge_prices": getattr(judge, "prices", None) if judge is not None else None,
         "judge_incomplete": stopped,
         "reference_answers": "db_init/data（DVC）" if qa_answers is not None else None,
+        "repeat": repeat,
     }
     _save(run_dir, rows, meta, runs_dir, history_path)
     return run_dir
@@ -351,8 +360,9 @@ def rejudge(source_dir: Path, judge, runs_dir: Path, repo: Path, only_missing: b
     judged_at = now()
     run_dir = runs_dir / f"{judged_at:%Y%m%d-%H%M%S}_{meta['golden']['name']}_{meta['mode']}"
     run_dir.mkdir(parents=True, exist_ok=False)
+    # 採点し直した結果は新しい実行なので、元の繰り返しグループには入れない（グループの集計が二重になるため）。
     meta = {**meta, "judge": judge.meta(), "judge_prices": judge.prices, "judge_incomplete": stopped,
-            "answers_from": source_dir.name, "judged_at": judged_at.isoformat(timespec="seconds")}
+            "answers_from": source_dir.name, "judged_at": judged_at.isoformat(timespec="seconds"), "repeat": None}
     _save(run_dir, rows, meta, runs_dir, history_path)
     return run_dir
 

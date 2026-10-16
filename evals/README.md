@@ -51,13 +51,30 @@ terraform\dvc.bat pull
 | `evals\eval.bat pull-feedback` | チャット画面で付けた 👍/👎・理由・リリースの増分を `evals/feedback/<日時>.jsonl` に保存する |
 | `evals\eval.bat build-golden` | 初版のゴールデンセット `evals/golden/v1.csv` を作る（最初の1回だけ。既にあれば `--force` が必要） |
 | `evals\eval.bat run` | ゴールデンセット（既定 v2、`--set v1` で旧版）を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
+| `evals\eval.bat run --repeat 3` | 同じ構成を3回実行し、指標の平均とばらつきを `evals/runs/groups/<グループ ID>.md` に出す（**比較の基準と改善の判定はこれで取る**。費用は3倍） |
 | `evals\eval.bat run --mode agentic --limit 5` | 1方式・先頭5問だけ試す（`--no-judge` で LLM 採点なし） |
-| `evals\eval.bat compare <実行A> <実行B>` | 2回の実行結果を質問単位で比較する（`evals/runs/` のディレクトリ名） |
+| `evals\eval.bat compare <A> <B>` | 2つの結果を比較する。A・B は実行ディレクトリ名か、繰り返しのグループ ID。揺れを超える差だけを改善・悪化と判定する |
 | `evals\eval.bat run --judge-backend claude-code` | 採点を Claude Code（サブスクリプション）で行う（既定は `evals/.env` の `EVAL_JUDGE_BACKEND`、無ければ bedrock） |
 | `evals\eval.bat judge <実行> --only-missing` | 未採点の質問だけを同じ実行に書き足す（使用量の上限などで採点が途中で止まった続き） |
 | `evals\eval.bat judge <実行> [--judge-backend ...]` | 保存済みの回答を全問採点し直し、新しい実行として保存する（採点方式・採点プロンプトの比較、較正） |
 
 `snapshot`（ナレッジのスナップショット）は段階④で追加します。
+
+## 揺れと繰り返し実行（`--repeat`）
+
+回答（Amazon Nova）は temperature 0 でも毎回変わり、LLM 採点も揺れます。v2 を同じ構成で2回実行したところ
+（`20261007-*` と `20261016-*`。間の変更はタイムアウトの調整のみ）、出典の一致率はほぼ同じでしたが、
+回答の正しさは ±0.3、根拠への忠実さは ±0.4、回答すべき質問で控えた割合は ±0.1 程度動きました。
+1回ずつの比較では、この揺れと改善の効果を区別できません。
+
+- **基準を取るとき・改善を判定するときは `run --repeat 3`** で同じ構成を3回実行し、`compare <変更前のグループ ID> <変更後のグループ ID>` で比べる。
+- 繰り返しの各回は通常の実行（`<日時>_<セット>_<方式>_r<回>`）として保存され、`meta.json` の `repeat.group` と
+  `history.csv` の `repeat_group`・`repeat_index` で同じグループと分かる。各回の `summary.md` の前回比較は、同じグループの他の回を相手にしない。
+- グループの集計（`runs/groups/<グループ ID>.md`）には、指標の平均 ± 標準偏差（最小〜最大）と、回ごとに結果が大きく変わった質問を出す。
+- `compare` の判定:
+  - **指標**: 差が「標準誤差の2倍」（両側のばらつきと回数から計算）を超えたときだけ改善・悪化とする。片側が1回だけなら、もう片側のばらつきで代用する。両側とも1回なら判定しない。
+  - **質問**: 片側の全回が、もう片側の全回より良い（悪い）ときだけ改善（悪化）とする。値は、回答すべき質問は正しさ（1〜5、控えたら 1）、範囲外の質問は控えたら 5・答えたら 1。
+- 出典の一致率は揺れが小さいため、検索の改善（重複除去・タグの重みなど）は出典の指標を主に見る。
 
 ## ゴールデンセット（golden/<名前>.csv）
 

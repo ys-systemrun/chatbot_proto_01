@@ -6,7 +6,8 @@ ADR が「設計の判断」を残すのに対し、ここは「ナレッジデ�
 ## 進め方
 
 1. **材料を集める**: `evals\eval.bat pull-feedback` で人手評価を取り込む（`evals/feedback/`）。
-   変更前の基準として `evals\eval.bat run` でゴールデンセット評価も取っておく（`evals/runs/`）。
+   変更前の基準として `evals\eval.bat run --repeat 3` でゴールデンセット評価も取っておく（`evals/runs/`。
+   1回だけの評価は揺れと改善の効果を区別できないため、基準は3回分のグループで取る）。
 2. **仮説を立てる**: 👎 とその理由、回答時の参考情報（`context`）、リリースを見て、何が悪いかを考える。
    Claude Code に `evals/feedback/` と `evals/runs/` を読ませて分析・修正案を出させてよい
    （評価データは DVC 管理。手元に無ければ `terraform\dvc.bat pull`）。
@@ -19,8 +20,9 @@ ADR が「設計の判断」を残すのに対し、ここは「ナレッジデ�
    - 設定値（top_k など）: 環境変数・terraform の変更をコミット
 5. **反映して評価する**: デプロイ後、同じ質問で試す。回答には新しい `release_id` が付く
    （プロンプト・コード・設定の変更で変わる。管理画面での編集だけでは変わらない）。
-6. **結果と判断を書く**: 変更後に `evals\eval.bat run` を実行し、`summary.md` の前回比較（または
-   `evals\eval.bat compare`）と `evals/feedback/` の該当行で変更前後を比べて書き、
+6. **結果と判断を書く**: 変更後に `evals\eval.bat run --repeat 3` を実行し、
+   `evals\eval.bat compare <変更前のグループ ID> <変更後のグループ ID>`（揺れを超える差だけが改善・悪化と出る）と
+   `evals/feedback/` の該当行で変更前後を比べて書き、
    採用・差し戻し・追加調査を決める。ステータスを更新し、下の一覧にも反映する。
 
 ## 番号と命名

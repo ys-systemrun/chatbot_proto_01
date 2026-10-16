@@ -143,21 +143,28 @@ def _cell(row: dict) -> str:
     return " / ".join(parts)
 
 
+def compare_warnings(before_meta: dict | None, after_meta: dict | None) -> list[str]:
+    """比較の前提が揃っていないときの注意書き（採点モデル・採点プロンプト・採点方式・ゴールデンセット）。"""
+    if not before_meta or not after_meta:
+        return []
+    warnings = []
+    if (before_meta.get("judge") or {}).get("prompt_hash") != (after_meta.get("judge") or {}).get("prompt_hash") or \
+            (before_meta.get("judge") or {}).get("model") != (after_meta.get("judge") or {}).get("model"):
+        warnings.append("採点モデルまたは採点プロンプトが異なるため、LLM 採点の差は参考値です。")
+    if ((before_meta.get("judge") or {}).get("backend") or "bedrock") != \
+            ((after_meta.get("judge") or {}).get("backend") or "bedrock"):
+        warnings.append("採点方式（Bedrock / Claude Code）が異なるため、LLM 採点の差は参考値です。")
+    if (before_meta.get("golden") or {}).get("sha256") != (after_meta.get("golden") or {}).get("sha256"):
+        warnings.append("ゴールデンセットの内容が異なります（質問 ID で突き合わせています）。")
+    return warnings
+
+
 def compare_markdown(before: list[dict], after: list[dict], before_name: str, after_name: str,
                      before_meta: dict | None = None, after_meta: dict | None = None) -> str:
     agg_before, agg_after = aggregate(before), aggregate(after)
     lines = [f"## 比較: `{before_name}` → `{after_name}`", ""]
-    if before_meta and after_meta:
-        warnings = []
-        if (before_meta.get("judge") or {}).get("prompt_hash") != (after_meta.get("judge") or {}).get("prompt_hash") or \
-                (before_meta.get("judge") or {}).get("model") != (after_meta.get("judge") or {}).get("model"):
-            warnings.append("採点モデルまたは採点プロンプトが異なるため、LLM 採点の差は参考値です。")
-        if ((before_meta.get("judge") or {}).get("backend") or "bedrock") != \
-                ((after_meta.get("judge") or {}).get("backend") or "bedrock"):
-            warnings.append("採点方式（Bedrock / Claude Code）が異なるため、LLM 採点の差は参考値です。")
-        if (before_meta.get("golden") or {}).get("sha256") != (after_meta.get("golden") or {}).get("sha256"):
-            warnings.append("ゴールデンセットの内容が異なります（質問 ID で突き合わせています）。")
-        lines += [f"> {w}" for w in warnings] + ([""] if warnings else [])
+    warnings = compare_warnings(before_meta, after_meta)
+    lines += [f"> {w}" for w in warnings] + ([""] if warnings else [])
     lines += ["| 指標 | 変更前 | 変更後 |", "|---|---|---|"]
     for key, label, _ in METRIC_LABELS:
         lines.append(f"| {label} | {agg_before.get(key)} | {agg_after.get(key)} |")
