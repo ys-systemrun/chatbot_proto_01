@@ -76,19 +76,34 @@ class FakeClient:
     def create(self, **kwargs):
         self.calls.append(kwargs)
         stop, text = self.replies.pop(0)
-        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type="text", text=text)])
+        usage = SimpleNamespace(input_tokens=1000, output_tokens=500, cache_creation_input_tokens=0,
+                                cache_read_input_tokens=None,
+                                output_tokens_details=SimpleNamespace(thinking_tokens=300))
+        return SimpleNamespace(stop_reason=stop, content=[SimpleNamespace(type="text", text=text)], usage=usage)
+
+
+PRICES = {"source": "テスト用", "models": {
+    "anthropic.claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2},
+    "anthropic.claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_write": 6.25, "cache_read": 0.5},
+    "claude-opus-5-5": {"input": 4.0, "output": 20.0, "cache_write": 5.0, "cache_read": 0.2},
+    "claude-opus-4-8": {"input": 5.0, "output": 25.0, "cache_write": 6.25, "cache_read": 0.5},
+}}
 
 
 def _judge(replies):
-    return judge.Judge(model="anthropic.claude-opus-5-5", client=FakeClient(replies))
+    return judge.Judge(model="anthropic.claude-opus-5-5", client=FakeClient(replies), prices=PRICES)
 
 
 def test_judge_scores_and_retries_bad_json():
     j = _judge([("end_turn", "うまく書けませんでした"), ("end_turn", '{"correctness": 4, "faithfulness": 5, "reason": "要点を含む"}')])
     result = j.score("Q", True, "模範解答", "参考情報", "回答")
     assert (result["correctness"], result["faithfulness"], result["judge_error"]) == (4, 5, None)
-    assert len(j._client.calls) == 2
-    call = j._client.calls[0]
+    assert len(j._caller._client.calls) == 2
+    # JSON を読めなかった1回目も課金されるため、2回分を合計する（1000×$4 + 500×$20）/ 100万 × 2
+    assert (result["judge_calls"], result["judge_input_tokens"], result["judge_output_tokens"]) == (2, 2000, 1000)
+    assert result["judge_cache_read_tokens"] == 0 and result["judge_cost_usd"] == 0.028
+    assert result["judge_thinking_tokens"] == 600  # 出力の内数（費用は output_tokens で計算済み）
+    call = j._caller._client.calls[0]
     assert call["output_config"] == {"effort": "medium"} and "thinking" not in call
     assert json.loads(call["messages"][0]["content"])["reference_answer"] == "模範解答"
 
@@ -113,9 +128,25 @@ def test_judge_falls_back_on_refusal_and_ignores_correctness_when_out_of_scope()
     result = j.score("Q", False, None, "", "範疇を超えるため")
     assert result["judge_model"] == judge.FALLBACK_MODEL
     assert result["correctness"] is None  # 範囲外の質問は正しさを採点しない
+    # 拒否された Opus 5.5 の呼び出しと Opus 4.8 の呼び出しを、それぞれの単価で合計する
+    assert result["judge_calls"] == 2 and result["judge_cost_usd"] == round(0.014 + 0.0175, 6)
 
     j = _judge([("refusal", ""), ("refusal", "")])
-    assert "refusal" in j.score("Q", True, None, "", "A")["judge_error"]
+    result = j.score("Q", True, None, "", "A")
+    assert "refusal" in result["judge_error"] and result["judge_calls"] == 2
+
+
+def test_judge_cost_is_none_when_model_has_no_price():
+    j = judge.Judge(model="anthropic.claude-unknown", client=FakeClient([("end_turn", '{"correctness": 3}')]),
+                    prices=PRICES)
+    result = j.score("Q", True, None, "", "A")
+    assert result["judge_input_tokens"] == 1000 and result["judge_cost_usd"] is None
+    assert scoring.judge_usage([{**result, "should_answer": True}])["judge_cost_usd"] is None
+
+
+def test_judge_usage_is_none_for_runs_before_recording():
+    """導入前の results.jsonl（judge_calls 列なし）は 0 ではなく「記録なし」として扱う。"""
+    assert set(scoring.judge_usage([{"id": "a"}]).values()) == {None}
 
 
 def test_run_writes_results_and_compares_with_previous(tmp_path):
@@ -163,6 +194,28 @@ def test_run_writes_results_and_compares_with_previous(tmp_path):
     assert "見積書" not in text and "回答" not in text
     agg = scoring.aggregate(rows)
     assert agg["source_hit_at_1"] == 1.0 and agg["out_of_scope_decline_rate"] == 1.0
+
+    # 採点のトークン数・概算費用（ADR-0100）: 1問1回、1回 $0.014
+    judged = sum(1 for r in rows if r["judge_calls"])
+    assert judged >= 2 and history[1]["judge_calls"] == str(judged)
+    assert float(history[1]["judge_cost_usd"]) == round(0.014 * judged, 4)
+    assert history[1]["judge_cost_usd_per_question"] == "0.014"
+    assert "## 採点のトークン数と概算費用" in summary and "テスト用" in summary
+    assert meta["judge_prices"] == PRICES and "prices" not in meta["judge"]
+
+
+def test_history_header_is_upgraded_when_columns_are_added(tmp_path):
+    """列を追加する前の history.csv に追記すると、既存行を残したまま新しいヘッダーに書き直す。"""
+    import csv as _csv
+    path = tmp_path / "history.csv"
+    old_columns = run.HISTORY_COLUMNS[:run.HISTORY_COLUMNS.index("judge_calls")]
+    old_row = ["old" if c == "run_id" else "" for c in old_columns]
+    path.write_text(",".join(old_columns) + "\n" + ",".join(old_row) + "\n", encoding="utf-8")
+    meta = {"started_at": "t", "golden": {"name": "v2", "sha256": "s"}, "mode": "agentic", "release": {}, "judge": None}
+    run.append_history(path, tmp_path / "new", [], meta)
+    rows = list(_csv.DictReader(path.open(encoding="utf-8")))
+    assert [r["run_id"] for r in rows] == ["old", "new"]
+    assert list(rows[0].keys()) == run.HISTORY_COLUMNS and rows[0]["judge_calls"] == ""
 
 
 def test_duplicate_golden_ids_are_rejected(tmp_path):

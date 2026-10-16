@@ -69,6 +69,40 @@ METRIC_LABELS = [
 ]
 
 
+def judge_usage(rows: list[dict]) -> dict:
+    """採点の呼び出し回数・トークン数・概算費用の合計（ADR-0100）。記録の無い実行（導入前）は全て None。
+    費用は、単価表に無いモデルの呼び出しが1問でもあれば None（一部だけの合計を実額と取り違えないため）。"""
+    recorded = [r for r in rows if r.get("judge_calls") is not None]
+    if not recorded:
+        return {key: None for key, _ in USAGE_LABELS}
+    judged = [r for r in recorded if r["judge_calls"]]
+    costs = [r.get("judge_cost_usd") for r in judged]
+    total = {
+        "judge_calls": sum(r["judge_calls"] for r in recorded),
+        "judge_input_tokens": sum(r["judge_input_tokens"] for r in recorded),
+        "judge_output_tokens": sum(r["judge_output_tokens"] for r in recorded),
+        "judge_thinking_tokens": sum(r["judge_thinking_tokens"] for r in recorded),
+        "judge_cache_write_tokens": sum(r["judge_cache_write_tokens"] for r in recorded),
+        "judge_cache_read_tokens": sum(r["judge_cache_read_tokens"] for r in recorded),
+        "judge_cost_usd": None if any(c is None for c in costs) else round(sum(costs), 4),
+    }
+    total["judge_cost_usd_per_question"] = (
+        round(total["judge_cost_usd"] / len(judged), 4) if total["judge_cost_usd"] is not None and judged else None)
+    return total
+
+
+USAGE_LABELS = [
+    ("judge_calls", "採点の呼び出し回数"),
+    ("judge_input_tokens", "入力トークン"),
+    ("judge_output_tokens", "出力トークン（思考を含む）"),
+    ("judge_thinking_tokens", "うち思考トークン"),
+    ("judge_cache_write_tokens", "キャッシュ書き込みトークン"),
+    ("judge_cache_read_tokens", "キャッシュ読み込みトークン"),
+    ("judge_cost_usd", "概算費用（USD）"),
+    ("judge_cost_usd_per_question", "採点した1問あたりの概算費用（USD）"),
+]
+
+
 def _question_score(row: dict) -> tuple:
     """質問単位の良し悪しの比較キー（大きいほど良い）。"""
     if row.get("error"):
@@ -118,6 +152,9 @@ def compare_markdown(before: list[dict], after: list[dict], before_name: str, af
         if (before_meta.get("judge") or {}).get("prompt_hash") != (after_meta.get("judge") or {}).get("prompt_hash") or \
                 (before_meta.get("judge") or {}).get("model") != (after_meta.get("judge") or {}).get("model"):
             warnings.append("採点モデルまたは採点プロンプトが異なるため、LLM 採点の差は参考値です。")
+        if ((before_meta.get("judge") or {}).get("backend") or "bedrock") != \
+                ((after_meta.get("judge") or {}).get("backend") or "bedrock"):
+            warnings.append("採点方式（Bedrock / Claude Code）が異なるため、LLM 採点の差は参考値です。")
         if (before_meta.get("golden") or {}).get("sha256") != (after_meta.get("golden") or {}).get("sha256"):
             warnings.append("ゴールデンセットの内容が異なります（質問 ID で突き合わせています）。")
         lines += [f"> {w}" for w in warnings] + ([""] if warnings else [])

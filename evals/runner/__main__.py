@@ -4,6 +4,7 @@
 - build-golden  : 初版のゴールデンセットを作る（段階③）
 - run           : ゴールデンセットを AWS 検証環境に送り、出典と回答を採点する（段階③）
 - compare       : 2回の実行結果を質問単位で比較する（段階③）
+- judge         : 保存済みの回答を採点する（ADR-0101。使用量の上限で止まった続き・採点方式を変えた再採点）
 `snapshot` は段階④で追加する。
 """
 
@@ -64,6 +65,24 @@ def _resolve_run(name: str) -> Path:
     return path
 
 
+def _make_judge(backend: str | None):
+    """採点バックエンド（既定: evals/.env の EVAL_JUDGE_BACKEND、無ければ bedrock）に応じた Judge を作る。"""
+    from .judge import BACKENDS, JudgeSetupError, load_aws_credentials, make_judge
+
+    backend = backend or _setting("EVAL_JUDGE_BACKEND") or "bedrock"
+    if backend not in BACKENDS:
+        sys.exit(f"EVAL_JUDGE_BACKEND は {' / '.join(BACKENDS)} のいずれかです: {backend}")
+    if backend == "bedrock":
+        load_aws_credentials(REPO_ROOT / "terraform" / ".env")
+    try:
+        judge = make_judge(backend, _setting("EVAL_JUDGE_MODEL_ID"), oauth_token=_setting("CLAUDE_CODE_OAUTH_TOKEN"))
+    except JudgeSetupError as exc:
+        sys.exit(f"採点を始められません: {exc}")
+    version = judge.meta().get("cli_version")
+    print(f"採点: {judge.model}（{backend}{', Claude Code ' + version if version else ''}）")
+    return judge
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="eval", description="chatbot_invitro 評価ランナー（ADR-0099）")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -82,7 +101,16 @@ def main(argv: list[str] | None = None) -> None:
     rn.add_argument("--mode", choices=["pipeline", "agentic", "both"], default="both")
     rn.add_argument("--limit", type=int, default=None, help="先頭から N 問だけ実行する（試行用）")
     rn.add_argument("--no-judge", action="store_true", help="LLM 採点をしない（出典と回答控えのみ採点）")
+    rn.add_argument("--judge-backend", choices=["bedrock", "claude-code"], default=None,
+                    help="採点の実行方法（既定: evals/.env の EVAL_JUDGE_BACKEND、無ければ bedrock）")
     rn.add_argument("--base-url", default=None)
+
+    jd = sub.add_parser("judge", help="保存済みの回答を採点する（evals/runs/ のディレクトリ名を指定）")
+    jd.add_argument("run", help="採点する実行（evals/runs/ のディレクトリ名）")
+    jd.add_argument("--only-missing", action="store_true",
+                    help="未採点の質問だけを同じ実行に書き足す（使用量の上限で止まった続き）。"
+                         "付けなければ全問を採点し直し、新しい実行として保存する")
+    jd.add_argument("--judge-backend", choices=["bedrock", "claude-code"], default=None)
 
     cp = sub.add_parser("compare", help="2回の実行結果を比較する（evals/runs/ のディレクトリ名を指定）")
     cp.add_argument("before")
@@ -111,22 +139,31 @@ def main(argv: list[str] | None = None) -> None:
 
     elif args.command == "run":
         from . import run as run_mod
-        from .judge import Judge, load_aws_credentials
 
         base_url = _base_url(args.base_url)
         golden_path = EVALS_DIR / "golden" / f"{args.golden}.csv"
         if not golden_path.exists():
             sys.exit(f"{golden_path} がありません。先に build-golden を実行してください。")
-        judge = None
-        if not args.no_judge:
-            load_aws_credentials(REPO_ROOT / "terraform" / ".env")
-            judge = Judge(model=_setting("EVAL_JUDGE_MODEL_ID"))
+        judge = None if args.no_judge else _make_judge(args.judge_backend)
         modes = run_mod.MODES if args.mode == "both" else (args.mode,)
         for mode in modes:
             print(f"== {mode}: {golden_path.name} → {base_url}")
             run_dir = run_mod.run(base_url, golden_path, mode, EVALS_DIR / "runs", REPO_ROOT, judge=judge,
                                   limit=args.limit)
             print(f"保存先: evals/runs/{run_dir.name}/summary.md")
+        print("数値の推移: evals/history.csv（git 管理）")
+        print(DVC_REMINDER)
+
+    elif args.command == "judge":
+        from . import run as run_mod
+
+        source = _resolve_run(args.run)
+        judge = _make_judge(args.judge_backend)
+        try:
+            run_dir = run_mod.rejudge(source, judge, EVALS_DIR / "runs", REPO_ROOT, only_missing=args.only_missing)
+        except ValueError as exc:
+            sys.exit(str(exc))
+        print(f"保存先: evals/runs/{run_dir.name}/summary.md")
         print("数値の推移: evals/history.csv（git 管理）")
         print(DVC_REMINDER)
 
