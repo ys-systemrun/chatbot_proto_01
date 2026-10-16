@@ -27,10 +27,14 @@ RUN curl -fsSL "https://download.docker.com/linux/static/stable/x86_64/docker-${
 
 # ナレッジデータのバージョン管理（ADR-0097）。dvc は git リポジトリ（/work にマウント）を前提にする。
 # ホスト（Windows）とコンテナでファイル所有者が異なるため、git の safe.directory を許可しておく。
+# また、ホストの checkout は core.autocrlf=true（ユーザー全体の設定）で作業ツリーが CRLF になっており、
+# コンテナの git に同じ設定が無いと全テキストファイルが「変更あり」に見える（git_dirty が常に true になる）。
+# LF の作業ツリーでも autocrlf=true は比較結果を変えないため、イメージ側で常に有効にする。
 ARG DVC_VERSION=3.59.1
 # pathspec 1.x は dvc 3.59 が参照する内部名（_DIR_MARK）を削除したため 1 未満に固定する。
 RUN pip install --no-cache-dir "dvc[s3]==${DVC_VERSION}" "pathspec<1" \
     && git config --system --add safe.directory "*" \
+    && git config --system core.autocrlf true \
     && dvc --version
 
 WORKDIR /app

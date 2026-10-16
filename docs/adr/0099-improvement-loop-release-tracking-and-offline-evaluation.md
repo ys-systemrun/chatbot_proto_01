@@ -167,6 +167,7 @@ evals/
 - **採点モデル**: Claude Opus 5.5 を Amazon Bedrock で、Anthropic SDK の Bedrock Mantle クライアントから呼ぶ（effort は medium を明示）。Bedrock の Mantle エンドポイントは構造化出力（`output_config.format`）を受け付けなかったため、採点プロンプトで JSON だけを返すよう指示し、読み取れなければ1回再試行する。安全分類器による拒否は、Bedrock ではサーバー側のフォールバックが使えないため、Claude Opus 4.8 で1回だけ手動で再試行する。
 - **回答を控えたかの判定**: 定型の断り文言と「出典なしの逆質問」による決定的な判定に、LLM の判定（`declined`）を OR で合わせる。出典を返さない古い agent_invitro の逆質問を拾うため。
 - **評価データの置き場所**: 当初は git 管理としていたが、質問・回答・参考情報（ナレッジ本文）を含むため DVC 管理に改めた（§5「結果の保存先」）。git には `evals/feedback.dvc`・`evals/runs.dvc` と、数値だけの `evals/history.csv` を入れる。実行日時は日本時間で記録する（コンテナの時計は UTC。改訂前の2回分のディレクトリ名と `started_at` は UTC）。
+- **git_dirty の判定（2026-10-16 修正）**: deploy コンテナの git はホストの `core.autocrlf=true`（ユーザー全体の設定）を引き継がず、CRLF の作業ツリーで全テキストファイル（約440件）を「変更あり」と判定していたため、段階①以降の `git_dirty` は常に true だった。deploy イメージで `core.autocrlf=true` を有効にし、あわせて評価データと文書（`evals/`・`docs/`）を判定から外した（評価のたびに書き換わる `evals/history.csv` で dirty にならないように）。修正前のリリースの `git_dirty=true` は信用しない。
 - **評価ランナーの実行環境**: LLM 採点に Anthropic SDK が要るため、`evals/Dockerfile`（python + `anthropic[bedrock]`）を追加し、`eval.bat` が毎回 build してリポジトリを `/work` にマウントして実行する。
 
 ## 検討した代替案
