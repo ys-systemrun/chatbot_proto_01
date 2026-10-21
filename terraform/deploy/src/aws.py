@@ -75,7 +75,7 @@ def run_seed_task(cluster: str, family: str, subnets, security_group: str, regio
             "awsvpcConfiguration": {
                 "subnets": subnets,
                 "securityGroups": [security_group],
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "ENABLED",  # ADR-0104: パブリックサブネットからインターネット経由で接続
             }
         },
     )
@@ -119,7 +119,7 @@ def run_import_task(
             "awsvpcConfiguration": {
                 "subnets": subnets,
                 "securityGroups": [security_group],
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "ENABLED",  # ADR-0104: パブリックサブネットからインターネット経由で接続
             }
         },
     )

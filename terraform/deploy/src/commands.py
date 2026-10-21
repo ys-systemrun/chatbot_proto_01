@@ -231,7 +231,7 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
     image_tag = _image_tag()
     log.info(f"region={cfg.aws_region} / image_tag={image_tag} / state_bucket={cfg.state_bucket} / key={cfg.state_key_database}")
     prompts.confirm_or_exit(
-        f"AWS 上に SG/VPCエンドポイント/RDS 等の課金リソースを作成します（リージョン: {cfg.aws_region}）。",
+        f"AWS 上に SG/RDS 等の課金リソースを作成します（リージョン: {cfg.aws_region}）。",
         assume_yes,
     )
     ensure_state_bucket(cfg)
@@ -722,7 +722,7 @@ def cmd_destroy_app() -> None:
     cfg = config.load_config()
     prerequisites(cfg)
     log.step("app 構成の破棄（RDS・ネットワークは残す, ADR-0039）")
-    log.warn("app 構成（ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR）を削除します。RDS・SG・VPCエンドポイントは残ります。")
+    log.warn("app 構成（ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR）を削除します。RDS・SG は残ります。")
     prompts.confirm_typed("app 構成を破棄する場合は 'destroy-app' と入力してください: ", "destroy-app")
 
     d = paths.app_dir()
@@ -781,7 +781,7 @@ def cmd_destroy_database() -> None:
     tf.destroy(d, variables={"deletion_protection": "false", "skip_final_snapshot": "true"}, what="database destroy")
 
     log.ok("database 構成の破棄完了")
-    log.info("VPC エンドポイント等も削除されました（既存 VPC/サブネット自体は data 参照のため残存）。")
+    log.info("既存 VPC/サブネットは data 参照のため残存します。")
 
 
 def cmd_shell() -> None:

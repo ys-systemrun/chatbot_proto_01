@@ -11,7 +11,7 @@ locals {
   tag_selector_mcp_port = 8200
 }
 
-# --- ネットワーク基盤（既存VPC参照 + SG + VPCエンドポイント, ADR-0036）---
+# --- ネットワーク基盤（既存VPC参照 + SG + タスク用サブネットの経路照合, ADR-0036 / ADR-0104）---
 module "network" {
   source                = "../../modules/network"
   name_prefix           = var.name_prefix
@@ -20,9 +20,27 @@ module "network" {
   workload_subnet_id    = var.workload_subnet_id
   public_subnet_ids     = var.public_subnet_ids
   admin_ui_port         = var.admin_ui_port
-  create_vpc_endpoints  = var.create_vpc_endpoints
   knowledge_mcp_port    = local.knowledge_mcp_port
   tag_selector_mcp_port = local.tag_selector_mcp_port
+}
+
+# ADR-0104: VPC エンドポイントを使わなくなった（タスクはパブリック IP 付きでインターネット経由）ための移行用。
+# 旧エンドポイントは削除済みのため、state に記録が残っていても実物には触れずに state から外す
+# （記録が無ければ何も起きない）。すべての環境で 1 回 apply-database を実行した後に削除してよい。
+# 旧エンドポイント用 SG（<name_prefix>-sg-vpce）とそのルールは、resource を消しただけなので
+# 通常どおり削除される（使っているエンドポイントが無いため）。
+removed {
+  from = module.network.aws_vpc_endpoint.s3
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = module.network.aws_vpc_endpoint.interface
+  lifecycle {
+    destroy = false
+  }
 }
 
 # --- RDS(pgvector) + DBサブネットグループ + DATABASE_URL シークレット（ADR-0037, 永続化）---

@@ -106,6 +106,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0100](./0100-eval-judge-token-usage-and-cost-recording.md) | ゴールデンセット評価のLLM採点のトークン数と概算費用の記録（呼び出しごとの`response.usage`を1問単位で`results.jsonl`に残し、`evals/judge_prices.json`の単価で概算、`summary.md`・`history.csv`に集計。ADR-0099 §5に追加） | Accepted |
 | [0101](./0101-eval-judge-backend-claude-code-subscription.md) | ゴールデンセット評価のLLM採点をClaude Codeの非対話モード（`claude -p`、サブスクリプション認証）でも実行可能にする（`EVAL_JUDGE_BACKEND`で切替、既定はBedrockのまま、回答収集と採点の分離・`judge`サブコマンド、使用量上限での中断と再開、両方式の較正。手動実行に限定） | Proposed（実装済み・検証待ち） |
 | [0102](./0102-bedrock-client-timeouts-and-alb-idle-timeout.md) | Bedrockクライアントの読み取りタイムアウト短縮（短い呼び出し20秒・回答生成60秒、standard再試行3回、環境変数で上書き可）とadmin_ui ALBのアイドルタイムアウト150秒化（長期未使用後の切れた接続による60秒待ち→ALB 504への対策） | Proposed（実装済み・デプロイ後確認待ち） |
+| [0104](./0104-tasks-in-public-subnet-without-vpc-endpoints.md) | VPCエンドポイントを廃止し、ECSタスク・run-taskをパブリックサブネットにパブリックIP付きで置いてインターネットゲートウェイ経由でAWSサービスへ接続する（他プロジェクトとのエンドポイント共用の競合・費用を避けるため。エンドポイントとその SG・`create_vpc_endpoints`を削除し`removed`ブロックでstateから切り離し、`workload_subnet_id`の既定を`public_subnet_ids`の先頭に、`0.0.0.0/0→igw`経路をpostconditionで照合、外からの通信はタスク用SGのみで遮断。RDSはプライベートのまま。ADR-0023のタスク配置・ADR-0036/0095のエンドポイント部分を上書き） | Proposed（実装済み・apply での確認待ち） |
 
 関連する要件定義書:
 - `docs/requirement/202608041002.md`（Knowledge MCP サーバ）
