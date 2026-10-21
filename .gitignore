@@ -29,6 +29,8 @@ terraform/chatbot.sql
 terraform/chatbot_o.sql
 terraform/conversation.sql
 terraform/conversation_o.sql
+# 退避エクスポート（ADR-0103）: 会話ログを含む SQL・マニフェストを置くため Git 管理外とする。
+terraform/backup/
 
 # 評価ランナーの設定（ADR-0099）。evals/.env.example は追跡される。
 evals/.env

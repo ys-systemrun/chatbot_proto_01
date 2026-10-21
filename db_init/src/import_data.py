@@ -155,15 +155,16 @@ def dump_table_inserts(conn, table: str) -> str:
     return "".join(parts)
 
 
-def build_backup_sql(conn, label: str, tables: list[str]) -> str:
+def build_backup_sql(conn, label: str, tables: list[str], title: str | None = None) -> str:
     """消去対象データの退避 SQL を生成する（同一環境へ再適用して復旧できる形式）。
 
     先頭に TRUNCATE（誤インポート後の状態を消してから復旧するため）を置き、親→子の順で
     INSERT を並べる。CREATE TABLE は含めない（同一環境＝テーブルは存在する前提, §4）。
+    title はヘッダー 1 行目の文言（退避エクスポート ADR-0103 が同じ形式を共用するため差し替え可能）。
     """
     truncate = _truncate_statement(tables)
     header = (
-        f"-- ADR-0066 rollback backup for '{label}' database\n"
+        f"-- {title or f'ADR-0066 rollback backup for {label!r} database'}\n"
         f"-- generated at {_now().isoformat()}\n"
         f"-- 復旧手順: この SQL を対象データベースへ psql -f 等で適用すると、\n"
         f"--   インポート直前のデータ状態へ戻せます（対象テーブル: {', '.join(tables)}）。\n\n"

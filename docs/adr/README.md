@@ -106,6 +106,7 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 | [0100](./0100-eval-judge-token-usage-and-cost-recording.md) | ゴールデンセット評価のLLM採点のトークン数と概算費用の記録（呼び出しごとの`response.usage`を1問単位で`results.jsonl`に残し、`evals/judge_prices.json`の単価で概算、`summary.md`・`history.csv`に集計。ADR-0099 §5に追加） | Accepted |
 | [0101](./0101-eval-judge-backend-claude-code-subscription.md) | ゴールデンセット評価のLLM採点をClaude Codeの非対話モード（`claude -p`、サブスクリプション認証）でも実行可能にする（`EVAL_JUDGE_BACKEND`で切替、既定はBedrockのまま、回答収集と採点の分離・`judge`サブコマンド、使用量上限での中断と再開、両方式の較正。手動実行に限定） | Proposed（実装済み・検証待ち） |
 | [0102](./0102-bedrock-client-timeouts-and-alb-idle-timeout.md) | Bedrockクライアントの読み取りタイムアウト短縮（短い呼び出し20秒・回答生成60秒、standard再試行3回、環境変数で上書き可）とadmin_ui ALBのアイドルタイムアウト150秒化（長期未使用後の切れた接続による60秒待ち→ALB 504への対策） | Proposed（実装済み・デプロイ後確認待ち） |
+| [0103](./0103-destroy-all-with-export-to-local-sql.md) | デプロイ環境のデータをローカルのSQLファイルへ退避してから一括破棄する`destroy-all`の新設（`db_init`のEXPORT_MODEでADR-0066の退避SQL生成を流用、import バケット経由で固定フォルダ`terraform/backup/`へ取得しSHA-256照合、次回の退避で3ファイルまとめて上書き、成功後に`destroy-app`→`destroy-database`相当を実行、確認は`destroy-all`のタイプ確認1回、`--resume-from`による失敗段からの再開、app構成が無い場合の案内表示、`import-data`での退避時と投入先のスキーマ版照合とコンソール確認、退避単体の`export-data`も新設） | Proposed（実装済み・AWS での確認待ち） |
 | [0104](./0104-tasks-in-public-subnet-without-vpc-endpoints.md) | VPCエンドポイントを廃止し、ECSタスク・run-taskをパブリックサブネットにパブリックIP付きで置いてインターネットゲートウェイ経由でAWSサービスへ接続する（他プロジェクトとのエンドポイント共用の競合・費用を避けるため。エンドポイントとその SG・`create_vpc_endpoints`を削除し`removed`ブロックでstateから切り離し、`workload_subnet_id`の既定を`public_subnet_ids`の先頭に、`0.0.0.0/0→igw`経路をpostconditionで照合、外からの通信はタスク用SGのみで遮断。RDSはプライベートのまま。ADR-0023のタスク配置・ADR-0036/0095のエンドポイント部分を上書き） | Proposed（実装済み・apply での確認待ち） |
 
 関連する要件定義書:
@@ -142,3 +143,4 @@ Knowledge MCP サーバ・Tag Selector MCP サーバ・QA/タグ管理UI（front
 - `docs/requirement/202609141030_評価済みメッセージページ列幅ドラッグ変更機能要件定義書.md`（評価済みメッセージページ列幅ドラッグ変更機能: 一覧テーブルの列幅をドラッグで変更できるようにする）
 - `docs/requirement/202609141415_Agentic回答生成エンドポイント新設・APIレイヤ再構成要件定義書.md`（Agentic回答生成エンドポイント新設・agent_invitro APIレイヤ再構成: 検索結果の十分性をLLMが評価しクエリを再定式化して探し直す/ask-agenticの新設、既存/ask-pipelineとの併存、server.pyの薄いルーター化とユースケース層の分離）
 - `docs/requirement/202609160930_情報源レコード検索対象フラグ（is_searchable）機能要件定義書.md`（情報源レコードの検索対象フラグ: QA・言い換え質問文・トラブルシューティング記事へのis_searchable列追加、search_knowledgeでの完全除外、管理UI一覧のトグルスイッチによる即時切り替えと絞り込み、CSV一括インポート/エクスポートへの列追加）
+- `docs/requirement/202610201030_デプロイ環境データ退避付き一括破棄機能要件定義書.md`（デプロイ環境データ退避付き一括破棄機能: 両DBの全データをローカルの固定フォルダへSQLファイルとして退避し（次回の退避で上書き）、成功を確認してからapp構成・database構成を順に破棄するdestroy-all.bat（失敗段からの再開オプション付き）と、退避単体のexport-data.batの新設、import-dataでのスキーマ版照合）

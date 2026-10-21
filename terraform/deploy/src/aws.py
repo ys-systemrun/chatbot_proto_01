@@ -150,6 +150,11 @@ def upload_file(bucket: str, key: str, path: str, region: str) -> None:
     _client("s3", region_name=region).upload_file(path, bucket, key)
 
 
+def download_file(bucket: str, key: str, path: str, region: str) -> None:
+    """S3 のオブジェクトをローカルへ保存する（退避エクスポートの取得, ADR-0103）。"""
+    _client("s3", region_name=region).download_file(bucket, key, path)
+
+
 def wait_task_stopped(cluster: str, task_arn: str, region: str, timeout_sec: int = 1800, interval_sec: int = 15) -> dict:
     ecs = _client("ecs", region_name=region)
     elapsed = 0

@@ -29,6 +29,10 @@
   - QUERY_MODE=true（ADR-0083）: 通常フローを実行せず、QUERY_SQL に渡されたアドホック SQL を
     QUERY_TARGET_DB（knowledge / conversation / both）へマスター接続で1トランザクション実行する。
     SELECT 結果（最終文のみ）または影響行数を標準出力へ出力する。
+  - EXPORT_MODE=true（ADR-0103）: 通常フローを実行せず、両データベースの対象テーブルを読み取り専用で
+    退避 SQL（TRUNCATE + INSERT）にし、マニフェストとともに IMPORT_BUCKET の export/<EXPORT_TIMESTAMP>/ へ
+    置く。EXPORT_MANIFEST_ONLY=true なら SQL を作らずマニフェスト（行数・スキーマ版）だけを置く。
+  IMPORT_MODE / QUERY_MODE / EXPORT_MODE / MIGRATE_ONLY は排他。2 つ以上を指定すると起動時にエラー終了する。
 """
 
 from __future__ import annotations
@@ -45,6 +49,7 @@ from psycopg2 import sql
 from yoyo import get_backend, read_migrations
 
 import backfill_title_and_tags
+import export_data
 import import_data
 import seed_description_and_aliases
 import troubleshooting_import
@@ -100,6 +105,12 @@ QUERY_MODE = os.environ.get("QUERY_MODE", "").strip().lower() in ("1", "true", "
 QUERY_TARGET_DB = os.environ.get("QUERY_TARGET_DB", "knowledge").strip()
 # 実行する SQL 本文（全文）。セミコロン区切りで複数文を含みうる。
 QUERY_SQL = os.environ.get("QUERY_SQL", "")
+# 退避エクスポートモード（ADR-0103）。run-task の environment オーバーライドで EXPORT_MODE=true と
+# EXPORT_TIMESTAMP を注入されたときのみ有効になる。読み取り専用（データは変更しない）。
+EXPORT_MODE = os.environ.get("EXPORT_MODE", "").strip().lower() in ("1", "true", "yes")
+EXPORT_MANIFEST_ONLY = os.environ.get("EXPORT_MANIFEST_ONLY", "").strip().lower() in ("1", "true", "yes")
+EXPORT_TIMESTAMP = os.environ.get("EXPORT_TIMESTAMP", "").strip()
+EXPORT_PREFIX = os.environ.get("EXPORT_PREFIX", "export").strip()
 IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
 IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
 IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
@@ -624,6 +635,32 @@ def run_import_mode():
     sys.exit(0)
 
 
+def run_export_mode():
+    """退避エクスポートを実行して終了する（ADR-0103, EXPORT_MODE）。読み取り専用。"""
+    print(f"{_now()} ====== db_init start (EXPORT MODE, ADR-0103).")
+    try:
+        if not IMPORT_BUCKET:
+            raise RuntimeError("EXPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です。")
+        if not EXPORT_TIMESTAMP:
+            raise RuntimeError("EXPORT_MODE では EXPORT_TIMESTAMP（退避の識別子）が必須です。")
+        knowledge_url, conversation_url = _resolve_import_work_urls()
+        export_data.run_export(
+            knowledge_url=knowledge_url,
+            conversation_url=conversation_url,
+            bucket=IMPORT_BUCKET,
+            timestamp=EXPORT_TIMESTAMP,
+            prefix=EXPORT_PREFIX,
+            manifest_only=EXPORT_MANIFEST_ONLY,
+            region=AWS_REGION,
+        )
+    except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
+        print(f"{_now()} ERROR: db_init export failed: {exc}", file=sys.stderr)
+        traceback.print_exc()
+        sys.exit(1)
+    print(f"{_now()} ====== db_init export completed successfully.")
+    sys.exit(0)
+
+
 # ---------------------------------------------------------------------------
 # アドホック SQL 実行モード（ADR-0083, QUERY_MODE）
 # ---------------------------------------------------------------------------
@@ -709,7 +746,31 @@ def run_query_mode():
     sys.exit(0)
 
 
+def _check_exclusive_modes() -> None:
+    """起動モードの同時指定を拒否する（ADR-0103: 読み取り専用の EXPORT_MODE と破壊的モードを混ぜない）。"""
+    enabled = [
+        name
+        for name, on in (
+            ("IMPORT_MODE", IMPORT_MODE),
+            ("QUERY_MODE", QUERY_MODE),
+            ("EXPORT_MODE", EXPORT_MODE),
+            ("MIGRATE_ONLY", MIGRATE_ONLY),
+        )
+        if on
+    ]
+    if len(enabled) > 1:
+        print(
+            f"{_now()} ERROR: 起動モードは 1 つだけ指定してください（指定: {', '.join(enabled)}）。",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main():
+    _check_exclusive_modes()
+    if EXPORT_MODE:
+        run_export_mode()
+        return  # run_export_mode は sys.exit する（保険で return）
     if QUERY_MODE:
         run_query_mode()
         return  # run_query_mode は sys.exit する（保険で return）

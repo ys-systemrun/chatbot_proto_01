@@ -32,6 +32,8 @@ def _wire_common(monkeypatch, calls, *, exit_code="0"):
     monkeypatch.setattr(commands, "_require_app_applied", lambda *a, **k: None)
     monkeypatch.setattr(commands.os.path, "isfile", lambda p: True)
     monkeypatch.setattr(commands.prompts, "confirm_typed", lambda *a, **k: None)
+    # ADR-0103: manifest.json の無いダンプはスキーマ版を確認できず y/N を聞く。ここでは承認する。
+    monkeypatch.setattr(commands.prompts, "confirm_or_exit", lambda *a, **k: None)
 
     monkeypatch.setattr(commands.tf, "init_backend", lambda *a, **k: None)
     monkeypatch.setattr(commands.tf, "output_json", lambda *a, **k: ["subnet-1"])

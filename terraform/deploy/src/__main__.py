@@ -56,6 +56,15 @@ def build_parser() -> argparse.ArgumentParser:
         help="アドホック SQL の実行対象データベース（既定: knowledge, ADR-0083）",
     )
     qry.add_argument("--sql-file", default=None, help="実行する SQL ファイルのパス（既定: query.sql）")
+    # ADR-0103: 退避エクスポート（非破壊）と、退避付き一括破棄。
+    add("export-data", with_yes=True)
+    da = add("destroy-all")  # 破壊的操作のため --yes は設けない
+    da.add_argument(
+        "--resume-from",
+        choices=["destroy-app", "destroy-database"],
+        default=None,
+        help="退避を取り直さず、失敗した段から再開する（terraform/backup/ の退避ファイルを再検証して使う）",
+    )
     add("destroy-app")
     add("destroy-database")
     add("shell")
@@ -89,6 +98,10 @@ def main(argv=None) -> None:
             )
         elif args.command == "query":
             commands.cmd_query(target=args.target, sql_file=args.sql_file)
+        elif args.command == "export-data":
+            commands.cmd_export_data(args.yes)
+        elif args.command == "destroy-all":
+            commands.cmd_destroy_all(resume_from=args.resume_from)
         elif args.command == "destroy-app":
             commands.cmd_destroy_app()
         elif args.command == "destroy-database":

@@ -107,6 +107,8 @@ terraform/
 ├── query.bat            アドホック SQL 実行 run-task（query.sql を実行。ADR-0083。対象DB名入力の確認あり）
 ├── destroy-app.bat      app 構成のみ破棄（RDS は残す。'destroy-app' 入力の確認あり）
 ├── destroy-database.bat database 構成を破棄（RDS 削除。'destroy-database' 入力の確認あり）
+├── export-data.bat      両 DB を terraform/backup/ へ SQL で退避（非破壊。ADR-0103）
+├── destroy-all.bat      退避 → destroy-app → destroy-database を一括実行（'destroy-all' 入力の確認あり。ADR-0103）
 ├── deploy/                 コンテナ内 Python オーケストレータ（ADR-0040。*.bat の実体）
 ├── .env.example            → .env にコピーして全設定を記入（Git 管理外）
 └── .env                    実設定（terraform/ 直下, Git 管理外）
@@ -350,6 +352,38 @@ terraform apply   -var="deletion_protection=false"  # 削除保護を解除
 terraform destroy -var="deletion_protection=false" -var="skip_final_snapshot=true"
 ```
 > VPC エンドポイントは使っていない（ADR-0104）。既存VPC/サブネットは data 参照のため、破棄しても削除されない。
+
+### 退避付き一括破棄（destroy-all.bat / export-data.bat, ADR-0103）
+
+`destroy-database` は RDS を最終スナップショットなしで削除し、import バケットも消すため、AWS 上にデータが残らない。
+管理 UI で編集した QA・タグや会話ログを残して環境を撤去するときは **`destroy-all.bat`** を使う。
+
+| 段 | 内容 |
+|---|---|
+| [0] | 前提確認（database・app 両構成にリソースがあること）→ 実行内容の表示 → `'destroy-all'` のタイプ確認（1 回だけ, `--yes` なし） |
+| [1/3] 退避 | 集約サービスを停止 → db_init（EXPORT_MODE）が両 DB を退避 SQL にして import バケットの `export/<時刻>/` へ置く → `terraform/backup/` へ取得し SHA-256 を照合 |
+| [2/3] | `destroy-app` 相当（個別の確認なし） |
+| [3/3] | `destroy-database` 相当（個別の確認なし） |
+
+- **退避ファイル**: `terraform/backup/` に `knowledge.sql`・`conversation.sql`・`manifest.json`（取得日時・環境・行数・SHA-256・スキーマ版）。
+  Git 管理外。`conversation.sql` は会話ログを含む。
+- **上書き**: 次回の退避（`destroy-all` の [1/3] または `export-data`）が照合まで成功した時点で 3 ファイルをまとめて上書きする
+  （残るのは常に最新 1 回分）。失敗したときは前回分をそのまま残す。**復旧が済むまで退避を実行しないこと。**
+  残したい場合は退避の前に別の場所へコピーする。
+- **失敗時**: [1/3] で失敗したら何も破棄しない（そのまま再実行）。[2/3]・[3/3] で失敗したら後ろの段は実行せず、
+  再開コマンドを表示する。再開は退避を取り直さず、`terraform/backup/` の SHA-256 と環境（アカウント・リージョン）を
+  再検証してから行う:
+  ```
+  destroy-all.bat --resume-from destroy-app
+  destroy-all.bat --resume-from destroy-database
+  ```
+- **app 構成が既に無い場合**: 退避用のタスクは app 構成の ECS クラスタで動くため退避できない。退避が不要なら
+  `destroy-database.bat`、必要なら `apply-app.bat` の後にもう一度実行する（メッセージを出して終了する）。
+- **退避だけ行う**: `export-data.bat`（実行中は集約サービスを止め、終了後に元へ戻す。`--yes` で y/N 確認を省略）。
+- **復旧**: `apply-all.bat` → `import-data.bat --knowledge-sql backup\knowledge.sql --conversation-sql backup\conversation.sql`。
+  `import-data` は投入ダンプと同じフォルダの `manifest.json` に記録されたスキーマ版を、投入先の DB と照合する。
+  違う場合（またはマニフェストが無い場合）は差分を表示し、そのまま実行するかを y/N で確認する
+  （列が合わなければ投入は失敗し、データは投入前の状態に戻る）。
 
 ## 検証環境のコスト削減構成（ADR-0095）
 
