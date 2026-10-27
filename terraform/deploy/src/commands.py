@@ -2,8 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import shutil
+import tempfile
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from . import aws, config, dockercli, gitinfo, kbdata, log, paths, proc, prompts, tf, tfvars
 from .errors import DeployError
@@ -231,7 +237,7 @@ def cmd_apply_database(assume_yes: bool = False) -> None:
     image_tag = _image_tag()
     log.info(f"region={cfg.aws_region} / image_tag={image_tag} / state_bucket={cfg.state_bucket} / key={cfg.state_key_database}")
     prompts.confirm_or_exit(
-        f"AWS 上に SG/VPCエンドポイント/RDS 等の課金リソースを作成します（リージョン: {cfg.aws_region}）。",
+        f"AWS 上に SG/RDS 等の課金リソースを作成します（リージョン: {cfg.aws_region}）。",
         assume_yes,
     )
     ensure_state_bucket(cfg)
@@ -438,6 +444,68 @@ def _import_labels(target: str) -> list[str]:
     raise DeployError(f"--target は knowledge / conversation / both のいずれか（指定: {target!r}）。")
 
 
+def _dump_schema_version(dump_path: str, label: str) -> list[str] | None:
+    """投入ダンプと同じフォルダの manifest.json から、退避時のスキーマ版を返す（F-28）。無ければ None。"""
+    try:
+        manifest = _read_manifest(Path(os.path.dirname(os.path.abspath(dump_path))))
+    except (OSError, ValueError):
+        return None
+    if not manifest:
+        return None
+    version = manifest.get("databases", {}).get(label, {}).get("schema_version")
+    return list(version) if version is not None else None
+
+
+def schema_diff(backup: list[str], target: list[str]) -> "tuple[list[str], list[str]]":
+    """(退避時にだけ適用されている ID, 投入先にだけ適用されている ID) を返す。"""
+    return sorted(set(backup) - set(target)), sorted(set(target) - set(backup))
+
+
+def _confirm_schema_versions(
+    labels: list[str], backup_versions: dict, target_versions: dict | None
+) -> None:
+    """退避時と投入先のスキーマ版を比べ、違えば・分からなければコンソールで確認する（F-30〜F-33）。"""
+    problems: list[str] = []
+    for label in labels:
+        backup = backup_versions.get(label)
+        if backup is None:
+            problems.append(f"{label}: スキーマ版を確認できません（投入ダンプと同じフォルダに manifest.json がありません）。")
+            continue
+        target = (target_versions or {}).get(label, [])
+        only_backup, only_target = schema_diff(backup, target)
+        if only_backup or only_target:
+            problems.append(
+                f"{label}: スキーマ版が異なります。"
+                f" 退避時にだけ適用: {', '.join(only_backup) or '(なし)'}"
+                f" / 投入先にだけ適用: {', '.join(only_target) or '(なし)'}"
+            )
+    if not problems:
+        log.ok("スキーマ版: 退避時と投入先で一致")
+        return
+    for line in problems:
+        log.warn(line)
+    # --yes 等での省略は設けない（F-33）。N なら何も変更せずに終了する（終了コード 0）。
+    prompts.confirm_or_exit(
+        "このまま SQL を実行します（列が合わない場合は投入が失敗し、データは投入前の状態に戻ります）。",
+        assume_yes=False,
+    )
+
+
+def _target_schema_versions(cfg: config.Config, ctx: "_ExportContext") -> dict:
+    """投入先のスキーマ版を EXPORT_MODE + EXPORT_MANIFEST_ONLY の run-task で取得する（F-29）。"""
+    ts = _export_timestamp() + "-schema"
+    _run_export_task(cfg, ctx, ts, manifest_only=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        local = os.path.join(tmp, _BACKUP_MANIFEST)
+        aws.download_file(ctx.bucket, f"{_EXPORT_PREFIX}/{ts}/{_BACKUP_MANIFEST}", local, cfg.aws_region)
+        with open(local, encoding="utf-8") as f:
+            manifest = json.load(f)
+    return {
+        label: list(entry.get("schema_version", []))
+        for label, entry in manifest.get("databases", {}).items()
+    }
+
+
 def cmd_import_data(
     target: str = "both",
     knowledge_sql: str | None = None,
@@ -495,6 +563,15 @@ def cmd_import_data(
         raise DeployError("app 構成の output（cluster_name / app_service_name）を取得できませんでした。")
 
     services = [app_service]
+
+    # ADR-0103: 退避時と投入先のスキーマ版を照合する（タイプ確認・アップロード・サービス停止より前, F-29）。
+    log.step("スキーマ版の照合（退避時 / 投入先）")
+    backup_versions = {label: _dump_schema_version(dump_paths[label], label) for label in labels}
+    target_versions = None
+    if any(v is not None for v in backup_versions.values()):
+        ctx = _ExportContext(cluster, app_service, subnets, sg, family, import_bucket)
+        target_versions = _target_schema_versions(cfg, ctx)
+    _confirm_schema_versions(labels, backup_versions, target_versions)
 
     log.warn("=== 全データインポート（全消去→上書き, 不可逆） ===")
     log.warn(f"対象データベース: {', '.join(labels)}")
@@ -718,12 +795,14 @@ def cmd_apply_all(assume_yes: bool = False) -> None:
     log.info("破棄はコスト管理目的なら destroy-app（RDS は残る）。DB も破棄するなら destroy-database。")
 
 
-def cmd_destroy_app() -> None:
+def cmd_destroy_app(confirm: bool = True) -> None:
+    """app 構成を破棄する。confirm=False は destroy-all（ADR-0103）が確認済みのときだけ使う。"""
     cfg = config.load_config()
     prerequisites(cfg)
     log.step("app 構成の破棄（RDS・ネットワークは残す, ADR-0039）")
-    log.warn("app 構成（ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR）を削除します。RDS・SG・VPCエンドポイントは残ります。")
-    prompts.confirm_typed("app 構成を破棄する場合は 'destroy-app' と入力してください: ", "destroy-app")
+    log.warn("app 構成（ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR）を削除します。RDS・SG は残ります。")
+    if confirm:
+        prompts.confirm_typed("app 構成を破棄する場合は 'destroy-app' と入力してください: ", "destroy-app")
 
     d = paths.app_dir()
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_app)
@@ -738,19 +817,22 @@ def cmd_destroy_app() -> None:
 _RDS_INSTANCE_ADDRESS = "module.database.aws_db_instance.this"
 
 
-def cmd_destroy_database() -> None:
+def cmd_destroy_database(confirm: bool = True) -> None:
+    """database 構成を破棄する。confirm=False は destroy-all（ADR-0103）が確認済みのときだけ使う。"""
     cfg = config.load_config()
     prerequisites(cfg)
     log.step("database 構成の破棄（RDS を含む, 取り消し不可）")
     log.warn("RDS インスタンスと投入済み QA/タグデータを完全に削除します。再構築には再シード（Bedrock 再計算）が必要です。")
 
     # destroy 順序（app -> database）ガード: app state が残っていれば警告。
-    if aws.object_exists(cfg.state_bucket, cfg.state_key_app):
+    # destroy-all（confirm=False）は直前に app を破棄済み（state は空で残る）のため警告しない。
+    if confirm and aws.object_exists(cfg.state_bucket, cfg.state_key_app):
         log.warn(f"app 構成の state が残っています（s3://{cfg.state_bucket}/{cfg.state_key_app}）。")
         log.warn("app 構成が生存していると、ECS が database 構成の SG/サブネットを使用中で destroy が失敗する可能性があります。")
         log.warn("先に destroy-app を実行してから本操作を行うことを強く推奨します（ADR-0039 destroy 順序）。")
 
-    prompts.confirm_typed("DB を破棄する場合は 'destroy-database' と入力してください: ", "destroy-database")
+    if confirm:
+        prompts.confirm_typed("DB を破棄する場合は 'destroy-database' と入力してください: ", "destroy-database")
 
     d = paths.database_dir()
     tf.init_backend(d, cfg.state_bucket, cfg.aws_region, cfg.state_key_database)
@@ -781,7 +863,381 @@ def cmd_destroy_database() -> None:
     tf.destroy(d, variables={"deletion_protection": "false", "skip_final_snapshot": "true"}, what="database destroy")
 
     log.ok("database 構成の破棄完了")
-    log.info("VPC エンドポイント等も削除されました（既存 VPC/サブネット自体は data 参照のため残存）。")
+    log.info("既存 VPC/サブネットは data 参照のため残存します。")
+
+
+# --- 退避エクスポート / 一括破棄（ADR-0103）-----------------------------------------
+# 退避ファイルは固定フォルダ terraform/backup/ に置き、次回の退避が照合まで成功した時点で 3 ファイルを
+# まとめて上書きする（会話ログを含む conversation.sql を溜め込まない, REQ-202610201030 2.4 #5）。
+_BACKUP_LABELS = ("knowledge", "conversation")
+_BACKUP_MANIFEST = "manifest.json"
+_BACKUP_FILES = ("knowledge.sql", "conversation.sql", _BACKUP_MANIFEST)
+_BACKUP_DISPLAY = "terraform\\backup"
+_EXPORT_PREFIX = "export"
+_JST = timezone(timedelta(hours=9))
+_DESTROY_STAGES = ("destroy-app", "destroy-database")
+
+_NO_APP_MESSAGE = (
+    "app 構成が存在しないため、データを退避できません（退避用のタスクは app 構成の ECS クラスタで実行します）。\n"
+    "  データの退避が不要なら destroy-database.bat を実行してください。\n"
+    "  退避が必要なら apply-app.bat を実行してから、もう一度 {batch} を実行してください。"
+)
+
+
+@dataclass
+class _ExportContext:
+    cluster: str
+    app_service: str
+    subnets: list
+    security_group: str
+    family: str
+    bucket: str
+
+
+def _backup_dir() -> Path:
+    return paths.tf_root() / "backup"
+
+
+def _incoming_dir() -> Path:
+    return _backup_dir() / ".incoming"
+
+
+def _export_timestamp() -> str:
+    return datetime.now(_JST).strftime("%Y%m%d%H%M%S")
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_manifest(directory: Path) -> dict | None:
+    path = directory / _BACKUP_MANIFEST
+    if not path.is_file():
+        return None
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _verify_backup_files(directory: Path, manifest: dict) -> None:
+    """退避ファイルがそろい、SHA-256 がマニフェストと一致することを確かめる（F-11 / F-24）。"""
+    databases = manifest.get("databases", {})
+    for label in _BACKUP_LABELS:
+        entry = databases.get(label) or {}
+        name = entry.get("file") or f"{label}.sql"
+        path = directory / name
+        if not path.is_file():
+            raise DeployError(f"退避ファイルがありません: {path}")
+        expected = entry.get("sha256")
+        actual = _sha256_file(path)
+        if not expected or actual != expected:
+            raise DeployError(
+                f"退避ファイルの SHA-256 がマニフェストと一致しません: {path}\n"
+                f"  manifest={expected} / actual={actual}"
+            )
+
+
+def _backup_summary(manifest: dict) -> list[str]:
+    env = manifest.get("environment", {})
+    lines = [
+        f"取得日時: {manifest.get('created_at', '?')}",
+        f"環境: account={env.get('aws_account_id', '?')} / region={env.get('aws_region', '?')}"
+        f" / cluster={env.get('cluster', '?')}",
+    ]
+    for label in _BACKUP_LABELS:
+        entry = manifest.get("databases", {}).get(label, {})
+        tables = entry.get("tables", {})
+        lines.append(
+            f"{label}: {len(tables)} テーブル / {sum(tables.values())} 行"
+            f" ({entry.get('bytes', '?')} bytes)"
+        )
+    return lines
+
+
+def _show_previous_backup() -> None:
+    """前回の退避ファイルがあれば、上書きされて消えることを示す（F-9）。"""
+    try:
+        manifest = _read_manifest(_backup_dir())
+    except (OSError, ValueError):
+        manifest = None
+    if manifest is None:
+        log.info(f"{_BACKUP_DISPLAY} に前回の退避ファイルはありません。")
+        return
+    log.warn(f"{_BACKUP_DISPLAY} の前回の退避ファイルは、今回の退避が成功すると上書きされて消えます:")
+    for line in _backup_summary(manifest):
+        log.warn(f"  {line}")
+
+
+def _state_has_resources(cfg: config.Config, cwd: Path, key: str) -> bool:
+    if not aws.object_exists(cfg.state_bucket, key):
+        return False
+    tf.init_backend(cwd, cfg.state_bucket, cfg.aws_region, key)
+    return bool(tf.state_list(cwd))
+
+
+def _export_context(cfg: config.Config, batch: str) -> _ExportContext | None:
+    """退避の前提確認と、run-task に要る値の取得（F-8）。database 構成が空なら None を返す。"""
+    db, app = paths.database_dir(), paths.app_dir()
+    log.step("database / app 構成の確認")
+    if not _state_has_resources(cfg, db, cfg.state_key_database):
+        log.ok("database 構成にリソースがありません（退避・破棄の対象なし）。")
+        return None
+
+    cluster = app_service = None
+    if _state_has_resources(cfg, app, cfg.state_key_app):
+        try:
+            cluster = tf.output_raw(app, "cluster_name")
+            app_service = tf.output_raw(app, "app_service_name")
+        except DeployError:
+            cluster = app_service = None
+    if not cluster or not app_service:
+        raise DeployError(_NO_APP_MESSAGE.format(batch=batch))
+
+    subnets = tf.output_json(db, "workload_subnet_ids")
+    sg = tf.output_raw(db, "sg_verification_task_id")
+    family = tf.output_raw(db, "db_init_task_family")
+    bucket = tf.output_raw(db, "import_bucket_name")
+    if not subnets or not sg or not family or not bucket:
+        raise DeployError(
+            "database 構成の output（workload_subnet_ids / sg_verification_task_id / "
+            "db_init_task_family / import_bucket_name）を取得できませんでした。"
+        )
+    log.ok(f"cluster={cluster} / service={app_service}")
+    return _ExportContext(cluster, app_service, subnets, sg, family, bucket)
+
+
+def _run_export_task(cfg: config.Config, ctx: _ExportContext, ts: str, *, manifest_only: bool) -> None:
+    """db_init を EXPORT_MODE で run-task 起動し、ログを表示して exitCode=0 を確かめる。"""
+    region = cfg.aws_region
+    env = {
+        "EXPORT_MODE": "true",
+        "EXPORT_TIMESTAMP": ts,
+        "EXPORT_PREFIX": _EXPORT_PREFIX,
+        "IMPORT_BUCKET": ctx.bucket,
+        "AWS_REGION": region,
+    }
+    if manifest_only:
+        env["EXPORT_MANIFEST_ONLY"] = "true"
+    label = "スキーマ版の取得" if manifest_only else "退避エクスポート"
+    log.step(f"{label} run-task 起動（{ctx.family}, EXPORT_MODE, ts={ts}）")
+    task_arn = aws.run_import_task(
+        ctx.cluster, ctx.family, ctx.subnets, ctx.security_group, region,
+        container_name=ctx.family, environment=env,
+    )
+    log.info(f"task: {task_arn}")
+    task = aws.wait_task_stopped(ctx.cluster, task_arn, region)
+    log_group = f"/ecs/{ctx.family}"
+    try:
+        for message in aws.get_task_log_events(log_group, ctx.family, ctx.family, task_arn, region):
+            print(message)
+    except Exception as exc:  # noqa: BLE001 - ログ表示は best-effort。exitCode 判定は続ける
+        log.warn(f"CloudWatch Logs の取得に失敗しました: {exc}")
+    exit_code = aws.task_exit_code(task)
+    if str(exit_code) != "0":
+        raise DeployError(
+            f"{label}が異常終了しました (exitCode={exit_code})。CloudWatch Logs {log_group} を確認してください。"
+        )
+    log.ok(f"{label}完了（exitCode=0）")
+
+
+def _fetch_backup(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
+    """export/<ts>/ を一時フォルダへ取得・照合し、成功したら terraform/backup/ を置き換える（F-11 / F-11a）。"""
+    incoming, backup = _incoming_dir(), _backup_dir()
+    if incoming.exists():
+        shutil.rmtree(incoming)
+    incoming.mkdir(parents=True)
+
+    log.step(f"退避ファイルの取得（s3://{ctx.bucket}/{_EXPORT_PREFIX}/{ts}/ → {_BACKUP_DISPLAY}）")
+    for name in _BACKUP_FILES:
+        aws.download_file(ctx.bucket, f"{_EXPORT_PREFIX}/{ts}/{name}", str(incoming / name), cfg.aws_region)
+    manifest = _read_manifest(incoming)
+    if manifest is None:
+        raise DeployError("取得したマニフェストを読み込めませんでした。")
+    _verify_backup_files(incoming, manifest)
+    log.ok("SHA-256 照合 OK")
+
+    try:
+        commit = gitinfo.current().commit
+    except DeployError:
+        commit = "unknown"
+    manifest["environment"] = {
+        "aws_account_id": aws.account_id(),
+        "aws_region": cfg.aws_region,
+        "cluster": ctx.cluster,
+        "git_commit": commit,
+    }
+    with open(incoming / _BACKUP_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    # 照合に成功してから、3 ファイルをまとめて置き換える（前回分はここで消える）。
+    for name in _BACKUP_FILES:
+        os.replace(incoming / name, backup / name)
+    incoming.rmdir()
+    return manifest
+
+
+def _run_export(cfg: config.Config, ctx: _ExportContext, *, restore_on_success: bool) -> dict:
+    """集約サービスを止めて退避し、ローカルへ取得する。失敗時は必ずサービスを元に戻す（F-13 / F-16）。"""
+    region = cfg.aws_region
+    prior: int | None = None
+    succeeded = False
+    try:
+        log.step("集約サービスの停止（desired_count=0, 退避中の書き込みを止める）")
+        prior = aws.service_desired_count(ctx.cluster, ctx.app_service, region)
+        aws.set_service_desired_count(ctx.cluster, ctx.app_service, 0, region)
+        log.info(f"{ctx.app_service}: desired_count {prior} -> 0")
+        aws.wait_services_stable(ctx.cluster, [ctx.app_service], region)
+
+        ts = _export_timestamp()
+        _run_export_task(cfg, ctx, ts, manifest_only=False)
+        manifest = _fetch_backup(cfg, ctx, ts)
+        succeeded = True
+        return manifest
+    finally:
+        if prior is not None and (restore_on_success or not succeeded):
+            log.step("集約サービスの再開（停止前の desired_count へ復元）")
+            try:
+                aws.set_service_desired_count(ctx.cluster, ctx.app_service, prior, region)
+                aws.wait_services_stable(ctx.cluster, [ctx.app_service], region)
+                log.ok(f"{ctx.app_service}: desired_count -> {prior}")
+            except Exception as exc:  # noqa: BLE001 - 復元失敗は警告に留め、元の例外を潰さない
+                log.warn(f"集約サービスの再開に失敗しました: {exc}")
+
+
+def _print_backup_result(manifest: dict) -> None:
+    log.info(f"退避先: {_BACKUP_DISPLAY}\\（knowledge.sql / conversation.sql / manifest.json）")
+    for line in _backup_summary(manifest):
+        log.info(f"  {line}")
+
+
+def cmd_export_data(assume_yes: bool = False) -> None:
+    """両データベースを terraform/backup/ へ退避する（ADR-0103）。非破壊（実行中は集約サービスを止める）。"""
+    cfg = config.load_config()
+    prerequisites(cfg)
+    ctx = _export_context(cfg, "export-data.bat")
+    if ctx is None:
+        return
+    log.warn("=== 退避エクスポート（ADR-0103） ===")
+    log.warn(f"対象: knowledge / conversation の両データベース → {_BACKUP_DISPLAY}")
+    log.warn(f"実行中は集約サービス（{ctx.app_service}）を停止し、終了後に元へ戻します。")
+    _show_previous_backup()
+    prompts.confirm_or_exit("退避エクスポートを実行します。", assume_yes)
+
+    manifest = _run_export(cfg, ctx, restore_on_success=True)
+    log.step("退避エクスポート完了")
+    _print_backup_result(manifest)
+
+
+def _resume_backup(cfg: config.Config) -> dict:
+    """再開実行の根拠とする退避ファイルを再検証する（F-24）。"""
+    backup = _backup_dir()
+    missing = [name for name in _BACKUP_FILES if not (backup / name).is_file()]
+    if missing:
+        raise DeployError(f"{_BACKUP_DISPLAY} に退避ファイルがそろっていません（不足: {', '.join(missing)}）。")
+    manifest = _read_manifest(backup)
+    _verify_backup_files(backup, manifest)
+    env = manifest.get("environment", {})
+    account = aws.account_id()
+    if env.get("aws_account_id") != account or env.get("aws_region") != cfg.aws_region:
+        raise DeployError(
+            "退避ファイルの環境が現在の .env と一致しません"
+            f"（退避: account={env.get('aws_account_id')} / region={env.get('aws_region')}、"
+            f"現在: account={account} / region={cfg.aws_region}）。"
+        )
+    return manifest
+
+
+def _check_resume_state(cfg: config.Config, resume_from: str) -> bool:
+    """再開段と state の食い違いを検出する（F-26）。何もすることが無ければ False を返す。"""
+    app_has = _state_has_resources(cfg, paths.app_dir(), cfg.state_key_app)
+    if resume_from == "destroy-app" and not app_has:
+        raise DeployError(
+            "app 構成は破棄済みです。destroy-all.bat --resume-from destroy-database で再実行してください。"
+        )
+    if resume_from == "destroy-database":
+        if app_has:
+            raise DeployError(
+                "app 構成が残っています。destroy-all.bat --resume-from destroy-app で再実行してください。"
+            )
+        if not _state_has_resources(cfg, paths.database_dir(), cfg.state_key_database):
+            log.ok("database 構成にリソースがありません（破棄済み）。")
+            return False
+    return True
+
+
+def _run_destroy_stages(stages: list[str]) -> None:
+    """destroy-app → destroy-database を順に行い、失敗したら後ろの段は実行しない（F-18 / F-19）。"""
+    for stage in stages:
+        number = _DESTROY_STAGES.index(stage) + 2
+        log.step(f"[{number}/3] {stage}")
+        try:
+            if stage == "destroy-app":
+                cmd_destroy_app(confirm=False)
+            else:
+                cmd_destroy_database(confirm=False)
+        except DeployError as exc:
+            raise DeployError(
+                f"{exc}\n"
+                f"  {stage} が失敗しました。退避ファイルは {_BACKUP_DISPLAY} にあります。\n"
+                f"  原因を取り除いてから、続きを実行してください: destroy-all.bat --resume-from {stage}"
+            ) from exc
+
+
+def cmd_destroy_all(resume_from: str | None = None) -> None:
+    """退避エクスポート → destroy-app → destroy-database を 1 回の確認で行う（ADR-0103）。
+
+    resume_from を指定すると、退避を取り直さずにその段から再開する（F-22〜F-27）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+
+    if resume_from is None:
+        ctx = _export_context(cfg, "destroy-all.bat")
+        if ctx is None:
+            return
+        stages = list(_DESTROY_STAGES)
+        log.warn("=== 退避付き一括破棄（ADR-0103, 取り消し不可） ===")
+        log.warn(f"[1/3] 退避エクスポート: 両データベースを {_BACKUP_DISPLAY} へ保存（集約サービスを停止）")
+        _show_previous_backup()
+    else:
+        if resume_from not in _DESTROY_STAGES:
+            raise DeployError(f"--resume-from は {' / '.join(_DESTROY_STAGES)} のいずれか（指定: {resume_from!r}）。")
+        manifest = _resume_backup(cfg)
+        if not _check_resume_state(cfg, resume_from):
+            return
+        stages = list(_DESTROY_STAGES[_DESTROY_STAGES.index(resume_from):])
+        log.warn(f"=== 退避付き一括破棄の再開（{resume_from} から, 取り消し不可） ===")
+        log.warn(f"退避は取り直しません。{_BACKUP_DISPLAY} の次の退避ファイルを根拠にします:")
+        for line in _backup_summary(manifest):
+            log.warn(f"  {line}")
+        log.warn("退避ファイルの取得後に書き込まれたデータは含まれていません。")
+    if "destroy-app" in stages:
+        log.warn("[2/3] destroy-app: ECS クラスタ/集約サービス/ALB/MCP Inspector タスク定義/予算アラート/ECR を削除")
+    log.warn("[3/3] destroy-database: RDS インスタンスと投入済みデータ、import バケットを完全に削除")
+    prompts.confirm_typed("実行する場合は 'destroy-all' と入力してください: ", "destroy-all")
+
+    if resume_from is None:
+        log.step("[1/3] 退避エクスポート")
+        try:
+            manifest = _run_export(cfg, ctx, restore_on_success=False)
+        except DeployError as exc:
+            raise DeployError(
+                f"{exc}\n"
+                "  退避に失敗したため、破棄は行っていません（前回の退避ファイルも上書きしていません）。\n"
+                "  原因を取り除いてから destroy-all.bat をそのまま再実行してください。"
+            ) from exc
+        _print_backup_result(manifest)
+
+    _run_destroy_stages(stages)
+
+    log.step("destroy-all 完了")
+    _print_backup_result(manifest)
+    log.info("復旧手順: apply-all.bat → import-data.bat --knowledge-sql backup\\knowledge.sql"
+             " --conversation-sql backup\\conversation.sql")
+    log.warn("退避ファイルは次回の export-data / destroy-all で上書きされます。復旧が済むまで退避を実行しないでください。")
 
 
 def cmd_shell() -> None:

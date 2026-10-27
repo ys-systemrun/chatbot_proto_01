@@ -101,9 +101,11 @@ resource "aws_ecs_service" "this" {
   health_check_grace_period_seconds = var.target_group_arn != null ? var.health_check_grace_period_seconds : null
 
   network_configuration {
-    subnets          = var.subnet_ids
-    security_groups  = var.security_group_ids
-    assign_public_ip = false # ADR-0041: タスク自体は非公開（ALB のみ公開）
+    subnets         = var.subnet_ids
+    security_groups = var.security_group_ids
+    # ADR-0104: パブリックサブネットに置き、AWS サービスへはインターネットゲートウェイ経由で接続する。
+    # 外からの通信はタスク用 SG（ALB・検証タスクからのみ）で止める（ADR-0041 の「ALB のみ公開」は維持）。
+    assign_public_ip = true
   }
 
   dynamic "load_balancer" {

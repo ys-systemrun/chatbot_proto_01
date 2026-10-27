@@ -43,12 +43,13 @@ variable "private_subnet_ids" {
   description = "既存プライベートサブネットの ID 群（2つ以上, ADR-0026）"
 }
 
-# ADR-0095: Interface VPC エンドポイント・集約 ECS タスク・run-task を置く単一サブネット。
-# 未指定（null）なら private_subnet_ids の先頭。private_subnet_ids は RDS の DB サブネットグループ用。
+# ADR-0095 / ADR-0104: 集約 ECS タスク・run-task を置く単一サブネット。インターネットゲートウェイへの
+# 経路があるパブリックサブネットを指定する（タスクはパブリック IP 付きで置く）。
+# 未指定（null）なら public_subnet_ids の先頭。private_subnet_ids は RDS の DB サブネットグループ専用。
 variable "workload_subnet_id" {
   type        = string
   default     = null
-  description = "エンドポイント・ECS タスクを置く単一プライベートサブネット ID（既定: private_subnet_ids[0]）"
+  description = "ECS タスク・run-task を置く単一パブリックサブネット ID（既定: public_subnet_ids[0]）"
 }
 
 # IMPL-202608211050 T9 / ADR-0041: admin_ui の ALB（internet-facing）を配置する既存
@@ -72,12 +73,6 @@ variable "conversation_db_name" {
   type        = string
   default     = "conversation"
   description = "会話評価用データベース名（同一 RDS 上に別データベースとして作成）"
-}
-
-variable "create_vpc_endpoints" {
-  type        = bool
-  default     = true
-  description = "既存 VPC 側にエンドポイントが無い場合 true（ある場合は false で抑止, ADR-0036）"
 }
 
 # --- RDS（旧 verify-database, §5.3, 実装時に確定）---

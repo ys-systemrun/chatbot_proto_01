@@ -14,12 +14,13 @@ variable "private_subnet_ids" {
   description = "既存プライベートサブネットの ID 群（2つ以上, DBサブネットグループ要件 ADR-0026）"
 }
 
-# ADR-0095: Interface VPC エンドポイント・集約 ECS タスク・run-task を置く単一サブネット。
-# null のときは private_subnet_ids の先頭を使う。private_subnet_ids のいずれかを指定すること。
+# ADR-0095 / ADR-0104: 集約 ECS タスク・run-task を置く単一サブネット。インターネットゲートウェイへの
+# 経路があるパブリックサブネットを指定する（タスクはパブリック IP 付きで置く）。
+# null のときは public_subnet_ids の先頭を使う。
 variable "workload_subnet_id" {
   type        = string
   default     = null
-  description = "エンドポイント・ECS タスクを置く単一プライベートサブネット ID（既定: private_subnet_ids[0]）"
+  description = "ECS タスク・run-task を置く単一パブリックサブネット ID（既定: public_subnet_ids[0]）"
 }
 
 variable "knowledge_mcp_port" {
@@ -45,11 +46,4 @@ variable "public_subnet_ids" {
   type        = list(string)
   default     = []
   description = "既存 VPC のパブリックサブネット ID 群（admin_ui の ALB 配置用, ADR-0041）"
-}
-
-# ADR-0036: 既存 VPC 側に同等のエンドポイントが既にある場合は false にして本構成での作成を抑止する。
-variable "create_vpc_endpoints" {
-  type        = bool
-  default     = true
-  description = "S3 ゲートウェイ + Interface 型 VPC エンドポイントを本構成で作成するか"
 }

@@ -1,8 +1,8 @@
-# network モジュール（IMPL-202608101542 §5.1, ADR-0023 / ADR-0036）
+# network モジュール（IMPL-202608101542 §5.1, ADR-0023 / ADR-0036 / ADR-0104）
 # ADR-0036: VPC・プライベートサブネットは既存リソースを data source で参照する（新規作成しない）。
-#           セキュリティグループと VPC エンドポイントのみを本構成で作成する。
-# Fargate のイメージ取得・ログ・Secrets・Bedrock 到達は Interface/Gateway VPC エンドポイントで賄う
-# （既存 VPC 側に同等の経路がある場合は create_vpc_endpoints=false）。
+# ADR-0104: VPC エンドポイントは使わない。ECS タスク・run-task はパブリックサブネットに
+#           パブリック IP 付きで置き、AWS サービスへはインターネットゲートウェイ経由で接続する。
+# 本構成で作成するのは、集約タスク・RDS・検証タスク・ALB 用のセキュリティグループのみ。
 
 terraform {
   required_providers {
@@ -20,32 +20,6 @@ data "aws_vpc" "this" {
   id = var.vpc_id
 }
 
-locals {
-  vpc_cidr = data.aws_vpc.this.cidr_block
-}
-
-# S3 ゲートウェイ型エンドポイント用に、既存サブネットが「使う」ルートテーブルを特定する。
-# 注意: subnet_id / association.subnet-id フィルタは "明示的に関連付けられた" RT しか見つけない。
-# サブネットに明示関連付けが無い場合は VPC のメインルートテーブルを暗黙利用しているため、
-# 明示関連付け(aws_route_tables=複数)とメインRTの両方を取得し、locals でフォールバックする（ADR-0036）。
-data "aws_route_tables" "private_explicit" {
-  count  = var.create_vpc_endpoints ? 1 : 0
-  vpc_id = var.vpc_id
-  filter {
-    name   = "association.subnet-id"
-    values = var.private_subnet_ids
-  }
-}
-
-data "aws_route_table" "main" {
-  count  = var.create_vpc_endpoints ? 1 : 0
-  vpc_id = var.vpc_id
-  filter {
-    name   = "association.main"
-    values = ["true"]
-  }
-}
-
 # ===========================================================================
 # セキュリティグループ（§5.1 の許可ルール表）— 既存 VPC ID に紐づけて作成
 # ===========================================================================
@@ -54,6 +28,8 @@ data "aws_route_table" "main" {
 # 同一タスク内のコンテナ間通信は localhost で完結し SG を経由しないため、サービス間の許可ルールは無い。
 
 # 集約タスク用 SG。インバウンドは ALB からの admin_ui ポートと、検証タスクからの MCP ポートのみ。
+# ADR-0104: タスクはパブリック IP を持つため、インターネットからの到達を止めるのはこの SG だけになる。
+# インターネット（0.0.0.0/0 など）からのインバウンドルールは追加しないこと。
 resource "aws_security_group" "app_task" {
   name        = "${var.name_prefix}-sg-app-task"
   description = "app task (4 containers): inbound from ALB (admin_ui) / verification (MCP) only"
@@ -85,14 +61,6 @@ resource "aws_security_group" "admin_ui_alb" {
   description = "admin_ui ALB: inbound 80 from office CIDR (rule added in app), outbound to app task only"
   vpc_id      = data.aws_vpc.this.id
   tags        = { Name = "${var.name_prefix}-sg-admin-ui-alb" }
-}
-
-# VPC エンドポイント用（443 を VPC 内タスクから受ける）
-resource "aws_security_group" "vpc_endpoints" {
-  name        = "${var.name_prefix}-sg-vpce"
-  description = "VPC interface endpoints (ECR/Logs/Secrets/Bedrock): 443 from VPC"
-  vpc_id      = data.aws_vpc.this.id
-  tags        = { Name = "${var.name_prefix}-sg-vpce" }
 }
 
 # --- インバウンド許可ルール（表の From→To）---
@@ -149,22 +117,12 @@ resource "aws_vpc_security_group_ingress_rule" "rds_from_verification" {
   description                  = "db_init migration/seed"
 }
 
-# VPC エンドポイント: 443 を VPC 内から
-resource "aws_vpc_security_group_ingress_rule" "vpce_from_vpc" {
-  security_group_id = aws_security_group.vpc_endpoints.id
-  cidr_ipv4         = local.vpc_cidr
-  from_port         = 443
-  to_port           = 443
-  ip_protocol       = "tcp"
-  description       = "HTTPS from VPC to interface endpoints"
-}
-
 # --- アウトバウンド（すべての SG は egress 全許可。到達可否は相手側 ingress で制御）---
+# AWS サービス（ECR・Logs・Secrets Manager・SSM・Bedrock・S3）への 443 もこの全許可で賄う（ADR-0104）。
 locals {
   egress_sgs = {
     app_task          = aws_security_group.app_task.id
     verification_task = aws_security_group.verification_task.id
-    vpc_endpoints     = aws_security_group.vpc_endpoints.id
   }
 }
 
@@ -187,50 +145,61 @@ resource "aws_vpc_security_group_egress_rule" "admin_ui_alb_to_task" {
 }
 
 # ===========================================================================
-# VPC エンドポイント（NAT なしで ECR pull / Logs / Secrets / Bedrock 到達）
-# ADR-0036: 既存 VPC 側に用意がある場合は create_vpc_endpoints=false で抑止。
-# ADR-0095: Interface 型は AZ（ENI）ごとに課金されるため、単一サブネット（workload_subnet_id）にだけ置く。
-#           ECS タスク・run-task も同じサブネットに置き、AZ 間通信を避ける。
+# タスクを置くサブネット（ワークロードサブネット）と、インターネットへの経路の照合（ADR-0104）
+# ECS タスク・run-task はパブリックサブネットにパブリック IP 付きで置き、ECR・CloudWatch Logs・
+# Secrets Manager・ECS Exec（SSM）・Bedrock・S3 へはインターネットゲートウェイ経由で接続する。
+# VPC エンドポイントも NAT ゲートウェイも使わない。外から入ってくる通信は、タスク用 SG の
+# インバウンド（ALB・検証タスクからのみ）で止める。RDS はプライベートサブネットのまま。
 # ===========================================================================
 
 locals {
-  # 未指定なら private_subnet_ids の先頭を使う。private_subnet_ids（2 AZ）は RDS の
-  # DB サブネットグループ用にそのまま残す（ADR-0026: 2 AZ 以上が必須）。
-  workload_subnet_id = coalesce(var.workload_subnet_id, var.private_subnet_ids[0])
-
-  explicit_route_table_ids = var.create_vpc_endpoints ? data.aws_route_tables.private_explicit[0].ids : []
-  # 明示関連付けが1つも無ければ、サブネットが暗黙利用する VPC メインルートテーブルにフォールバックする。
-  route_table_ids = length(local.explicit_route_table_ids) > 0 ? distinct(local.explicit_route_table_ids) : (
-    var.create_vpc_endpoints ? [data.aws_route_table.main[0].route_table_id] : []
+  # 未指定なら public_subnet_ids の先頭を使う（ADR-0095 の単一サブネット配置は維持）。
+  # private_subnet_ids（2 AZ）は RDS の DB サブネットグループ専用（ADR-0026: 2 AZ 以上が必須）。
+  workload_subnet_id = var.workload_subnet_id != null ? var.workload_subnet_id : (
+    length(var.public_subnet_ids) > 0 ? var.public_subnet_ids[0] : null
   )
-  interface_endpoints = [
-    "ecr.api",
-    "ecr.dkr",
-    "logs",
-    "secretsmanager",
-    "ssm",         # ECS Exec
-    "ssmmessages", # ECS Exec
-    "bedrock-runtime",
-  ]
+
+  # ワークロードサブネットが「使う」ルートテーブル。明示的な関連付けが無ければ、
+  # サブネットは VPC のメインルートテーブルを暗黙利用している。
+  workload_route_table_id = length(data.aws_route_tables.workload_explicit.ids) > 0 ? tolist(data.aws_route_tables.workload_explicit.ids)[0] : data.aws_route_table.main.route_table_id
 }
 
-# S3 ゲートウェイ型（ECR レイヤ取得に必須）。既存サブネットのルートテーブルに関連付ける。
-resource "aws_vpc_endpoint" "s3" {
-  count             = var.create_vpc_endpoints ? 1 : 0
-  vpc_id            = data.aws_vpc.this.id
-  service_name      = "com.amazonaws.${data.aws_region.current.region}.s3"
-  vpc_endpoint_type = "Gateway"
-  route_table_ids   = local.route_table_ids
-  tags              = { Name = "${var.name_prefix}-vpce-s3" }
+# 注意: association.subnet-id フィルタは "明示的に関連付けられた" RT しか見つけないため、
+# メインルートテーブルも別途取得して locals でフォールバックする。
+data "aws_route_tables" "workload_explicit" {
+  vpc_id = var.vpc_id
+  filter {
+    name   = "association.subnet-id"
+    values = [local.workload_subnet_id]
+  }
+
+  lifecycle {
+    precondition {
+      condition     = local.workload_subnet_id != null
+      error_message = "タスクを置くサブネットが決まりません。TF_VAR_workload_subnet_id か TF_VAR_public_subnet_ids にパブリックサブネットを指定してください（ADR-0104）。"
+    }
+  }
 }
 
-resource "aws_vpc_endpoint" "interface" {
-  for_each            = var.create_vpc_endpoints ? toset(local.interface_endpoints) : toset([])
-  vpc_id              = data.aws_vpc.this.id
-  service_name        = "com.amazonaws.${data.aws_region.current.region}.${each.value}"
-  vpc_endpoint_type   = "Interface"
-  subnet_ids          = [local.workload_subnet_id]
-  security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true
-  tags                = { Name = "${var.name_prefix}-vpce-${each.value}" }
+data "aws_route_table" "main" {
+  vpc_id = var.vpc_id
+  filter {
+    name   = "association.main"
+    values = ["true"]
+  }
+}
+
+# ワークロードサブネットに 0.0.0.0/0 → インターネットゲートウェイ の経路があることを plan で確かめる。
+# 無いと、タスクがイメージを pull できずに起動に失敗する（原因が分かりにくいので先に止める）。
+data "aws_route_table" "workload" {
+  route_table_id = local.workload_route_table_id
+
+  lifecycle {
+    postcondition {
+      condition = anytrue([
+        for r in self.routes : r.cidr_block == "0.0.0.0/0" && startswith(coalesce(r.gateway_id, "-"), "igw-")
+      ])
+      error_message = "タスクを置くサブネット ${local.workload_subnet_id} のルートテーブル ${self.id} に 0.0.0.0/0 → インターネットゲートウェイ の経路がありません。パブリックサブネットを TF_VAR_workload_subnet_id に指定してください（ADR-0104）。"
+    }
+  }
 }

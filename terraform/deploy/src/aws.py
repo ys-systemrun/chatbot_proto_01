@@ -75,7 +75,7 @@ def run_seed_task(cluster: str, family: str, subnets, security_group: str, regio
             "awsvpcConfiguration": {
                 "subnets": subnets,
                 "securityGroups": [security_group],
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "ENABLED",  # ADR-0104: パブリックサブネットからインターネット経由で接続
             }
         },
     )
@@ -119,7 +119,7 @@ def run_import_task(
             "awsvpcConfiguration": {
                 "subnets": subnets,
                 "securityGroups": [security_group],
-                "assignPublicIp": "DISABLED",
+                "assignPublicIp": "ENABLED",  # ADR-0104: パブリックサブネットからインターネット経由で接続
             }
         },
     )
@@ -148,6 +148,11 @@ def set_service_desired_count(cluster: str, service: str, count: int, region: st
 def upload_file(bucket: str, key: str, path: str, region: str) -> None:
     """ローカルファイルを S3 へアップロードする（投入ダンプの受け渡し, ADR-0066 §7）。"""
     _client("s3", region_name=region).upload_file(path, bucket, key)
+
+
+def download_file(bucket: str, key: str, path: str, region: str) -> None:
+    """S3 のオブジェクトをローカルへ保存する（退避エクスポートの取得, ADR-0103）。"""
+    _client("s3", region_name=region).download_file(bucket, key, path)
 
 
 def wait_task_stopped(cluster: str, task_arn: str, region: str, timeout_sec: int = 1800, interval_sec: int = 15) -> dict:

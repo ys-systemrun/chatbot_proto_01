@@ -34,7 +34,7 @@ terraform/
 │       ├── main.tf
 │       └── outputs.tf
 ├── modules/
-│   ├── network/          既存VPC/サブネットを data 参照し SG・VPCエンドポイントを作成（ADR-0036）
+│   ├── network/          既存VPC/サブネットを data 参照し SG を作成、タスク用サブネットの経路を照合（ADR-0036 / ADR-0104）
 │   ├── ecr/              ECR リポジトリ（database で1件, app で4件に分割呼び出し）
 │   ├── database/         RDS PostgreSQL(pgvector) + DATABASE_URL シークレット（§5.3）
 │   ├── ecs-cluster/      Fargate クラスタ（§5.4）
@@ -56,8 +56,36 @@ terraform/
 > 名称が似ているため、ログ・会話では「db モジュール」「database 構成」等で呼び分けること（ADR-0039 §10）。
 
 **state 分割の要点（ADR-0039）:**
-- **database 構成**: 既存VPC参照 + SG + VPCエンドポイント（旧 network）、RDS + DBサブネットグループ + `DATABASE_URL` シークレット（旧 database）、`db_init` シードタスク定義 + シード用 ECR 1件（旧 app から移設）。RDS を永続化（`deletion_protection=true` 既定）。**通常の `destroy-app` の対象外**（再シード＝Bedrock 再計算を避ける）。
+- **database 構成**: 既存VPC参照 + SG（旧 network, VPC エンドポイントは使わない ADR-0104）、RDS + DBサブネットグループ + `DATABASE_URL` シークレット（旧 database）、`db_init` シードタスク定義 + シード用 ECR 1件（旧 app から移設）。RDS を永続化（`deletion_protection=true` 既定）。**通常の `destroy-app` の対象外**（再シード＝Bedrock 再計算を避ける）。
 - **app 構成**: database 構成の出力（VPC/サブネット・各 SG・`db_url_secret_arn`）を `terraform_remote_state` で参照。ECS クラスタ + 集約サービス（常駐4サービスを1タスク・4コンテナ, ADR-0095）+ admin_ui 用 ALB + MCP Inspector タスク定義 + 予算アラート + 残り4リポジトリの ECR。`destroy-app` はこの構成のみ破棄。
+
+## 前提: タスクはパブリックサブネットに置く（ADR-0104）
+
+ECS タスク（集約サービス）と run-task（seed / migrate / import-data / query / MCP Inspector）は、
+**パブリックサブネットにパブリック IP 付きで置き**、ECR・CloudWatch Logs・Secrets Manager・ECS Exec（SSM）・
+Bedrock・S3 へは**インターネットゲートウェイ経由**で接続する。VPC エンドポイントも NAT ゲートウェイも使わない。
+
+- **置く場所**: `TF_VAR_workload_subnet_id`（未指定なら `TF_VAR_public_subnet_ids` の先頭）。
+  ALB と同じパブリックサブネットを使ってよい。RDS は `TF_VAR_private_subnet_ids`（2 AZ）に置いたまま。
+- **照合**: `plan` の段階で、そのサブネットのルートテーブルに `0.0.0.0/0 → インターネットゲートウェイ（igw-*）`
+  の経路があるかを確かめる。無ければ理由を表示して止まり、何も作成されない。
+  （以前の構成のまま `TF_VAR_workload_subnet_id` にプライベートサブネットを指定していると、ここで止まる。）
+- **外からの通信**: タスクはインターネットから到達できるアドレスを持つ。入ってくる通信を止めるのはタスク用 SG
+  （`<name_prefix>-sg-app-task`。ALB と検証タスクからのみ許可）だけなので、**インターネット（`0.0.0.0/0` など）
+  からのインバウンドルールを追加しないこと**。検証タスク・db_init の SG はインバウンドを一切許可していない。
+- **費用**: パブリック IPv4 アドレス代（1 個 $0.005/時。常駐タスク 1 つで月約 $3.6、run-task は動いている間だけ）。
+  エンドポイント（月約 $51）・NAT（月約 $33 + 通信量）は不要。
+- **前提**: ネットワークを閉域で完結させる要件がある環境には使えない（ADR-0104「結果・影響」）。
+
+### 旧構成（VPC エンドポイント経由）からの移行
+
+1. `.env` の `TF_VAR_workload_subnet_id` をパブリックサブネットに変える（または削除して `public_subnet_ids` の先頭を使う）。
+   `TF_VAR_create_vpc_endpoints` は不要になったので削除してよい（残っていても無視される）。
+2. `apply-database.bat` → `apply-app.bat` の順に実行する。
+   - `main/database/main.tf` の `removed` ブロック（`destroy = false`）により、state に残っている旧エンドポイントの
+     記録は実物に触れずに外れる（旧エンドポイントは削除済みの前提）。
+   - 旧エンドポイント用 SG（`<name_prefix>-sg-vpce`）とそのルールは削除される。
+   - 集約サービスはパブリック IP 付きの新しいタスクに置き換わる。
 
 ## かんたん実行（bat ダブルクリック）
 
@@ -79,6 +107,8 @@ terraform/
 ├── query.bat            アドホック SQL 実行 run-task（query.sql を実行。ADR-0083。対象DB名入力の確認あり）
 ├── destroy-app.bat      app 構成のみ破棄（RDS は残す。'destroy-app' 入力の確認あり）
 ├── destroy-database.bat database 構成を破棄（RDS 削除。'destroy-database' 入力の確認あり）
+├── export-data.bat      両 DB を terraform/backup/ へ SQL で退避（非破壊。ADR-0103）
+├── destroy-all.bat      退避 → destroy-app → destroy-database を一括実行（'destroy-all' 入力の確認あり。ADR-0103）
 ├── deploy/                 コンテナ内 Python オーケストレータ（ADR-0040。*.bat の実体）
 ├── .env.example            → .env にコピーして全設定を記入（Git 管理外）
 └── .env                    実設定（terraform/ 直下, Git 管理外）
@@ -93,7 +123,7 @@ terraform/
 2. `terraform/.env` … `terraform/.env.example` をコピーして全設定を記入（ADR-0040 で単一ファイルに集約）:
    - **AWS 認証**: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`（一時クレデンシャルなら `AWS_SESSION_TOKEN` も）。鍵の代わりに `AWS_PROFILE` も可（両方あれば鍵優先）。**平文保持のためコミット厳禁・ローカル限定。可能なら一時クレデンシャル推奨。**
    - **共通値**: `AWS_REGION`、`AWS_ACCOUNT_ID`（認証先不一致時に安全停止）、`STATE_BUCKET`（既定 `chatbot-invitro-terraform-state-349131272460-us-east-1-an`, ADR-0039）、`NAME_PREFIX`（既定 `chatbot-invitro`）、`STATE_KEY_DATABASE` / `STATE_KEY_APP`（既定のままでよい）。
-   - **terraform 変数（`TF_VAR_*`）**: 旧 `terraform.tfvars` の内容をすべてここに記入。`TF_VAR_vpc_id` / `TF_VAR_private_subnet_ids`（既存 VPC/サブネット, ADR-0036）、`TF_VAR_rds_engine_version`（pgvector 対応版を要確認）、`TF_VAR_bedrock_chat_model_id` / `TF_VAR_bedrock_embedding_model_id` / `TF_VAR_embedding_vector_dim`（共有・同値）、`TF_VAR_workload_subnet_id`（任意, ADR-0095）、予算アラート等。リストは JSON（`["subnet-a","subnet-b"]`）、値の後ろにコメントを書かないこと。
+   - **terraform 変数（`TF_VAR_*`）**: 旧 `terraform.tfvars` の内容をすべてここに記入。`TF_VAR_vpc_id` / `TF_VAR_private_subnet_ids`（既存 VPC/サブネット, ADR-0036）、`TF_VAR_rds_engine_version`（pgvector 対応版を要確認）、`TF_VAR_bedrock_chat_model_id` / `TF_VAR_bedrock_embedding_model_id` / `TF_VAR_embedding_vector_dim`（共有・同値）、`TF_VAR_workload_subnet_id`（任意, タスクを置くパブリックサブネット, ADR-0095 / ADR-0104）、予算アラート等。リストは JSON（`["subnet-a","subnet-b"]`）、値の後ろにコメントを書かないこと。
    > **ADR-0040**: 設定は単一 `.env` に集約する。`deploy` が `AWS_*`/`STATE_*` をマッピングし、`TF_VAR_*` は terraform へ素通しする。terraform は未宣言の `TF_VAR_*` を無視するため両構成の変数を1ファイルに置いてよい。実行時上書き（`deletion_protection` / `app_desired_count` 等）は `deploy` が `-var` で行う。
 
 > `.env` が無い/必須変数が欠けている場合、`deploy` は雛形生成の案内や必須項目を表示して安全に停止する。値を埋めて再度クリックすれば続行できる。
@@ -220,7 +250,7 @@ TD=$(terraform output -raw db_init_task_family)                            # dat
 
 aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
   --task-definition $TD --enable-execute-command \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}"
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}"
 
 # CloudWatch Logs /ecs/db-init でマイグレーション・シードを確認し、exitCode=0 を確認
 aws ecs describe-tasks --cluster $CLUSTER --tasks <task-arn> --query 'tasks[].containers[].exitCode'
@@ -273,7 +303,7 @@ terraform apply -var="app_desired_count=1"
 # プロトコル層: MCP Inspector（ADR-0029）。事前に mcp-inspector イメージを build/push しておく（§5.7）
 aws ecs run-task --cluster $CLUSTER --launch-type FARGATE \
   --task-definition $(cd ../app && terraform output -raw mcp_inspector_task_family) --enable-execute-command \
-  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=DISABLED}"
+  --network-configuration "awsvpcConfiguration={subnets=[$SUBNETS],securityGroups=[$SG],assignPublicIp=ENABLED}"
 aws ecs execute-command --cluster $CLUSTER --task <task-arn> --container mcp-inspector --command "/bin/sh" --interactive
 #   → 集約タスクのプライベート IP の :8200（tag_selector_mcp）/ :8100（knowledge_mcp）に tools/list, tools/call
 #     （ADR-0095 で Service Connect を廃止したため名前解決は無い。IP は下記で取得）
@@ -321,14 +351,46 @@ cd terraform/main/database
 terraform apply   -var="deletion_protection=false"  # 削除保護を解除
 terraform destroy -var="deletion_protection=false" -var="skip_final_snapshot=true"
 ```
-> **VPC エンドポイントは課金対象**（Interface型は毎時課金）。VPCエンドポイントは database 構成に含まれるため、
-> `destroy-database` で一緒に削除される（既存VPC/サブネット自体は data 参照のため削除されない）。
+> VPC エンドポイントは使っていない（ADR-0104）。既存VPC/サブネットは data 参照のため、破棄しても削除されない。
+
+### 退避付き一括破棄（destroy-all.bat / export-data.bat, ADR-0103）
+
+`destroy-database` は RDS を最終スナップショットなしで削除し、import バケットも消すため、AWS 上にデータが残らない。
+管理 UI で編集した QA・タグや会話ログを残して環境を撤去するときは **`destroy-all.bat`** を使う。
+
+| 段 | 内容 |
+|---|---|
+| [0] | 前提確認（database・app 両構成にリソースがあること）→ 実行内容の表示 → `'destroy-all'` のタイプ確認（1 回だけ, `--yes` なし） |
+| [1/3] 退避 | 集約サービスを停止 → db_init（EXPORT_MODE）が両 DB を退避 SQL にして import バケットの `export/<時刻>/` へ置く → `terraform/backup/` へ取得し SHA-256 を照合 |
+| [2/3] | `destroy-app` 相当（個別の確認なし） |
+| [3/3] | `destroy-database` 相当（個別の確認なし） |
+
+- **退避ファイル**: `terraform/backup/` に `knowledge.sql`・`conversation.sql`・`manifest.json`（取得日時・環境・行数・SHA-256・スキーマ版）。
+  Git 管理外。`conversation.sql` は会話ログを含む。
+- **上書き**: 次回の退避（`destroy-all` の [1/3] または `export-data`）が照合まで成功した時点で 3 ファイルをまとめて上書きする
+  （残るのは常に最新 1 回分）。失敗したときは前回分をそのまま残す。**復旧が済むまで退避を実行しないこと。**
+  残したい場合は退避の前に別の場所へコピーする。
+- **失敗時**: [1/3] で失敗したら何も破棄しない（そのまま再実行）。[2/3]・[3/3] で失敗したら後ろの段は実行せず、
+  再開コマンドを表示する。再開は退避を取り直さず、`terraform/backup/` の SHA-256 と環境（アカウント・リージョン）を
+  再検証してから行う:
+  ```
+  destroy-all.bat --resume-from destroy-app
+  destroy-all.bat --resume-from destroy-database
+  ```
+- **app 構成が既に無い場合**: 退避用のタスクは app 構成の ECS クラスタで動くため退避できない。退避が不要なら
+  `destroy-database.bat`、必要なら `apply-app.bat` の後にもう一度実行する（メッセージを出して終了する）。
+- **退避だけ行う**: `export-data.bat`（実行中は集約サービスを止め、終了後に元へ戻す。`--yes` で y/N 確認を省略）。
+- **復旧**: `apply-all.bat` → `import-data.bat --knowledge-sql backup\knowledge.sql --conversation-sql backup\conversation.sql`。
+  `import-data` は投入ダンプと同じフォルダの `manifest.json` に記録されたスキーマ版を、投入先の DB と照合する。
+  違う場合（またはマニフェストが無い場合）は差分を表示し、そのまま実行するかを y/N で確認する
+  （列が合わなければ投入は失敗し、データは投入前の状態に戻る）。
 
 ## 検証環境のコスト削減構成（ADR-0095）
 
 検証環境向けに、常駐4サービス（`tag_selector_mcp` / `knowledge_mcp` / `agent_invitro` / `admin_ui`）を
-**1つの ECS サービス（1タスク・4コンテナ）** に集約し、Interface VPC エンドポイントと ECS タスク・run-task を
-**単一 AZ の1サブネット**（`TF_VAR_workload_subnet_id`、未指定なら `private_subnet_ids` の先頭）に置く。
+**1つの ECS サービス（1タスク・4コンテナ）** に集約し、ECS タスク・run-task を
+**単一 AZ の1サブネット**（`TF_VAR_workload_subnet_id`、未指定なら `public_subnet_ids` の先頭）に置く。
+VPC エンドポイントは ADR-0104 で廃止した（タスクはパブリック IP 付きでインターネット経由）。
 常時起動の月額概算は約 $200 → 約 $115〜125（us-east-1）。
 
 - **イメージは分けたまま**: ECR リポジトリ・Dockerfile は従来どおり。コンテナ間の接続先は `localhost:<port>`

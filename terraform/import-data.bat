@@ -21,6 +21,11 @@ rem Usage (double-click = both databases), or from a prompt:
 rem   import-data.bat                       (target=both)
 rem   import-data.bat --target knowledge
 rem   import-data.bat --target conversation
+rem
+rem Restore from destroy-all.bat / export-data.bat (ADR-0103):
+rem   import-data.bat --knowledge-sql backup\knowledge.sql --conversation-sql backup\conversation.sql
+rem If manifest.json sits next to the dumps, its schema version is compared with the target
+rem database first; when they differ (or no manifest exists) you are asked y/N before anything runs.
 call "%~dp0deploy\run.bat" import-data %*
 echo.
 echo ---- Finished. This window stays open. Type 'exit' to close it. ----
