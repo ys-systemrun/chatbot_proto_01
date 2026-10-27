@@ -1,3 +1,39 @@
+## リポジトリ構成
+
+各ディレクトリのファイル一覧と役割は、それぞれの README を参照してください。
+
+| 名前 | 説明 |
+|---|---|
+| [`agent_invitro/`](agent_invitro/README.md) | 対話エージェント（LangGraph の ReAct エージェント）。Tag Selector MCP / Knowledge MCP のツールを LLM が呼び出して回答する |
+| [`web_backend/`](web_backend/README.md) | チャットボットのバックエンド（FastAPI）。チャット API、管理画面向け BFF（`/api/*`）、MRR 評価スクリプトなど |
+| [`front_dev/`](front_dev/README.md) | チャット画面・評価済みメッセージ一覧・QA/タグ等の管理画面の SPA（React + Vite） |
+| [`knowledge_mcp/`](knowledge_mcp/README.md) | Knowledge MCP サーバ（QA・タグ・トラブルシューティング記事の検索と管理ツール） |
+| [`tag_selector_mcp/`](tag_selector_mcp/README.md) | Tag Selector MCP サーバ（質問に合うタグの選定ツール） |
+| [`db_init/`](db_init/README.md) | DB マイグレーション・ロール作成・シードを1回実行するワンショットサービス。全データインポート / 退避エクスポートのモードも持つ |
+| [`evals/`](evals/README.md) | 回答品質の評価ランナーと評価結果（ADR-0099） |
+| [`terraform/`](terraform/README.md) | AWS へのデプロイ（Terraform 構成と、apply / destroy / seed / import-data / dvc 等の .bat） |
+| [`docs/`](docs/README.md) | ADR・要件定義・実装指示書・画面遷移図・ネットワーク構成図などの設計文書 |
+| [`data/`](data/README.md) | 評価用クエリ CSV と、元データの加工用 Go スクリプト・作業用データ（シード元データは `db_init/data/`） |
+| [`.devcontainer/`](.devcontainer/README.md) | VS Code Dev Container の設定（Python / Node / Go の開発環境） |
+| [`.dvc/`](.dvc/README.md) | DVC の設定（シード元データ・評価結果を S3 で管理, ADR-0097） |
+| [`.vscode/`](.vscode/README.md) | VS Code のワークスペース設定（未追跡） |
+| [`20260518/`](20260518/README.md) | 2026-05-18 の環境構築トラブル時の設定とエラーログ（未追跡の作業メモ） |
+| [`docker-compose.yml`](docker-compose.yml) | ローカル環境の全サービス定義（`web_backend`・`frontend`・`knowledge_db`・`db_init`・`knowledge_mcp`・`tag_selector_mcp`・`agent_invitro`・`conversation_db`） |
+| [`docker-compose.storybook.yml`](docker-compose.storybook.yml) | `front_dev` の Storybook だけを起動する compose 定義（ポート `STORYBOOK_PORT`, 既定 6006） |
+| [`.env.example`](.env.example) | ローカル環境の設定の雛形。`.env` にコピーして記入する（下の「.env 設定項目」参照） |
+| [`build.bat`](build.bat) | `docker-compose -p chatbot_invitro up -d --build` でローカル環境をビルド・起動し、ログを表示する |
+| [`storybook.bat`](storybook.bat) | `docker-compose.storybook.yml` で Storybook をビルド・起動する |
+| [`debug_question.bat`](debug_question.bat) | 旧構成（`app` サービス）で `seed` と `debug_question` を実行して停止する。現在の compose にはサービス名 `app` が無く、そのままでは動かない |
+| [`chatbot_invitro.code-workspace`](chatbot_invitro.code-workspace) | VS Code のマルチルートワークスペース定義（`front_dev`・`app`・`data`・ルート。`app` は旧構成の名残） |
+| [`依存関係メモ.drawio`](依存関係メモ.drawio) | 旧 web_backend（`main/*.py`・`src/llm`・`src/keyword` 等）とフロントエンド（`App.tsx`・各コンポーネント）のモジュール依存関係のメモ図（draw.io） |
+| [`依存関係メモ_20260626_1329.drawio`](依存関係メモ_20260626_1329.drawio) | 上の図の 2026-06-26 時点版（未追跡）。stateless 画面・評価済みメッセージ画面、conversation DB を追加 |
+| [`CLAUDE.md`](CLAUDE.md) | Claude Code 向けのプロジェクト規約（画面変更時の画面遷移図の同期更新ルール） |
+| [`.gitignore`](.gitignore) / [`.dvcignore`](.dvcignore) | git / DVC の除外設定（`.dvcignore` は雛形のコメントのみ） |
+
+ローカル専用（Git 管理外）: `.env`（ローカル環境の実設定）、`.local/`（ローカル DB ボリューム, ADR-0098）、
+`db_nomic/data/`・`db_multilingual/data/`・`db_conversation/data/`（ADR-0098 以前のローカル DB ボリュームの置き場）、
+`data/original_qa_frac/`（作業用データ）。中身はリポジトリに含めません。
+
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
 2. .env.example を コピーして .env にリネームし、モデル名含む環境依存の各種パラメータを入力してください。埋め込みモデルの出力次元に合わせた `EMBEDDING_VECTOR_DIM`（nomic-embed-text なら 768）を必ず設定してください。

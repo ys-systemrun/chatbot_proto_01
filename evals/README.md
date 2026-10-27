@@ -177,3 +177,11 @@ terraform\dvc.bat pull
 
 - 同じ回答でも、評価や理由を付け直すと新しい行として追記されます（変更の履歴が残る）。
 - ADR-0099 導入前の評価には `release_id` / `ask_mode` / `evaluated_at` がありません（null）。
+
+## 構成（上の一覧に無いもの）
+
+| 名前 | 説明 |
+|---|---|
+| [`runner/`](runner/README.md) / [`tests/`](tests/README.md) / [`judge_prompts/`](judge_prompts/README.md) / [`golden/`](golden/README.md) | 各ディレクトリのファイル一覧はそれぞれの README を参照 |
+| [`runs.dvc`](runs.dvc) / [`feedback.dvc`](feedback.dvc) | `runs/`・`feedback/` の DVC ポインタ（内容ハッシュ）。上の「評価データの管理」の手順で更新する |
+| [`.gitignore`](.gitignore) | DVC が展開する `runs/`・`feedback/` を git の対象外にする（`dvc add` が生成） |

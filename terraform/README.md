@@ -434,3 +434,33 @@ database 構成を apply すること（逆順だと SG の削除が ENI の使�
 - **admin_ui タスクは非公開（ADR-0041 T13）**: ALB はパブリックサブネットだが、集約タスク自体はプライベートサブネット・`assign_public_ip=false`。ALB SG からは admin_ui のコンテナポートのみ受ける（ADR-0095）。
 - **ローカル docker-compose は不変（ADR-0042）**: `Dockerfile.admin_ui` は AWS 専用の追加ファイル。既存 `web_backend/Dockerfile`・`front_dev/Dockerfile`・`docker-compose.yml` は変更しないため、ローカル開発フローに影響しない。
 - **CSV/JSON データ（ADR-0034）**: ECS にホストマウントは無いが、シード元データは db-init イメージに `/data` として同梱済み（`Dockerfile` の `COPY data /data`）。EFS 等の追加ストレージは不要。`CSV_DATA_DIR` は `data`（main.py が先頭に `/` を付与 → `/data`）。
+
+## 構成
+
+`terraform/` 直下の各ファイル・フォルダの一覧（上記「ディレクトリ構成」「かんたん実行」の補足。各フォルダの詳細はリンク先の README）。
+
+| 名前 | 説明 |
+|---|---|
+| [`bootstrap/`](bootstrap/README.md) | Phase 0: Terraform state 用 S3 バケット（任意で DynamoDB ロックテーブル）を作る独立構成。state はローカル |
+| [`main/`](main/README.md) | Terraform の root 構成 3 つ（datastore / database / app）。`deploy` が `terraform init/apply` を実行する対象 |
+| [`modules/`](modules/README.md) | root 構成から呼ばれる再利用モジュール（network / database / ecr / ecs-* / admin-ui-alb / cost-alert 等） |
+| [`deploy/`](deploy/README.md) | デプロイオーケストレータ（Docker コンテナ内 Python, ADR-0040）。各 `.bat` の実体 |
+| [`.env.example`](.env.example) | `terraform/.env` のテンプレート（AWS 認証・`STATE_*`・全 `TF_VAR_*`）。コピーして値を記入する |
+| [`bootstrap.bat`](bootstrap.bat) | `deploy bootstrap` を実行（state 用 S3 バケット作成） |
+| [`apply-datastore.bat`](apply-datastore.bat) | `deploy apply-datastore` を実行（DVC リモート用 S3 バケット。冪等, ADR-0097） |
+| [`dvc.bat`](dvc.bat) | `deploy dvc <引数>` を実行（コンテナ内で dvc status / add / push / pull / checkout / diff, ADR-0097） |
+| [`apply-database.bat`](apply-database.bat) | `deploy apply-database` を実行（database 構成: ネットワーク + RDS + シード用 ECR/イメージ） |
+| [`apply-app.bat`](apply-app.bat) | `deploy apply-app` を実行（app 構成: ECR → イメージ build/push → ECS 等。要 database 構成） |
+| [`apply-all.bat`](apply-all.bat) | `deploy apply-all` を実行（datastore → database → app(ゲート閉) → seed → app(ゲート開)） |
+| [`seed.bat`](seed.bat) | `deploy seed` を実行（db_init シード run-task を起動し exitCode=0 を待つ。再シードにも使う） |
+| [`migrate.bat`](migrate.bat) | `deploy migrate` を実行（`MIGRATE_ONLY=true` の run-task。スキーマ反映のみでシード投入なし, ADR-0075） |
+| [`import-data.bat`](import-data.bat) | `deploy import-data` を実行（SQL ダンプで全消去→上書き。自動バックアップ・対象名のタイプ確認あり, ADR-0066。退避からの復旧にも使う, ADR-0103） |
+| [`query.bat`](query.bat) | `deploy query` を実行（`terraform/query.sql` をマスターロールで実行し結果を表示, ADR-0083） |
+| [`query.sql.example`](query.sql.example) | `query.bat` 用 SQL のテンプレート。コピーして `query.sql`（Git 管理外）を作る |
+| [`export-data.bat`](export-data.bat) | `deploy export-data` を実行（両 DB を `terraform/backup/` へ SQL で退避。非破壊, ADR-0103） |
+| [`destroy-app.bat`](destroy-app.bat) | `deploy destroy-app` を実行（app 構成のみ破棄。RDS は残る） |
+| [`destroy-database.bat`](destroy-database.bat) | `deploy destroy-database` を実行（database 構成を破棄。RDS とデータが消える） |
+| [`destroy-all.bat`](destroy-all.bat) | `deploy destroy-all` を実行（退避 → destroy-app → destroy-database。`--resume-from` で再開可, ADR-0103） |
+
+> Git 管理外のもの（表には載せない）: `.env`（実設定）、`query.sql`（アドホック SQL の実行内容）、
+> `knowledge.sql` / `conversation.sql`（`import-data` 用の投入ダンプ置き場）、`backup/`（`export-data` / `destroy-all` の退避先）。

@@ -277,3 +277,18 @@ docker compose exec agent_invitro pytest
 - 回答の順序・内容は毎回同一にはならない（LLM の非決定性）。受け入れ基準は「実行時点での妥当性確認」を目的とする。
 - ホストへのポート公開はしない（ADR-0019）。
 - `select_tags` / `search_knowledge` は読み取り専用で呼ぶのみ。MCP サーバー側のデータ・実装は変更しない。
+
+## 構成
+
+このフォルダ直下の各ファイル・フォルダです（サブフォルダの詳細はそれぞれの README を参照）。
+
+| 名前 | 説明 |
+|---|---|
+| [`prompts/`](prompts/README.md) | LLM に渡すシステムプロンプト（`*.md`）。各モジュールが `prompt_store.load_prompt()` で読み込み、内容ハッシュがリリースの `prompt_hash` になる（ADR-0099 §3）。 |
+| [`scripts/`](scripts/README.md) | 手動実行の確認スクリプト（Phase 1 の Tool Calling 対応可否チェック）。 |
+| [`src/`](src/README.md) | Python パッケージ `agent_invitro` の本体（`pyproject.toml` の `package-dir` で対応付け）。 |
+| [`tests/`](tests/README.md) | MCP・LLM に接続せずに動く pytest の単体テスト。 |
+| [`.gitignore`](.gitignore) | `__pycache__/`・`*.pyc`・`.pytest_cache/`・`*.egg-info/`・`.venv/` を除外する。 |
+| [`Dockerfile`](Dockerfile) | python:3.11 ベース。ECS ヘルスチェック用の curl を入れ、`pip install -e .` 後に `sleep infinity` で常駐する（AWS 環境では起動コマンドを Uvicorn に差し替える）。 |
+| [`pyproject.toml`](pyproject.toml) | パッケージ定義と依存（langgraph / langchain-mcp-adapters / langchain-openai / langchain-aws / ipython / fastapi / uvicorn、dev に pytest）。`src/` 配下のサブパッケージを列挙する。 |
+| [`依存関係メモ.drawio`](依存関係メモ.drawio) | draw.io で描いたモジュール依存関係のメモ（`main.py`・`config.py`/`Settings`・`llm.py`・`graph`・`mcp_clients` の関係）。初期構成時のもので、`usecases/`・`llm_tasks/` などその後の構成は反映していない。未追跡ファイル。 |

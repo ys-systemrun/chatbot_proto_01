@@ -23,3 +23,11 @@ terraform\dvc.bat push                          DVC リモートへ送る（忘�
 ```
 
 詳細は `terraform/README.md` の「Phase 0.5: ナレッジデータ（DVC）」を参照してください。
+
+## 構成
+
+| 名前 | 説明 |
+|---|---|
+| [`hiroba_qa.dvc`](hiroba_qa.dvc) | `hiroba_qa/` の DVC ポインタ（内容ハッシュ・ファイル数）。`dvc pull` で `hiroba_qa/` が展開される |
+| [`troubleshooting.dvc`](troubleshooting.dvc) | `troubleshooting/` の DVC ポインタ |
+| [`.gitignore`](.gitignore) | DVC が展開するデータ本体（`/hiroba_qa`・`/troubleshooting`）を git の対象外にする（`dvc add` が生成） |
