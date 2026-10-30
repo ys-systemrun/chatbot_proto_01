@@ -15,7 +15,7 @@ knowledge データベース（維津美の広場 QA・タグ・トラブルシ�
 | [`migrations_conversation/`](migrations_conversation/README.md) | conversation データベースの yoyo マイグレーション（0001〜） |
 | [`src/`](src/README.md) | エントリポイント `main.py` とシード・インポート・エクスポート処理 |
 | [`tests/`](tests/README.md) | `src/` の純関数の単体テスト（pytest。DB・S3・embedding には触れない） |
-| [`tools/`](tools/redmine_wiki_to_csv.py) | シード元データを作るための 1 回限りの加工ツール。`redmine_wiki_to_csv.py` は Redmine Wiki の保存 HTML を `data/redmine_error_taiou/` の CSV に変換する（顧客名の伏せ字を含む, ADR-0105）。シードからは呼ばない |
+| [`tools/`](tools/redmine_wiki_to_csv.py) | シード元データを作るための 1 回限りの加工ツール。`redmine_wiki_to_csv.py` は Redmine Wiki の保存 HTML を `data/redmine_error_taiou/` の CSV に変換する（顧客名の伏せ字を含む, ADR-0105）。`hiroba_qa_json_to_csv.py` は広場 QA 本体の JSON を `data/hiroba_qa/hiroba_qa_original.csv` に変換する（ADR-0108）。シードからは呼ばない |
 | [`.dockerignore`](.dockerignore) | 加工前の元データ（`data/error_taiou_o/`）をイメージに入れない |
 | [`Dockerfile`](Dockerfile) | python:3.11 ベースのイメージ。手動リカバリ用に `psql`・`aws` CLI を同梱し、`data/` を `/data` に焼き込む。既定 CMD は `python src/main.py` |
 | [`pyproject.toml`](pyproject.toml) | 依存パッケージ（psycopg2-binary・requests・yoyo-migrations・boto3・beautifulsoup4）の定義。`src/` はスクリプトとして直接実行するためパッケージは持たない |

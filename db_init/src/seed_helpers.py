@@ -1,9 +1,8 @@
-"""シードデータ（CSV/JSON）の読み込み（web_backend/src/seed_helpers.py から移管）。"""
+"""シードデータ（CSV, ADR-0108）の読み込み（web_backend/src/seed_helpers.py から移管）。"""
 
 import csv
-import json
+import io
 import os
-import uuid
 from typing import List
 
 from models import Category, QAOriginal, QuestionAltered
@@ -31,50 +30,45 @@ def load_category_csv(data_dir: str, category_file: str):
     return rows
 
 
-def load_category_map(data_dir: str, category_file: str):
-    categories = load_category_csv(data_dir, category_file)
-    return {category.name: category.id for category in categories}
+def parse_qa_original_csv(text: str, category_ids: set) -> List[QAOriginal]:
+    """QA 本体の CSV（hiroba_qa_original.csv, ADR-0108）を QAOriginal に変換する（DB 非依存の純関数）。
 
-
-def load_qa_original_json(data_dir: str, exportjson_file: str, category_file: str):
-    json_path = resolve_csv_path(exportjson_file, data_dir)
-    category_map = load_category_map(data_dir, category_file)
+    必須列は uuid / question_text / answer_text。category_id は空なら None、値があれば category.csv に
+    存在する ID であることを確かめる。title・category_name などほかの列はここでは読まない
+    （title は backfill_title_and_tags が入れる）。
+    """
+    reader = csv.DictReader(io.StringIO(text))
+    missing = {"uuid", "question_text", "answer_text"} - set(reader.fieldnames or [])
+    if missing:
+        raise ValueError(f"qa_original CSV must contain headers: {sorted(missing)}")
     rows: List[QAOriginal] = []
-    with open(json_path, "r", encoding="utf-8") as f:
-        items = json.load(f)
-
-    if not isinstance(items, list):
-        raise ValueError("exportjson_withguid.json must contain a top-level JSON array")
-
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-
-        rec_uuid = item.get("guid") or str(uuid.uuid4())
-        question_text = item.get("question") or item.get("question_text")
-        answer_text = item.get("answer") or item.get("answer_text")
-        if question_text is None or answer_text is None:
-            raise ValueError("Each JSON record must contain 'question' and 'answer'")
-
-        category_name = item.get("category") or item.get("category_name")
-        category_id = None
-        if category_name:
-            category_id = category_map.get(category_name)
-            if category_id is None:
-                raise ValueError(
-                    f"Unknown category name '{category_name}' in {exportjson_file}. "
-                    f"Please add it to {category_file}"
-                )
-
+    for row in reader:
+        rec_uuid = (row.get("uuid") or "").strip()
+        if not rec_uuid:
+            raise ValueError("qa_original CSV: uuid is empty")
+        raw_category = (row.get("category_id") or "").strip()
+        category_id = int(raw_category) if raw_category else None
+        if category_id is not None and category_id not in category_ids:
+            raise ValueError(
+                f"Unknown category_id {category_id} in qa_original CSV ({rec_uuid}). "
+                "Please add it to category.csv"
+            )
         rows.append(
             QAOriginal(
                 uuid=rec_uuid,
-                question_text=question_text,
-                answer_text=answer_text,
+                question_text=row["question_text"],
+                answer_text=row["answer_text"],
                 category_id=category_id,
             )
         )
     return rows
+
+
+def load_qa_original_csv(data_dir: str, qa_original_file: str, category_file: str):
+    path = resolve_csv_path(qa_original_file, data_dir)
+    category_ids = {c.id for c in load_category_csv(data_dir, category_file)}
+    with open(path, "r", encoding="utf-8-sig", newline="") as f:
+        return parse_qa_original_csv(f.read(), category_ids)
 
 
 def load_question_altered_csv(data_dir: str, question_altered_file: str):

@@ -1,6 +1,6 @@
 # ADR-0108: DVC で管理するシード元データを CSV に統一し、書式と読み込みの共通ルールを定める
 
-- ステータス: Proposed（ルールの決定。各情報源の CSV 化は、本 ADR の「移行の手順」に沿って個別に行う）
+- ステータス: Proposed（ルールの決定。各情報源の CSV 化は、本 ADR の「移行の手順」に沿って個別に行う。進み具合は「移行の状況」）
 - 日付: 2026-10-30
 - 関連: ADR-0034（シード元データのイメージ同梱）, ADR-0076（トラブルシューティング記事の HTML 取り込み）, ADR-0097（ナレッジデータの DVC 管理）, ADR-0098（情報源別ディレクトリ）, ADR-0105（Redmine Wiki のエラー対応 CSV）, ADR-0106（記事の uuid）
 
@@ -67,6 +67,14 @@ CSV にそろえれば、VS Code の Edit csv などで同じように確認・�
 | 1 | 広場 QA 本体（`exportjson_withguid.json`） | `hiroba_qa_original.csv` にする。カテゴリを ID にする（上の 6）。読み込み箇所（`seed_helpers.load_qa_original_json`・`backfill_title_and_tags.py`・`evals/runner/golden.py`）と `QA_ORIGINAL_FILE` を変える |
 | 2 | トラブルシューティング（`troubleshooting/*.html`） | `parse_articles` で CSV にする。`uuid` は現在の導出値（ADR-0106）をそのまま書き出す（出典 ID とゴールデンセット v3 を変えないため）。元の表を含む `body_html` は列として残し、CSV の読み込みは「`body_html` 列があれば使い、無ければ `guidance` から組み立てる」にする |
 | 3 | 既存の CSV（`category.csv`・`question_altered.csv`・`redmine_error_taiou.csv`） | 書式（上の 1）と列名（上の 5）をそろえる。`question_altered` の `qa_id`、Redmine の `guid` → `uuid` など。列名の変更は変換と同時に行わない（3. の比較を単純にするため） |
+
+## 移行の状況
+
+| 順 | 状況 |
+|---|---|
+| 1 | 済み（2026-10-30）。`hiroba_qa/hiroba_qa_original.csv`（列 `uuid,title,question_text,answer_text,category_id,category_name`。`category_name` は確認用で読み捨て）。変換は `db_init/tools/hiroba_qa_json_to_csv.py`。旧 JSON と CSV で空の DB にシードし、`hiroba_category`・`hiroba_qa_original`（title を含む全列）・タグが一致することを確認した。JSON は削除（DVC の履歴に残る） |
+| 2 | 未着手 |
+| 3 | 未着手 |
 
 ## 影響
 

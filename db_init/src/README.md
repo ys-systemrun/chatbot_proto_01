@@ -10,7 +10,7 @@
 | [`main.py`](main.py) | エントリポイント。ロール作成（ADR-0052）→ knowledge マイグレーション → シード → 権限付与 → conversation DB の作成・マイグレーション → エクスポート用読み取りロール作成、を順に実行する。`MIGRATE_ONLY` / `IMPORT_MODE` / `QUERY_MODE` / `EXPORT_MODE` で起動モードを切り替える |
 | [`db.py`](db.py) | シード投入用の DB アクセス（カテゴリ・QA・言い換え質問文の存在チェックと INSERT）。テーブル単位の存在チェックで冪等にする（ADR-0018） |
 | [`models.py`](models.py) | シード対象のデータクラス（`Category`・`QAOriginal`・`QuestionAltered`） |
-| [`seed_helpers.py`](seed_helpers.py) | シード元データ（カテゴリ CSV・QA JSON・言い換え CSV）の読み込み |
+| [`seed_helpers.py`](seed_helpers.py) | シード元データ（カテゴリ CSV・QA 本体 CSV・言い換え CSV）の読み込み（ADR-0108） |
 | [`embedding.py`](embedding.py) | シード時の embedding 計算。`EMBEDDING_PROVIDER` で LM Studio（OpenAI 互換 API）と Amazon Bedrock を切り替える（ADR-0031） |
 | [`backfill_title_and_tags.py`](backfill_title_and_tags.py) | QA JSON から `title` を補完し、レコードにタグがあれば `tag`・`hiroba_qa_tag` に投入する（冪等。現行データにはタグが無く title のみ補完） |
 | [`seed_description_and_aliases.py`](seed_description_and_aliases.py) | 一部タグの説明文と同義語（`tag_alias`）の暫定シード（Tag Selector MCP の動作確認用） |

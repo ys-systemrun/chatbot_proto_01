@@ -57,7 +57,7 @@ from db import DB
 from embedding import get_embedding
 from seed_helpers import (
     load_category_csv,
-    load_qa_original_json,
+    load_qa_original_csv,
     load_question_altered_csv,
 )
 
@@ -129,7 +129,7 @@ else:
     BEDROCK_REGION = None
 # ADR-0034: シード元データはイメージに /data として同梱済み。
 # ADR-0098: /data 配下は情報源別ディレクトリ（hiroba_qa/・troubleshooting/）。
-# QA_ORIGINAL_FILE 等は CSV_DATA_DIR からの相対パス（例: hiroba_qa/exportjson_withguid.json）で指定する。
+# QA_ORIGINAL_FILE 等は CSV_DATA_DIR からの相対パス（例: hiroba_qa/hiroba_qa_original.csv）で指定する。
 CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
 QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 # イメージに同梱したシード元データの版（ADR-0097）。ローカル実行では未設定。
@@ -458,7 +458,7 @@ def seed_category(url: str):
 
 def seed_qa_original(url: str):
     print(f"{_now()} ====== Start seeding qa_original...")
-    rows = load_qa_original_json(CSV_DATA_DIR, QA_ORIGINAL_FILE, CATEGORY_FILE)
+    rows = load_qa_original_csv(CSV_DATA_DIR, QA_ORIGINAL_FILE, CATEGORY_FILE)
     with DB(url) as db:
         if db.exists_qa_original():
             print(f"{_now()} qa_original table already has data. Skipping insertion.")
@@ -496,8 +496,8 @@ def seed_question_altered(url: str):
 # ---------------------------------------------------------------------------
 def backfill_titles_and_tags(url: str):
     print(f"{_now()} ====== Start backfilling title / tags...")
-    json_path = os.path.join(CSV_DATA_DIR, QA_ORIGINAL_FILE)
-    items = backfill_title_and_tags.load_records(json_path)
+    csv_path = os.path.join(CSV_DATA_DIR, QA_ORIGINAL_FILE)
+    items = backfill_title_and_tags.load_records(csv_path)
     conn = psycopg2.connect(url)
     try:
         stats = backfill_title_and_tags.backfill(conn, items)

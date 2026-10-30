@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 
 from runner import golden, repeat, run
+from tests.test_run import write_qa_csv
 
 QA = "11111111-1111-1111-1111-111111111111"
 
@@ -66,8 +67,7 @@ def test_compare_markdown_flags_only_differences_beyond_noise():
 
 def _setup(tmp_path):
     (tmp_path / "db_init/data/hiroba_qa").mkdir(parents=True)
-    (tmp_path / "db_init/data/hiroba_qa/exportjson_withguid.json").write_text(json.dumps(
-        [{"guid": QA, "title": "t", "answer": "a", "question": "q", "category": "c"}]), encoding="utf-8")
+    write_qa_csv(tmp_path / "db_init/data/hiroba_qa/hiroba_qa_original.csv", [(QA, "t", "a")])
     golden_path = tmp_path / "evals/golden/v9.csv"
     golden.write(golden_path, [
         {"id": "h001", "question": "見積書を複製するには", "expected_source_ids": f"qa:{QA}", "should_answer": "true"},

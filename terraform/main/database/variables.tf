@@ -128,7 +128,7 @@ variable "csv_data_dir" {
 
 variable "qa_original_file" {
   type    = string
-  default = "hiroba_qa/exportjson_withguid.json"
+  default = "hiroba_qa/hiroba_qa_original.csv"
 }
 
 variable "question_altered_file" {

@@ -13,14 +13,13 @@
 | note | 補足 |
 
 QA の回答文はゴールデンセットに複製しない。採点時に DVC 管理のシード元データ
-（`db_init/data/hiroba_qa/exportjson_withguid.json`）から引く（ADR-0097 のデータを git に入れない方針）。
+（`db_init/data/hiroba_qa/hiroba_qa_original.csv`, ADR-0108）から引く（ADR-0097 のデータを git に入れない方針）。
 """
 
 from __future__ import annotations
 
 import csv
 import hashlib
-import json
 import random
 from pathlib import Path
 
@@ -34,7 +33,7 @@ COLUMNS = [
     "note",
 ]
 
-QA_JSON = Path("db_init/data/hiroba_qa/exportjson_withguid.json")
+QA_CSV = Path("db_init/data/hiroba_qa/hiroba_qa_original.csv")
 PARAPHRASE_CSV = Path("db_init/data/hiroba_qa/question_altered.csv")
 HANDPICKED_CSV = Path("evals/queries/eval_queries.csv")
 NOISE_CSV = Path("evals/queries/eval_noise_queries.csv")
@@ -66,12 +65,12 @@ def file_hash(path: Path) -> str:
 
 
 def load_qa_answers(repo: Path) -> dict[str, dict] | None:
-    """guid -> {"title", "answer"}。シード元データが無い（dvc pull 前）なら None。"""
-    path = repo / QA_JSON
+    """uuid -> {"title", "answer"}。シード元データが無い（dvc pull 前）なら None。"""
+    path = repo / QA_CSV
     if not path.exists():
         return None
-    data = json.loads(path.read_text(encoding="utf-8"))
-    return {d["guid"]: {"title": d.get("title"), "answer": d.get("answer")} for d in data}
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        return {r["uuid"]: {"title": r.get("title"), "answer": r.get("answer_text")} for r in csv.DictReader(f)}
 
 
 def reference_answer(item: dict, qa_answers: dict[str, dict] | None) -> str | None:
@@ -99,7 +98,7 @@ def build_initial(repo: Path, sample: int, seed: int) -> list[dict]:
     """
     qa_answers = load_qa_answers(repo)
     if qa_answers is None:
-        raise FileNotFoundError(f"{repo / QA_JSON} がありません。先に terraform\\dvc.bat pull を実行してください。")
+        raise FileNotFoundError(f"{repo / QA_CSV} がありません。先に terraform\\dvc.bat pull を実行してください。")
 
     items: list[dict] = []
     with (repo / HANDPICKED_CSV).open(encoding="utf-8", newline="") as f:

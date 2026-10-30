@@ -1,5 +1,6 @@
 """ゴールデンセット評価（ADR-0099 §5 段階③）の採点・実行・比較を検証する（AWS・Bedrock には触れない）。"""
 
+import csv
 import json
 from datetime import datetime
 from types import SimpleNamespace
@@ -11,13 +12,22 @@ from runner import golden, judge, run, scoring
 QA_GUID = "11111111-1111-1111-1111-111111111111"
 
 
+def write_qa_csv(path, records):
+    """テスト用に hiroba_qa_original.csv（ADR-0108）を書く。records は (uuid, title, answer_text) の並び。"""
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f, quoting=csv.QUOTE_ALL, lineterminator="\n")
+        w.writerow(["uuid", "title", "question_text", "answer_text", "category_id"])
+        for uuid, title, answer in records:
+            w.writerow([uuid, title, "q", answer, ""])
+
+
 def _repo(tmp_path):
     (tmp_path / "db_init/data/hiroba_qa").mkdir(parents=True)
     (tmp_path / "evals/queries").mkdir(parents=True)
-    (tmp_path / "db_init/data/hiroba_qa/exportjson_withguid.json").write_text(json.dumps([
-        {"guid": QA_GUID, "title": "見積書の複製", "answer": "［複写］ボタンで複製します。", "question": "q", "category": "c"},
-        {"guid": "22222222-2222-2222-2222-222222222222", "title": "別QA", "answer": "別回答", "question": "q", "category": "c"},
-    ], ensure_ascii=False), encoding="utf-8")
+    write_qa_csv(tmp_path / "db_init/data/hiroba_qa/hiroba_qa_original.csv", [
+        (QA_GUID, "見積書の複製", "［複写］ボタンで複製します。"),
+        ("22222222-2222-2222-2222-222222222222", "別QA", "別回答"),
+    ])
     (tmp_path / "db_init/data/hiroba_qa/question_altered.csv").write_text(
         f"qa_id,text\n{QA_GUID},見積書を複製したい\n{QA_GUID},見積書のコピー方法\n"
         "22222222-2222-2222-2222-222222222222,別の質問\n", encoding="utf-8")
