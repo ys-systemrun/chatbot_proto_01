@@ -1,13 +1,13 @@
-"""トラブルシューティング記事 HTML / CSV のパース・冪等投入（ADR-0076 / ADR-0078 / ADR-0105 / REQ-202609071337 10章）。
+"""トラブルシューティング記事 CSV / HTML のパース・冪等投入（ADR-0076 / ADR-0078 / ADR-0105 / ADR-0108 / REQ-202609071337 10章）。
 
-2つの静的HTML文書（trouble_shooting.html / trouble_shooting_netauth.html）を <h2> 単位で
-ブロック分割し、内包する <table>（現象・原因・案内内容 等）から構造化フィールドを抽出して
-troubleshooting_article へ投入する。<table> を持たない手順書スタイルのブロックは guidance に
-本文全体を格納し、他の構造化フィールドは NULL とする（10.1節）。いずれのケースでも body_html に
-元HTMLブロック全体を保持する。
+シードは整形済み CSV（1行 = 1記事）だけを parse_csv_articles で読む（ADR-0108）。列名は
+troubleshooting_article の列名にそろえ、body_html 列が空なら guidance から組み立てる。
 
-整形済み CSV（1行 = 1記事。Redmine Wiki のエラー対応を加工したもの, ADR-0105）は parse_csv_articles で
-読む。列名は troubleshooting_article の列名にそろえ、body_html は guidance から組み立てる。
+parse_articles は、2つの静的HTML文書（trouble_shooting.html / trouble_shooting_netauth.html）を <h2> 単位で
+ブロック分割し、内包する <table>（現象・原因・案内内容 等）から構造化フィールドを抽出する。<table> を
+持たない手順書スタイルのブロックは guidance に本文全体を格納し、他の構造化フィールドは NULL とする
+（10.1節）。いずれのケースでも body_html に元HTMLブロック全体を保持する。現在は HTML を CSV に変換する
+ツール（db_init/tools/troubleshooting_html_to_csv.py）が使う。
 
 投入は (source_key, title) の一意性チェックによる冪等挿入とする（ADR-0018 / 10.2節）。既存レコードが
 存在する場合は上書きしない（管理UI経由での手動編集・タグ付けを保護するため）。
@@ -317,12 +317,13 @@ def _text_to_html(title: str, text: str) -> str:
 
 
 def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingArticle]:
-    """整形済み CSV（1行 = 1記事）を TroubleshootingArticle へ変換する（ADR-0105）。
+    """整形済み CSV（1行 = 1記事）を TroubleshootingArticle へ変換する（ADR-0105 / ADR-0108）。
 
     - 必須列は title / guidance。どちらかが空の行は投入対象外にする。
     - 任意列は CSV_OPTIONAL_FIELDS と source_updated_at。空欄は None に正規化する。
-    - guid 列があれば uuid に入れる（ADR-0106）。無い・空なら (source_key, title) から決める。
-    - body_html は guidance から組み立てる（CSV だけを正本にし、HTML と二重に直さずに済むようにする）。
+    - uuid 列（旧名 guid）があれば uuid に入れる（ADR-0106）。無い・空なら (source_key, title) から決める。
+    - body_html 列に値があればそのまま使う（HTML から変換した記事は元の表を含む HTML を持つ）。
+      無ければ guidance から組み立てる（CSV だけを正本にし、HTML と二重に直さずに済むようにする）。
     """
     reader = csv.DictReader(io.StringIO(csv_text))
     missing = {"title", "guidance"} - set(reader.fieldnames or [])
@@ -338,9 +339,9 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
         article = TroubleshootingArticle(
             source_key=source_key,
             title=title,
-            body_html=_text_to_html(title, guidance),
+            body_html=row.get("body_html") or _text_to_html(title, guidance),
             guidance=guidance,
-            uuid=_clean(row.get("guid")) or derive_article_uuid(source_key, title),
+            uuid=_clean(row.get("uuid")) or _clean(row.get("guid")) or derive_article_uuid(source_key, title),
         )
         for field_name in CSV_OPTIONAL_FIELDS:
             setattr(article, field_name, _clean(row.get(field_name)))

@@ -73,7 +73,7 @@ CSV にそろえれば、VS Code の Edit csv などで同じように確認・�
 | 順 | 状況 |
 |---|---|
 | 1 | 済み（2026-10-30）。`hiroba_qa/hiroba_qa_original.csv`（列 `uuid,title,question_text,answer_text,category_id,category_name`。`category_name` は確認用で読み捨て）。変換は `db_init/tools/hiroba_qa_json_to_csv.py`。旧 JSON と CSV で空の DB にシードし、`hiroba_category`・`hiroba_qa_original`（title を含む全列）・タグが一致することを確認した。JSON は削除（DVC の履歴に残る） |
-| 2 | 未着手 |
+| 2 | 済み（2026-10-30）。`troubleshooting/trouble_shooting.csv`・`trouble_shooting_netauth.csv`（列は `uuid` と `troubleshooting_article` の列。`body_html` は元の表を含む HTML）。変換は `db_init/tools/troubleshooting_html_to_csv.py`（`parse_articles` を流用）。`uuid` は HTML 時代の導出値と同じ。旧 HTML と CSV で空の DB にシードし、`troubleshooting_article` の全 94 行が id・埋め込み元テキスト・uuid を含めて一致することを確認した。シードは CSV だけを読む。HTML は削除（DVC の履歴に残る） |
 | 3 | 未着手 |
 
 ## 影響

@@ -7,12 +7,12 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 | ディレクトリ | `.dvc` | 内容 | 投入先テーブル |
 |---|---|---|---|
 | `hiroba_qa/` | `hiroba_qa.dvc` | 維津美の広場 QA。`category.csv`（カテゴリ）、`hiroba_qa_original.csv`（QA 本体。各行に uuid、カテゴリは ID, ADR-0108）、`question_altered.csv`（言い換え質問文） | `hiroba_category` / `hiroba_qa_original` / `hiroba_question_altered` |
-| `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の HTML（`trouble_shooting.html` / `trouble_shooting_netauth.html`）。`<h2>` 単位で記事化（ADR-0076） | `troubleshooting_article` |
+| `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の CSV（`trouble_shooting.csv` / `trouble_shooting_netauth.csv`, 1 行 = 1 記事）。元の HTML を `<h2>` 単位で記事化（ADR-0076）したものを [`../tools/troubleshooting_html_to_csv.py`](../tools/troubleshooting_html_to_csv.py) で変換。`uuid` と元の表を含む `body_html` を持つ（ADR-0108） | `troubleshooting_article`（`source_key` はファイル名と同じ） |
 | `redmine_error_taiou/` | `redmine_error_taiou.dvc` | Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事, 各行に UUID の `guid`）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | `troubleshooting_article`（`source_key=redmine_error_taiou`） |
 
 どのファイルを読むかは環境変数で指定します（`/data` からの相対パス）:
 `QA_ORIGINAL_FILE` / `QUESTION_ALTERED_FILE` / `CATEGORY_FILE`（ローカルは `.env`、AWS は `terraform/.env` の `TF_VAR_*`）。
-トラブルシューティング記事（HTML・CSV）のパスは `db_init/src/main.py` の `TROUBLESHOOTING_SOURCES` に固定です。
+トラブルシューティング記事（CSV）のパスは `db_init/src/main.py` の `TROUBLESHOOTING_SOURCES` に固定です。
 
 シード元データは CSV に統一していく方針です（ADR-0108）。新しく CSV を作る・書き出すときは ADR-0108 の書式
 （UTF-8・BOM なし・LF・全フィールド引用符、列名は投入先テーブルの列名、識別子を先頭列に必須）に従ってください。

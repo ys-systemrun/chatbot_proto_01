@@ -260,3 +260,30 @@ def test_import_articles_skips_new_title_whose_uuid_is_already_used():
     assert stats["inserted"] == 0
     assert len(stats["warnings"]) == 1 and "u-1" in stats["warnings"][0]
     assert not any(sql.startswith("INSERT") for sql, _ in conn.executed)
+
+
+def test_csv_uses_body_html_and_uuid_columns_when_present():
+    text = (
+        '"uuid","title","guidance","body_html"\n'
+        '"u-1","t1","g","<h2>t1</h2><table><tr><th>原因</th><td>c</td></tr></table>"\n'
+        '"","t2","g2",""\n'
+    )
+    a, b = ti.parse_csv_articles(text, "trouble_shooting")
+    assert a.uuid == "u-1"
+    assert a.body_html == "<h2>t1</h2><table><tr><th>原因</th><td>c</td></tr></table>"  # 元の HTML をそのまま使う
+    assert b.uuid == ti.derive_article_uuid("trouble_shooting", "t2")
+    assert b.body_html == "<h2>t2</h2>\n<p>g2</p>"  # 空なら guidance から組み立てる
+
+
+def test_real_html_derived_csv_keeps_uuid_if_present():
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "troubleshooting", "trouble_shooting.csv")
+    if not os.path.exists(path):
+        import pytest
+
+        pytest.skip("trouble_shooting.csv is not pulled (dvc pull)")
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        arts = ti.parse_csv_articles(f.read(), "trouble_shooting")
+    assert len(arts) == 35
+    # uuid は HTML 時代の導出値と同じ（出典 ID・ゴールデンセット v3 の正解を変えない, ADR-0107）
+    assert all(a.uuid == ti.derive_article_uuid("trouble_shooting", a.title) for a in arts)
+    assert "64ea266f-64ac-50ef-b82f-8ea7fd1db08d" in {a.uuid for a in arts}

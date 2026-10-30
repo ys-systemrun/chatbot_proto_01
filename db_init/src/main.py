@@ -140,10 +140,11 @@ CATEGORY_FILE = os.environ["CATEGORY_FILE"]
 # トラブルシューティング記事のソース（ADR-0076 / REQ-202609071337 10章）。
 # (CSV_DATA_DIR からの相対パス, source_key)。ADR-0034 に従いイメージ同梱の /data から読み込む。
 # ADR-0098: 情報源別ディレクトリ troubleshooting/ に配置（source_key は変更しない）。
-# ADR-0105: .csv は整形済み CSV（1行 = 1記事）として読む。Redmine Wiki のエラー対応を加工したもの。
+# ADR-0108: すべて整形済み CSV（1行 = 1記事）。troubleshooting/ の 2 本は元の HTML を
+# db_init/tools/troubleshooting_html_to_csv.py で変換したもの、redmine_error_taiou は ADR-0105。
 TROUBLESHOOTING_SOURCES = [
-    ("troubleshooting/trouble_shooting.html", "trouble_shooting"),
-    ("troubleshooting/trouble_shooting_netauth.html", "trouble_shooting_netauth"),
+    ("troubleshooting/trouble_shooting.csv", "trouble_shooting"),
+    ("troubleshooting/trouble_shooting_netauth.csv", "trouble_shooting_netauth"),
     ("redmine_error_taiou/redmine_error_taiou.csv", "redmine_error_taiou"),
 ]
 
@@ -542,7 +543,7 @@ def _troubleshooting_embed_fn():
 
 
 def seed_troubleshooting_articles(url: str):
-    """トラブルシューティング記事 HTML / CSV を冪等投入する（ADR-0076 / ADR-0078 / ADR-0105 / 10章）。
+    """トラブルシューティング記事 CSV を冪等投入する（ADR-0076 / ADR-0078 / ADR-0105 / ADR-0108 / 10章）。
 
     (source_key, title) の存在チェックで既存レコードは上書きしない。未投入の記事だけに
     embedding を計算して INSERT する。ソースファイルが無い環境（開発用最小構成等）はスキップする。
@@ -556,13 +557,9 @@ def seed_troubleshooting_articles(url: str):
                 f"{_now()} troubleshooting source not found, skipping: {path}"
             )
             continue
-        if filename.endswith(".csv"):
-            # セル内改行を保つため newline="" で読む（csv モジュールの作法）。BOM 付きでも読めるようにする。
-            with open(path, "r", encoding="utf-8-sig", newline="") as f:
-                parsed = troubleshooting_import.parse_csv_articles(f.read(), source_key)
-        else:
-            with open(path, "r", encoding="utf-8") as f:
-                parsed = troubleshooting_import.parse_articles(f.read(), source_key)
+        # セル内改行を保つため newline="" で読む（csv モジュールの作法）。BOM 付きでも読めるようにする。
+        with open(path, "r", encoding="utf-8-sig", newline="") as f:
+            parsed = troubleshooting_import.parse_csv_articles(f.read(), source_key)
         print(f"{_now()} parsed {len(parsed)} article(s) from {filename}.")
         articles.extend(parsed)
 
