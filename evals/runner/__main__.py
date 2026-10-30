@@ -98,7 +98,7 @@ def main(argv: list[str] | None = None) -> None:
     bg.add_argument("--force", action="store_true", help="既存のファイルを上書きする")
 
     rn = sub.add_parser("run", help="ゴールデンセットを送り、出典と回答を採点する")
-    rn.add_argument("--set", dest="golden", default="v2", help="ゴールデンセット名（evals/golden/<名前>.csv, 既定 v2）")
+    rn.add_argument("--set", dest="golden", default="v3", help="ゴールデンセット名（evals/golden/<名前>.csv, 既定 v3）")
     rn.add_argument("--mode", choices=["pipeline", "agentic", "both"], default="both")
     rn.add_argument("--limit", type=int, default=None, help="先頭から N 問だけ実行する（試行用）")
     rn.add_argument("--repeat", type=int, default=1,

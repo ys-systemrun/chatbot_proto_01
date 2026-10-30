@@ -51,7 +51,7 @@ terraform\dvc.bat pull
 |---|---|
 | `evals\eval.bat pull-feedback` | チャット画面で付けた 👍/👎・理由・リリースの増分を `evals/feedback/<日時>.jsonl` に保存する |
 | `evals\eval.bat build-golden` | 初版のゴールデンセット `evals/golden/v1.csv` を作る（最初の1回だけ。既にあれば `--force` が必要） |
-| `evals\eval.bat run` | ゴールデンセット（既定 v2、`--set v1` で旧版）を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
+| `evals\eval.bat run` | ゴールデンセット（既定 v3、`--set v2` などで旧版）を両方式（pipeline / agentic）で送り、採点して `evals/runs/` に保存する |
 | `evals\eval.bat run --repeat 3` | 同じ構成を3回実行し、指標の平均とばらつきを `evals/runs/groups/<グループ ID>.md` に出す（**比較の基準と改善の判定はこれで取る**。費用は3倍） |
 | `evals\eval.bat run --mode agentic --limit 5` | 1方式・先頭5問だけ試す（`--no-judge` で LLM 採点なし） |
 | `evals\eval.bat compare <A> <B>` | 2つの結果を比較する。A・B は実行ディレクトリ名か、繰り返しのグループ ID。揺れを超える差だけを改善・悪化と判定する |
@@ -83,13 +83,13 @@ terraform\dvc.bat pull
 |---|---|
 | `id` | 質問の ID。実行結果どうしの比較キーなので、一度決めたら変えない |
 | `question` | 質問文 |
-| `expected_source_ids` | 正解の出典（`qa:<guid>` / `troubleshooting:<id>`、空白区切りで複数可）。空なら出典は採点しない |
+| `expected_source_ids` | 正解の出典（`qa:<guid>` / `troubleshooting:<uuid>`、空白区切りで複数可。v2 以前の `troubleshooting:<id>` は DB の採番）。空なら出典は採点しない |
 | `expected_answer_points` | 回答に含むべき要点（任意）。空なら正解 QA の回答文を模範解答にする |
 | `category` | `handpicked`（手作り）/ `paraphrase_indexed`（言い換え質問文から抽出）/ `out_of_scope`（範囲外）/ `feedback`（人手評価から追加）など |
 | `should_answer` | `true`=回答すべき / `false`=範囲外で回答を控えるのが正解 |
 | `note` | 補足 |
 
-- 版ごとの内容と変更理由は `golden/README.md`。現在の既定は **v2（25問）**。v1 は正解設定の誤りを含むため、比較の基準にしない。
+- 版ごとの内容と変更理由は `golden/README.md`。現在の既定は **v3（25問）**。v1 は正解設定の誤りを含むため、比較の基準にしない。
 - 初版（v1, 27問）は `queries/eval_queries.csv`（4問）・`queries/eval_noise_queries.csv`（3問）と、言い換え質問文から seed 固定で抽出した20問。
 - **`paraphrase_indexed` の質問は検索用に埋め込み済みの文そのもの**なので、出典の一致率は実際より高く出る。
   回答の質の比較には使えるが、検索の評価は `handpicked` と `feedback` を重視する。

@@ -76,6 +76,7 @@ def test_search_maps_row_to_document_no_tags():
         [1],                     # article_closure
         None,                    # input_closure（tags 未指定）
         0.0,                     # distance
+        "u-7",                   # document_id（uuid, ADR-0107）
     )
     db = FakeDatabase([row])
     repo = TroubleshootingRepository(db, _embed)
@@ -84,7 +85,7 @@ def test_search_maps_row_to_document_no_tags():
 
     assert len(docs) == 1
     doc = docs[0]
-    assert doc.id == "7"
+    assert doc.id == "u-7"
     assert doc.source_type == SOURCE_TYPE == "troubleshooting"
     assert doc.title == "マスタ読み込みエラー"
     assert doc.content == "案内本文"
@@ -94,11 +95,12 @@ def test_search_maps_row_to_document_no_tags():
         "category": None,
         "source_key": "trouble_shooting",
         "subtitle": None,
+        "article_id": 7,
     }
 
 
 def test_search_returns_empty_when_category_specified():
-    db = FakeDatabase([("1", "t", None, "g", "trouble_shooting", [], [], None, 0.0)])
+    db = FakeDatabase([("1", "t", None, "g", "trouble_shooting", [], [], None, 0.0, "u-1")])
     repo = TroubleshootingRepository(db, _embed)
     # カテゴリ指定は本情報源に該当なし → 空・DBアクセスも行わない。
     assert repo.search("q", category="なにか") == []
@@ -108,9 +110,9 @@ def test_search_returns_empty_when_category_specified():
 def test_search_tag_similarity_scoring_and_sort_topk():
     rows = [
         # 近い距離だがタグ不一致
-        (1, "A", None, "gA", "trouble_shooting", ["x"], [10], [99], 0.0),
+        (1, "A", None, "gA", "trouble_shooting", ["x"], [10], [99], 0.0, "u-1"),
         # 遠い距離だがタグ一致（jaccard 高）
-        (2, "B", None, "gB", "trouble_shooting", ["y"], [99], [99], 3.0),
+        (2, "B", None, "gB", "trouble_shooting", ["y"], [99], [99], 3.0, "u-2"),
     ]
     db = FakeDatabase(rows)
     repo = TroubleshootingRepository(db, _embed, tag_similarity_weight=0.5)
@@ -120,7 +122,7 @@ def test_search_tag_similarity_scoring_and_sort_topk():
     assert len(docs) == 1
     # row2: embedding_score=1/4=0.25, tag_sim=jaccard({99},{99})=1 -> 0.5*0.25+0.5*1=0.625
     # row1: embedding_score=1.0, tag_sim=jaccard({99},{10})=0 -> 0.5*1+0=0.5
-    assert docs[0].id == "2"
+    assert docs[0].id == "u-2"
     assert docs[0].metadata["tag_similarity"] == 1.0
     assert docs[0].metadata["embedding_score"] == 0.25
 

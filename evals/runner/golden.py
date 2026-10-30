@@ -6,7 +6,7 @@
 |---|---|
 | id | 質問の ID（実行結果どうしの比較キー。変更しない） |
 | question | 質問文 |
-| expected_source_ids | 正解の出典（`qa:<guid>` / `troubleshooting:<id>`。空白区切りで複数可。空なら出典は採点しない） |
+| expected_source_ids | 正解の出典（`qa:<guid>` / `troubleshooting:<uuid>`。空白区切りで複数可。空なら出典は採点しない） |
 | expected_answer_points | 回答に含むべき要点（任意。空なら正解出典の回答文を模範解答として採点に使う） |
 | category | 分類（handpicked / paraphrase_indexed / out_of_scope / feedback など） |
 | should_answer | `true`=回答すべき / `false`=範囲外で回答を控えるのが正解 |

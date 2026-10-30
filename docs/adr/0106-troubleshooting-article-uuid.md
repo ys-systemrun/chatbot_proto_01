@@ -21,10 +21,10 @@ ADR-0105 で、Redmine Wiki 由来の CSV に行ごとの UUID（`guid` 列）�
 3. **既存行は次回シードでバックフィルする。** `(source_key, title)` が一致し `uuid` が NULL の行に、uuid だけを UPDATE する。本文・embedding・タグなどは従来どおり上書きしない。ADR-0066 の全データインポートで 0011 より前のダンプを入れた場合も、次回シードで埋まる。
 4. **新しいタイトルの記事の uuid が、別タイトルの既存行ですでに使われていれば投入しない（警告を出す）。** 元データ側でタイトルを変えた場合に、同じ記事が二重に入るのを防ぐ。DB 側の記事を直すか消してから再シードする。
 5. **全データエクスポート（web_backend の `export/tables.py`）の列と DDL に `uuid` を加える。** db_init の EXPORT_MODE・import_data は列を `information_schema` から読むため変更不要。
-6. **検索結果の出典 ID（`Document.id`）は当面、整数の `id` のままにする。** uuid に切り替えると、評価のゴールデンセット（使用済みの版は書き換えない）、会話 DB に保存済みの出典、管理画面のリンクに影響するため、別の判断とする。
+6. **検索結果の出典 ID（`Document.id`）は本 ADR では変えない。** 切り替えは ADR-0107 で行った。
 
 ## 影響
 
 - 既存環境では、0011 適用後の最初のシードで全記事に uuid が入る（ログの `backfilled_uuids`）。
 - 管理画面で記事のタイトルを編集しても uuid は変わらない（シードは既存行の uuid を上書きしない）。DB を作り直して元データから取り込み直した場合は、元データのタイトルから導出した値になる。
-- 出典 ID を uuid に切り替えるときは、knowledge_mcp の `TroubleshootingRepository`、agent_invitro の出典、evals の `expected_source_ids` と新しいゴールデンセットの版をあわせて変える。
+- 出典 ID の uuid への切り替えは ADR-0107 を参照。

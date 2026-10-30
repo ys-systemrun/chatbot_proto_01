@@ -93,7 +93,9 @@ class TroubleshootingRepository:
                     ARRAY[]::integer[]
                 ) AS article_closure,
                 (SELECT closure FROM input_closure) AS input_closure,
-                troubleshooting_article.embedding <=> %(query_vec)s::vector AS distance
+                troubleshooting_article.embedding <=> %(query_vec)s::vector AS distance,
+                -- 出典 ID は DB の採番に依存しない uuid（ADR-0107）。シード前で uuid が無い行だけ id で代用する。
+                COALESCE(troubleshooting_article.uuid, troubleshooting_article.id::text) AS document_id
             FROM troubleshooting_article
             WHERE troubleshooting_article.embedding IS NOT NULL
               AND troubleshooting_article.is_searchable
@@ -112,7 +114,7 @@ class TroubleshootingRepository:
         for row in rows:
             (
                 article_id, title, subtitle, guidance, source_key,
-                tag_names_row, article_closure, _input_closure, distance,
+                tag_names_row, article_closure, _input_closure, distance, document_id,
             ) = row
 
             embedding_score = distance_to_score(float(distance))
@@ -121,6 +123,8 @@ class TroubleshootingRepository:
                 "category": None,  # 本情報源にカテゴリは存在しない（ADR-0078 §8.5）
                 "source_key": source_key,
                 "subtitle": subtitle,
+                # 管理画面（/admin/troubleshooting/:id）で記事を開くための DB 上の id。
+                "article_id": article_id,
             }
 
             if has_tags:
@@ -136,7 +140,7 @@ class TroubleshootingRepository:
             scored.append((
                 combined_score,
                 Document(
-                    id=str(article_id),
+                    id=str(document_id),
                     source_type=SOURCE_TYPE,
                     title=title or "",
                     content=guidance or "",

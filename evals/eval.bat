@@ -10,7 +10,7 @@ rem
 rem Usage (from a prompt, any directory):
 rem   evals\eval.bat pull-feedback                 Save new human evaluations to evals\feedback\
 rem   evals\eval.bat build-golden                  Create evals\golden\v1.csv (first time only)
-rem   evals\eval.bat run                           Ask golden set v2 in both modes and score answers
+rem   evals\eval.bat run                           Ask golden set v3 in both modes and score answers
 rem   evals\eval.bat run --mode agentic --limit 5  Try a few questions in one mode
 rem   evals\eval.bat compare RUN_A RUN_B           Compare two runs (directory names under evals\runs\)
 rem   evals\eval.bat run --judge-backend claude-code  Score answers with Claude Code (subscription)
