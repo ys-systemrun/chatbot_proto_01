@@ -123,3 +123,60 @@ def test_to_insert_tuple_matches_columns():
     assert len(values) == len(ti.ARTICLE_COLUMNS)
     assert values[0] == "trouble_shooting"
     assert values[ti.ARTICLE_COLUMNS.index("guidance")] == "g"
+
+
+CSV_TEXT = (
+    '"title","error_message","guidance","cause","notes","source_updated_at","source_page"\n'
+    '"「CRCエラー」が発生する","CRCエラー","履歴を削除する。\n'
+    'キャッシュを削除する。\n'
+    '\n'
+    '<b>や&はエスケープされる","","","2024-11-20 16:21:00","CRCエラー"\n'
+    '"本文が空の行","","","","","",""\n'
+    '"日時が壊れている行","","本文","","","いつか",""\n'
+)
+
+
+def test_parse_csv_articles_fields_and_body_html():
+    arts = ti.parse_csv_articles(CSV_TEXT, "redmine_error_taiou")
+    assert [a.title for a in arts] == ["「CRCエラー」が発生する", "日時が壊れている行"]  # 本文が空の行は除外
+
+    a = arts[0]
+    assert a.source_key == "redmine_error_taiou"
+    assert a.error_message == "CRCエラー"
+    assert a.guidance == "履歴を削除する。\nキャッシュを削除する。\n\n<b>や&はエスケープされる"
+    assert a.cause is None  # 空欄は None に正規化
+    assert a.source_updated_at == datetime(2024, 11, 20, 16, 21)
+    assert a.body_html == (
+        "<h2>「CRCエラー」が発生する</h2>\n"
+        "<p>履歴を削除する。<br>\nキャッシュを削除する。</p>\n"
+        "<p>&lt;b&gt;や&amp;はエスケープされる</p>"
+    )
+    assert a.warnings == []
+
+
+def test_parse_csv_articles_warns_on_bad_datetime():
+    a = ti.parse_csv_articles(CSV_TEXT, "redmine_error_taiou")[1]
+    assert a.source_updated_at is None
+    assert len(a.warnings) == 1
+
+
+def test_parse_csv_articles_requires_title_and_guidance_headers():
+    import pytest
+
+    with pytest.raises(ValueError):
+        ti.parse_csv_articles('"title","notes"\n"t","n"\n', "redmine_error_taiou")
+
+
+def test_parse_csv_articles_reads_real_seed_csv_if_present():
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "data", "redmine_error_taiou", "redmine_error_taiou.csv"
+    )
+    if not os.path.exists(path):
+        import pytest
+
+        pytest.skip("redmine_error_taiou.csv is not pulled (dvc pull)")
+    with open(path, encoding="utf-8-sig", newline="") as f:
+        arts = ti.parse_csv_articles(f.read(), "redmine_error_taiou")
+    assert len(arts) == 29
+    assert len({a.title for a in arts}) == len(arts)  # (source_key, title) の一意性
+    assert all(a.warnings == [] for a in arts)

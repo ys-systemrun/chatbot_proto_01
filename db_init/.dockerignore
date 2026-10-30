@@ -1,0 +1,2 @@
+# 加工前の元データ（Redmine Wiki の保存 HTML。顧客名を含む）をイメージに入れない（ADR-0105）
+data/error_taiou_o/

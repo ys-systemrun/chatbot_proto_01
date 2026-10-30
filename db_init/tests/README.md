@@ -10,4 +10,4 @@
 | [`test_embedding.py`](test_embedding.py) | `embedding.get_embedding` の provider 分岐（LM Studio / Bedrock）。boto3・requests をモックする |
 | [`test_import_data.py`](test_import_data.py) | 全データインポート（ADR-0066）の対象テーブル解決・TRUNCATE 文の組み立て・コミット／失敗時ロールバック |
 | [`test_export_data.py`](test_export_data.py) | 退避エクスポート（ADR-0103）の対象外テーブル検出・マニフェスト組み立て・ハッシュ・読み取りトランザクションの扱い |
-| [`test_troubleshooting_import.py`](test_troubleshooting_import.py) | トラブルシューティング記事 HTML のパース（記事分割・フィールド抽出・更新日時・埋め込み元テキスト） |
+| [`test_troubleshooting_import.py`](test_troubleshooting_import.py) | トラブルシューティング記事 HTML のパース（記事分割・フィールド抽出・更新日時・埋め込み元テキスト）と、CSV の読み取り（列・`body_html` の組み立て・実データの一意性） |

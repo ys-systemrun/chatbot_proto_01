@@ -1,10 +1,13 @@
-"""トラブルシューティング記事 HTML のパース・冪等投入（ADR-0076 / ADR-0078 / REQ-202609071337 10章）。
+"""トラブルシューティング記事 HTML / CSV のパース・冪等投入（ADR-0076 / ADR-0078 / ADR-0105 / REQ-202609071337 10章）。
 
 2つの静的HTML文書（trouble_shooting.html / trouble_shooting_netauth.html）を <h2> 単位で
 ブロック分割し、内包する <table>（現象・原因・案内内容 等）から構造化フィールドを抽出して
 troubleshooting_article へ投入する。<table> を持たない手順書スタイルのブロックは guidance に
 本文全体を格納し、他の構造化フィールドは NULL とする（10.1節）。いずれのケースでも body_html に
 元HTMLブロック全体を保持する。
+
+整形済み CSV（1行 = 1記事。Redmine Wiki のエラー対応を加工したもの, ADR-0105）は parse_csv_articles で
+読む。列名は troubleshooting_article の列名にそろえ、body_html は guidance から組み立てる。
 
 投入は (source_key, title) の一意性チェックによる冪等挿入とする（ADR-0018 / 10.2節）。既存レコードが
 存在する場合は上書きしない（管理UI経由での手動編集・タグ付けを保護するため）。
@@ -16,6 +19,9 @@ troubleshooting_article へ投入する。<table> を持たない手順書スタ
 
 from __future__ import annotations
 
+import csv
+import html
+import io
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List, Optional
@@ -266,6 +272,66 @@ def _build_article(
 
     article.warnings = warnings
     return article
+
+
+# CSV から読む任意列（troubleshooting_article の列名と同じ）。これ以外の列（source_page 等）は読み捨てる。
+CSV_OPTIONAL_FIELDS = (
+    "subtitle",
+    "symptom",
+    "operation_history",
+    "error_code",
+    "error_message",
+    "system_environment",
+    "hardware_environment",
+    "version_info",
+    "cause",
+    "notes",
+    "keyword_raw",
+)
+
+
+def _text_to_html(title: str, text: str) -> str:
+    """guidance のプレーンテキストから body_html を組み立てる（空行で段落、改行は <br>）。"""
+    paragraphs = [p for p in text.split("\n\n") if p.strip()]
+    body = "\n".join(
+        "<p>" + "<br>\n".join(html.escape(line) for line in p.split("\n")) + "</p>"
+        for p in paragraphs
+    )
+    return f"<h2>{html.escape(title)}</h2>\n{body}"
+
+
+def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingArticle]:
+    """整形済み CSV（1行 = 1記事）を TroubleshootingArticle へ変換する（ADR-0105）。
+
+    - 必須列は title / guidance。どちらかが空の行は投入対象外にする。
+    - 任意列は CSV_OPTIONAL_FIELDS と source_updated_at。空欄は None に正規化する。
+    - body_html は guidance から組み立てる（CSV だけを正本にし、HTML と二重に直さずに済むようにする）。
+    """
+    reader = csv.DictReader(io.StringIO(csv_text))
+    missing = {"title", "guidance"} - set(reader.fieldnames or [])
+    if missing:
+        raise ValueError(f"troubleshooting CSV must contain headers: {sorted(missing)}")
+
+    articles: List[TroubleshootingArticle] = []
+    for row in reader:
+        title = _clean(row.get("title"))
+        guidance = (row.get("guidance") or "").strip()
+        if not title or not guidance:
+            continue
+        article = TroubleshootingArticle(
+            source_key=source_key,
+            title=title,
+            body_html=_text_to_html(title, guidance),
+            guidance=guidance,
+        )
+        for field_name in CSV_OPTIONAL_FIELDS:
+            setattr(article, field_name, _clean(row.get(field_name)))
+        dt, warn = _parse_datetime(row.get("source_updated_at"))
+        article.source_updated_at = dt
+        if warn:
+            article.warnings.append(warn)
+        articles.append(article)
+    return articles
 
 
 # ---------------------------------------------------------------------------

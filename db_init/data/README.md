@@ -8,10 +8,14 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 |---|---|---|---|
 | `hiroba_qa/` | `hiroba_qa.dvc` | 維津美の広場 QA。`category.csv`（カテゴリ）、`exportjson_withguid.json`（QA 本体, GUID 付与済み）、`question_altered.csv`（言い換え質問文） | `hiroba_category` / `hiroba_qa_original` / `hiroba_question_altered` |
 | `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の HTML（`trouble_shooting.html` / `trouble_shooting_netauth.html`）。`<h2>` 単位で記事化（ADR-0076） | `troubleshooting_article` |
+| `redmine_error_taiou/` | `redmine_error_taiou.dvc` | Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | `troubleshooting_article`（`source_key=redmine_error_taiou`） |
 
 どのファイルを読むかは環境変数で指定します（`/data` からの相対パス）:
 `QA_ORIGINAL_FILE` / `QUESTION_ALTERED_FILE` / `CATEGORY_FILE`（ローカルは `.env`、AWS は `terraform/.env` の `TF_VAR_*`）。
-トラブルシューティング HTML のパスは `db_init/src/main.py` の `TROUBLESHOOTING_SOURCES` に固定です。
+トラブルシューティング記事（HTML・CSV）のパスは `db_init/src/main.py` の `TROUBLESHOOTING_SOURCES` に固定です。
+
+`error_taiou_o/` を置いた場合、それは CSV に変換する前の Redmine Wiki の保存 HTML（顧客名を含む）です。
+git（`.gitignore`）にもイメージ（`../.dockerignore`）にも入りません。
 
 ## 操作（リポジトリルートで実行）
 
@@ -29,4 +33,5 @@ terraform\dvc.bat push                          DVC リモートへ送る（忘�
 |---|---|
 | [`hiroba_qa.dvc`](hiroba_qa.dvc) | `hiroba_qa/` の DVC ポインタ（内容ハッシュ・ファイル数）。`dvc pull` で `hiroba_qa/` が展開される |
 | [`troubleshooting.dvc`](troubleshooting.dvc) | `troubleshooting/` の DVC ポインタ |
-| [`.gitignore`](.gitignore) | DVC が展開するデータ本体（`/hiroba_qa`・`/troubleshooting`）を git の対象外にする（`dvc add` が生成） |
+| [`redmine_error_taiou.dvc`](redmine_error_taiou.dvc) | `redmine_error_taiou/` の DVC ポインタ |
+| [`.gitignore`](.gitignore) | DVC が展開するデータ本体（`/hiroba_qa`・`/troubleshooting`・`/redmine_error_taiou`）を git の対象外にする（`dvc add` が生成）。加工前の `/error_taiou_o` も対象外にする |
