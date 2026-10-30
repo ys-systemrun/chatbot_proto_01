@@ -13,7 +13,7 @@ QA_GUID = "11111111-1111-1111-1111-111111111111"
 
 def _repo(tmp_path):
     (tmp_path / "db_init/data/hiroba_qa").mkdir(parents=True)
-    (tmp_path / "data").mkdir()
+    (tmp_path / "evals/queries").mkdir(parents=True)
     (tmp_path / "db_init/data/hiroba_qa/exportjson_withguid.json").write_text(json.dumps([
         {"guid": QA_GUID, "title": "見積書の複製", "answer": "［複写］ボタンで複製します。", "question": "q", "category": "c"},
         {"guid": "22222222-2222-2222-2222-222222222222", "title": "別QA", "answer": "別回答", "question": "q", "category": "c"},
@@ -21,10 +21,10 @@ def _repo(tmp_path):
     (tmp_path / "db_init/data/hiroba_qa/question_altered.csv").write_text(
         f"qa_id,text\n{QA_GUID},見積書を複製したい\n{QA_GUID},見積書のコピー方法\n"
         "22222222-2222-2222-2222-222222222222,別の質問\n", encoding="utf-8")
-    (tmp_path / "data/eval_queries.csv").write_text(
+    (tmp_path / "evals/queries/eval_queries.csv").write_text(
         f'query,qa_id\n"見積書を複製するには",{QA_GUID}\n"ContainerNotFound",9c8e1b0c-0000-0000-0000-000000000000\n',
         encoding="utf-8")
-    (tmp_path / "data/eval_noise_queries.csv").write_text('query\n"おすすめのカフェは？"\n', encoding="utf-8")
+    (tmp_path / "evals/queries/eval_noise_queries.csv").write_text('query\n"おすすめのカフェは？"\n', encoding="utf-8")
     return tmp_path
 
 

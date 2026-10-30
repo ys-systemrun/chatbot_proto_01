@@ -36,8 +36,8 @@ COLUMNS = [
 
 QA_JSON = Path("db_init/data/hiroba_qa/exportjson_withguid.json")
 PARAPHRASE_CSV = Path("db_init/data/hiroba_qa/question_altered.csv")
-HANDPICKED_CSV = Path("data/eval_queries.csv")
-NOISE_CSV = Path("data/eval_noise_queries.csv")
+HANDPICKED_CSV = Path("evals/queries/eval_queries.csv")
+NOISE_CSV = Path("evals/queries/eval_noise_queries.csv")
 
 
 def load(path: Path) -> list[dict]:
@@ -92,8 +92,8 @@ def reference_answer(item: dict, qa_answers: dict[str, dict] | None) -> str | No
 def build_initial(repo: Path, sample: int, seed: int) -> list[dict]:
     """初版のゴールデンセットを作る。
 
-    - handpicked: data/eval_queries.csv（手作りの質問と正解 QA）
-    - out_of_scope: data/eval_noise_queries.csv（範囲外。回答を控えるのが正解）
+    - handpicked: evals/queries/eval_queries.csv（手作りの質問と正解 QA）
+    - out_of_scope: evals/queries/eval_noise_queries.csv（範囲外。回答を控えるのが正解）
     - paraphrase_indexed: 言い換え質問文から seed 固定で抽出（1 QA につき1問）。言い換え質問文は検索用に
       埋め込み済みのため、出典の正しさは楽観的に出る（回答の質の比較には使える）
     """

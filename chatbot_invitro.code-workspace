@@ -2,7 +2,6 @@
   "folders": [
     { "name": "front_dev", "path": "front_dev" },
     { "name": "app",       "path": "app"       },
-    { "name": "data (Go)", "path": "data"      },
     { "name": "root",      "path": "."         }
   ],
   "settings": {

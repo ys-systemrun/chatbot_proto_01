@@ -6,7 +6,6 @@ app/chatbot_invitro.egg-info/
 **/__pycache__/
 db_multilingual/data/
 db_conversation/data/
-data/original_qa_frac/
 web_backend/chatbot_invitro.egg-info/
 
 # Terraform（IMPL-202608101542 §4.2 / ADR-0028）

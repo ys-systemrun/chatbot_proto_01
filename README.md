@@ -13,7 +13,6 @@
 | [`evals/`](evals/README.md) | 回答品質の評価ランナーと評価結果（ADR-0099） |
 | [`terraform/`](terraform/README.md) | AWS へのデプロイ（Terraform 構成と、apply / destroy / seed / import-data / dvc 等の .bat） |
 | [`docs/`](docs/README.md) | ADR・要件定義・実装指示書・画面遷移図・ネットワーク構成図などの設計文書 |
-| [`data/`](data/README.md) | 評価用クエリ CSV と、元データの加工用 Go スクリプト・作業用データ（シード元データは `db_init/data/`） |
 | [`.devcontainer/`](.devcontainer/README.md) | VS Code Dev Container の設定（Python / Node / Go の開発環境） |
 | [`.dvc/`](.dvc/README.md) | DVC の設定（シード元データ・評価結果を S3 で管理, ADR-0097） |
 | [`.vscode/`](.vscode/README.md) | VS Code のワークスペース設定（未追跡） |
@@ -24,15 +23,14 @@
 | [`build.bat`](build.bat) | `docker-compose -p chatbot_invitro up -d --build` でローカル環境をビルド・起動し、ログを表示する |
 | [`storybook.bat`](storybook.bat) | `docker-compose.storybook.yml` で Storybook をビルド・起動する |
 | [`debug_question.bat`](debug_question.bat) | 旧構成（`app` サービス）で `seed` と `debug_question` を実行して停止する。現在の compose にはサービス名 `app` が無く、そのままでは動かない |
-| [`chatbot_invitro.code-workspace`](chatbot_invitro.code-workspace) | VS Code のマルチルートワークスペース定義（`front_dev`・`app`・`data`・ルート。`app` は旧構成の名残） |
+| [`chatbot_invitro.code-workspace`](chatbot_invitro.code-workspace) | VS Code のマルチルートワークスペース定義（`front_dev`・`app`・ルート。`app` は旧構成の名残） |
 | [`依存関係メモ.drawio`](依存関係メモ.drawio) | 旧 web_backend（`main/*.py`・`src/llm`・`src/keyword` 等）とフロントエンド（`App.tsx`・各コンポーネント）のモジュール依存関係のメモ図（draw.io） |
 | [`依存関係メモ_20260626_1329.drawio`](依存関係メモ_20260626_1329.drawio) | 上の図の 2026-06-26 時点版（未追跡）。stateless 画面・評価済みメッセージ画面、conversation DB を追加 |
 | [`CLAUDE.md`](CLAUDE.md) | Claude Code 向けのプロジェクト規約（画面変更時の画面遷移図の同期更新ルール） |
 | [`.gitignore`](.gitignore) / [`.dvcignore`](.dvcignore) | git / DVC の除外設定（`.dvcignore` は雛形のコメントのみ） |
 
 ローカル専用（Git 管理外）: `.env`（ローカル環境の実設定）、`.local/`（ローカル DB ボリューム, ADR-0098）、
-`db_nomic/data/`・`db_multilingual/data/`・`db_conversation/data/`（ADR-0098 以前のローカル DB ボリュームの置き場）、
-`data/original_qa_frac/`（作業用データ）。中身はリポジトリに含めません。
+`db_nomic/data/`・`db_multilingual/data/`・`db_conversation/data/`（ADR-0098 以前のローカル DB ボリュームの置き場）。
 
 ### 利用前に
 1. LMStudio を立ち上げて chat用モデルとembedding用モデルをダウンロードしてください。.env.exampleでは仮に google_gemma-4-E4B-it-GGUF(google/gemma-4-e4b), Nomic-embed-text-v1.5-Embedding-GGUF(text-embedding-nomic-embed-text-v1.5@q8_0) をダウンロードするものとします。その後、Ctrl + 2 でDevelopper画面に移動し、上部のトグルで LM Studio Local Serve を Running にし、Load Model ボタンでダウンロードした2つのモデルをロードしてください。
@@ -352,7 +350,7 @@ http://localhost:5173
 
 このリポジトリには、データベースの類似検索 `DB.search_similar` の性能指標として MRR (Mean Reciprocal Rank) を計測するスクリプトがあります。
 
-- 評価用 CSV: `data/eval_queries.csv`（ヘッダ例: `query,qa_id`）
+- 評価用 CSV: `evals/queries/eval_queries.csv`（ヘッダ例: `query,qa_id`）。`web_backend` の `/data` にマウントされる
 - 環境変数: `EVAL_QUERIES_CSV` にコンテナ内の CSV パスを指定できます。コンテナ実行時に `.env` 経由で注入してください。
 
 
@@ -407,7 +405,7 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 
 `title` 列・`tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
 
-> 注: 現行の `data/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
+> 注: 現行の `db_init/data/hiroba_qa/exportjson_withguid.json` にはレコード単位の `tags` フィールドが無いため、`db_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
 
 ### 起動
 

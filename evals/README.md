@@ -12,6 +12,7 @@ evals/
   judge_prompts/      LLM 採点のプロンプト（answer.md）
   judge_prices.json   採点モデルの単価表（採点費用の概算に使う。ADR-0100）
   golden/             ゴールデンセット（<名前>.csv）
+  queries/            ゴールデンセットの元にした手作りの質問（handpicked / out_of_scope）。旧 MRR 評価も読む
   history.csv         実行ごとの数値と版の推移（git 管理。質問・回答の文は含めない）
   runs/               ゴールデンセット評価の結果（<日時>_<セット>_<方式>/）… DVC 管理（runs.dvc）
   feedback/           人手評価の取り込み結果（<日時>.jsonl）… DVC 管理（feedback.dvc）
@@ -89,7 +90,7 @@ terraform\dvc.bat pull
 | `note` | 補足 |
 
 - 版ごとの内容と変更理由は `golden/README.md`。現在の既定は **v2（25問）**。v1 は正解設定の誤りを含むため、比較の基準にしない。
-- 初版（v1, 27問）は `data/eval_queries.csv`（4問）・`data/eval_noise_queries.csv`（3問）と、言い換え質問文から seed 固定で抽出した20問。
+- 初版（v1, 27問）は `queries/eval_queries.csv`（4問）・`queries/eval_noise_queries.csv`（3問）と、言い換え質問文から seed 固定で抽出した20問。
 - **`paraphrase_indexed` の質問は検索用に埋め込み済みの文そのもの**なので、出典の一致率は実際より高く出る。
   回答の質の比較には使えるが、検索の評価は `handpicked` と `feedback` を重視する。
 - 人手評価で 👎 になった質問は、内容を確認してから `category=feedback` で追記していく（回帰テストとして育てる）。

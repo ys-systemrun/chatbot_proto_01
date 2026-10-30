@@ -13,7 +13,7 @@ services:
       - MODEL_EMBEDDING=${MODEL_EMBEDDING}
       - LMSTUDIO_CHAT_URL=${LMSTUDIO_CHAT_URL}
       - MODEL_CHAT=${MODEL_CHAT}
-      # 評価スクリプト（src/main/evaluate.py）の入力。リポジトリ直下 data/ を /data にマウントして読む。
+      # 評価スクリプト（src/main/evaluate.py）の入力。evals/queries/ を /data にマウントして読む。
       - CSV_DATA_DIR=${CSV_DATA_DIR}
       - EVAL_QUERIES_CSV=${EVAL_QUERIES_CSV}
       - EVAL_NOISE_QUERIES_CSV=${EVAL_NOISE_QUERIES_CSV}
@@ -28,7 +28,7 @@ services:
     tty: true
     volumes:
       - ./web_backend:/app
-      - ./${CSV_DATA_DIR:-data}:/data
+      - ./evals/queries:/data
     depends_on:
       knowledge_db:
         condition: service_healthy
