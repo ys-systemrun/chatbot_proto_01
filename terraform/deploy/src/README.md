@@ -8,7 +8,7 @@
 | 名前 | 説明 |
 |---|---|
 | [`__init__.py`](__init__.py) | パッケージ定義とバージョン（旧 ps1 からの置き換えの経緯を docstring に記載） |
-| [`__main__.py`](__main__.py) | CLI エントリポイント。argparse でサブコマンド（bootstrap / apply-datastore / dvc / apply-database / apply-app / apply-all / seed / migrate / import-data / query / export-data / destroy-app / destroy-database / destroy-all / shell 等）を `commands` の各関数へ振り分け、`DeployError` を捕捉して exit 1 |
+| [`__main__.py`](__main__.py) | CLI エントリポイント。argparse でサブコマンド（bootstrap / apply-datastore / dvc / apply-database / apply-app / apply-all / seed / migrate / import-data / query / export-data / kb-export / destroy-app / destroy-database / destroy-all / shell 等）を `commands` の各関数へ振り分け、`DeployError` を捕捉して exit 1 |
 | [`commands.py`](commands.py) | 各コマンドの本体（旧 *.ps1 と対応）。前提チェック、構成ごとの init/apply/destroy、イメージ build/push、シード完了ゲート、db_init run-task（seed / migrate / import / query / export）、退避と一括破棄・再開、サービス安定待機と失敗時の診断表示 |
 | [`config.py`](config.py) | 単一の `terraform/.env` を読み込み、`AWS_*` / `STATE_*` を環境変数・`TF_VAR_*` へ反映し、`TF_VAR_*` は値そのままで素通しする（ADR-0038 / ADR-0040） |
 | [`aws.py`](aws.py) | boto3 による AWS 操作（アカウント照合、S3、ECR ログイン、run-task 起動と停止待ち、CloudWatch Logs 取得、ECS サービスの desired count 変更・安定待機・診断）。boto3 は関数内で遅延 import |

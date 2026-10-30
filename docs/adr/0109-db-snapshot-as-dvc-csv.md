@@ -95,6 +95,13 @@ DB の現状を、DVC で版管理できる CSV として書き出し、そこ�
 | 5 | conversation のスナップショットと保管期間 | 同上 |
 | 6 | SQL の長期保管をやめる: `terraform/backup/` の SQL 書き出し・`destroy-all` の退避を置き換え、`rollback/` に期限を付け、全データエクスポートの CSV をそろえる | `destroy-all` → `apply-all` → `kb-import` で環境が戻ること |
 
+## 進み具合
+
+| 段階 | 状況 |
+|---|---|
+| 1 | 済み（2026-10-30）。db_init の `EXPORT_MODE` に `EXPORT_FORMAT=csv`（S3 の `snapshot/<ts>/` か `EXPORT_DIR` へ）を追加（`snapshot_export.py`）。デプロイツールに `kb-export`（`kb-export.bat`）を追加し、取得・照合のうえ `db_init/data/knowledge/` と `snapshots/conversation/` を置き換えて `dvc add` する。2026-10-26 の AWS の退避 SQL を pgvector の DB に入れて書き出し → 空の DB に COPY で取り込み → 再度書き出し、で knowledge 9・conversation 7 テーブルすべての CSV のハッシュが一致し、NULL と空文字列の数も一致することを確認した（knowledge は CSV 約 2.1MB。退避 SQL は埋め込み込みで約 67MB）。AWS 上での `kb-export.bat` の実行は未確認 |
+| 2〜6 | 未着手 |
+
 ## 影響
 
 - `db_init/data/` は「元データ」から「DB の版」に意味が変わる。KB の版（`KB_DATA_VERSION`）はスナップショットの版になる。

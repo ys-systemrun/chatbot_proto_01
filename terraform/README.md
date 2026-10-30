@@ -108,6 +108,7 @@ terraform/
 ├── destroy-app.bat      app 構成のみ破棄（RDS は残す。'destroy-app' 入力の確認あり）
 ├── destroy-database.bat database 構成を破棄（RDS 削除。'destroy-database' 入力の確認あり）
 ├── export-data.bat      両 DB を terraform/backup/ へ SQL で退避（非破壊。ADR-0103）
+├── kb-export.bat        両 DB を CSV スナップショットとして書き出し dvc add（非破壊。ADR-0109）
 ├── destroy-all.bat      退避 → destroy-app → destroy-database を一括実行（'destroy-all' 入力の確認あり。ADR-0103）
 ├── deploy/                 コンテナ内 Python オーケストレータ（ADR-0040。*.bat の実体）
 ├── .env.example            → .env にコピーして全設定を記入（Git 管理外）
@@ -458,6 +459,7 @@ database 構成を apply すること（逆順だと SG の削除が ENI の使�
 | [`query.bat`](query.bat) | `deploy query` を実行（`terraform/query.sql` をマスターロールで実行し結果を表示, ADR-0083） |
 | [`query.sql.example`](query.sql.example) | `query.bat` 用 SQL のテンプレート。コピーして `query.sql`（Git 管理外）を作る |
 | [`export-data.bat`](export-data.bat) | `deploy export-data` を実行（両 DB を `terraform/backup/` へ SQL で退避。非破壊, ADR-0103） |
+| [`kb-export.bat`](kb-export.bat) | `deploy kb-export` を実行（両 DB をテーブルごとの CSV スナップショットとして書き出す。knowledge は `db_init/data/knowledge/`、conversation は `snapshots/conversation/` に置いて `dvc add` する。非破壊, ADR-0109） |
 | [`destroy-app.bat`](destroy-app.bat) | `deploy destroy-app` を実行（app 構成のみ破棄。RDS は残る） |
 | [`destroy-database.bat`](destroy-database.bat) | `deploy destroy-database` を実行（database 構成を破棄。RDS とデータが消える） |
 | [`destroy-all.bat`](destroy-all.bat) | `deploy destroy-all` を実行（退避 → destroy-app → destroy-database。`--resume-from` で再開可, ADR-0103） |

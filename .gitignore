@@ -33,3 +33,6 @@ terraform/backup/
 
 # 評価ランナーの設定（ADR-0099）。evals/.env.example は追跡される。
 evals/.env
+
+# ADR-0109: kb-export の取得中の一時フォルダ
+snapshots/.incoming/

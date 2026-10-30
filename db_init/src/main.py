@@ -32,6 +32,8 @@
   - EXPORT_MODE=true（ADR-0103）: 通常フローを実行せず、両データベースの対象テーブルを読み取り専用で
     退避 SQL（TRUNCATE + INSERT）にし、マニフェストとともに IMPORT_BUCKET の export/<EXPORT_TIMESTAMP>/ へ
     置く。EXPORT_MANIFEST_ONLY=true なら SQL を作らずマニフェスト（行数・スキーマ版）だけを置く。
+    EXPORT_FORMAT=csv（ADR-0109）なら SQL ではなくテーブルごとの CSV スナップショット（COPY 形式）と
+    マニフェストを、IMPORT_BUCKET の snapshot/<EXPORT_TIMESTAMP>/ か、EXPORT_DIR（ローカル）へ置く。
   IMPORT_MODE / QUERY_MODE / EXPORT_MODE / MIGRATE_ONLY は排他。2 つ以上を指定すると起動時にエラー終了する。
 """
 
@@ -52,6 +54,7 @@ import backfill_title_and_tags
 import export_data
 import import_data
 import seed_description_and_aliases
+import snapshot_export
 import troubleshooting_import
 from db import DB
 from embedding import get_embedding
@@ -110,7 +113,11 @@ QUERY_SQL = os.environ.get("QUERY_SQL", "")
 EXPORT_MODE = os.environ.get("EXPORT_MODE", "").strip().lower() in ("1", "true", "yes")
 EXPORT_MANIFEST_ONLY = os.environ.get("EXPORT_MANIFEST_ONLY", "").strip().lower() in ("1", "true", "yes")
 EXPORT_TIMESTAMP = os.environ.get("EXPORT_TIMESTAMP", "").strip()
-EXPORT_PREFIX = os.environ.get("EXPORT_PREFIX", "export").strip()
+EXPORT_PREFIX = os.environ.get("EXPORT_PREFIX", "").strip()
+# 書き出しの形式（ADR-0109）。sql（既定, ADR-0103 の退避 SQL）/ csv（テーブルごとの CSV スナップショット）。
+EXPORT_FORMAT = os.environ.get("EXPORT_FORMAT", "sql").strip().lower()
+# csv のときの書き出し先（ローカル実行用）。指定があれば S3 ではなくこのディレクトリへ書く。
+EXPORT_DIR = os.environ.get("EXPORT_DIR", "").strip()
 IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
 IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
 IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
@@ -643,20 +650,33 @@ def run_export_mode():
     """退避エクスポートを実行して終了する（ADR-0103, EXPORT_MODE）。読み取り専用。"""
     print(f"{_now()} ====== db_init start (EXPORT MODE, ADR-0103).")
     try:
-        if not IMPORT_BUCKET:
-            raise RuntimeError("EXPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です。")
+        if EXPORT_FORMAT not in ("sql", "csv"):
+            raise RuntimeError(f"EXPORT_FORMAT は sql / csv のいずれかです: {EXPORT_FORMAT!r}")
+        if not IMPORT_BUCKET and not (EXPORT_FORMAT == "csv" and EXPORT_DIR):
+            raise RuntimeError("EXPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です（csv は EXPORT_DIR でも可）。")
         if not EXPORT_TIMESTAMP:
             raise RuntimeError("EXPORT_MODE では EXPORT_TIMESTAMP（退避の識別子）が必須です。")
         knowledge_url, conversation_url = _resolve_import_work_urls()
-        export_data.run_export(
-            knowledge_url=knowledge_url,
-            conversation_url=conversation_url,
-            bucket=IMPORT_BUCKET,
-            timestamp=EXPORT_TIMESTAMP,
-            prefix=EXPORT_PREFIX,
-            manifest_only=EXPORT_MANIFEST_ONLY,
-            region=AWS_REGION,
-        )
+        if EXPORT_FORMAT == "csv":
+            snapshot_export.run_snapshot_export(
+                knowledge_url=knowledge_url,
+                conversation_url=conversation_url,
+                timestamp=EXPORT_TIMESTAMP,
+                bucket=IMPORT_BUCKET or None,
+                prefix=EXPORT_PREFIX or "snapshot",
+                directory=EXPORT_DIR or None,
+                region=AWS_REGION,
+            )
+        else:
+            export_data.run_export(
+                knowledge_url=knowledge_url,
+                conversation_url=conversation_url,
+                bucket=IMPORT_BUCKET,
+                timestamp=EXPORT_TIMESTAMP,
+                prefix=EXPORT_PREFIX or "export",
+                manifest_only=EXPORT_MANIFEST_ONLY,
+                region=AWS_REGION,
+            )
     except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
         print(f"{_now()} ERROR: db_init export failed: {exc}", file=sys.stderr)
         traceback.print_exc()

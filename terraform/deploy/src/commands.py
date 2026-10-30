@@ -874,6 +874,10 @@ _BACKUP_MANIFEST = "manifest.json"
 _BACKUP_FILES = ("knowledge.sql", "conversation.sql", _BACKUP_MANIFEST)
 _BACKUP_DISPLAY = "terraform\\backup"
 _EXPORT_PREFIX = "export"
+# ADR-0109: CSV スナップショット。S3 の snapshot/<ts>/ から取得し、knowledge はシード元データの場所、
+# conversation は復旧専用の場所に置いて dvc add する。
+_SNAPSHOT_PREFIX = "snapshot"
+_SNAPSHOT_DIRS = {"knowledge": ("db_init", "data", "knowledge"), "conversation": ("snapshots", "conversation")}
 _JST = timezone(timedelta(hours=9))
 _DESTROY_STAGES = ("destroy-app", "destroy-database")
 
@@ -1009,19 +1013,28 @@ def _export_context(cfg: config.Config, batch: str) -> _ExportContext | None:
     return _ExportContext(cluster, app_service, subnets, sg, family, bucket)
 
 
-def _run_export_task(cfg: config.Config, ctx: _ExportContext, ts: str, *, manifest_only: bool) -> None:
-    """db_init を EXPORT_MODE で run-task 起動し、ログを表示して exitCode=0 を確かめる。"""
+def _run_export_task(
+    cfg: config.Config, ctx: _ExportContext, ts: str, *, manifest_only: bool, fmt: str = "sql"
+) -> None:
+    """db_init を EXPORT_MODE で run-task 起動し、ログを表示して exitCode=0 を確かめる。
+
+    fmt="csv" は ADR-0109 の CSV スナップショット（snapshot/<ts>/ に置く）。
+    """
     region = cfg.aws_region
     env = {
         "EXPORT_MODE": "true",
         "EXPORT_TIMESTAMP": ts,
-        "EXPORT_PREFIX": _EXPORT_PREFIX,
+        "EXPORT_PREFIX": _SNAPSHOT_PREFIX if fmt == "csv" else _EXPORT_PREFIX,
+        "EXPORT_FORMAT": fmt,
         "IMPORT_BUCKET": ctx.bucket,
         "AWS_REGION": region,
     }
     if manifest_only:
         env["EXPORT_MANIFEST_ONLY"] = "true"
-    label = "スキーマ版の取得" if manifest_only else "退避エクスポート"
+    if fmt == "csv":
+        label = "スナップショットの書き出し"
+    else:
+        label = "スキーマ版の取得" if manifest_only else "退避エクスポート"
     log.step(f"{label} run-task 起動（{ctx.family}, EXPORT_MODE, ts={ts}）")
     task_arn = aws.run_import_task(
         ctx.cluster, ctx.family, ctx.subnets, ctx.security_group, region,
@@ -1079,8 +1092,92 @@ def _fetch_backup(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
     return manifest
 
 
-def _run_export(cfg: config.Config, ctx: _ExportContext, *, restore_on_success: bool) -> dict:
-    """集約サービスを止めて退避し、ローカルへ取得する。失敗時は必ずサービスを元に戻す（F-13 / F-16）。"""
+def _snapshot_dir(label: str) -> Path:
+    return paths.repo_root().joinpath(*_SNAPSHOT_DIRS[label])
+
+
+def _snapshot_sha256(table_hashes: dict) -> str:
+    """db_init/src/snapshot_export.snapshot_sha256 と同じ計算（テーブル順と各 CSV のハッシュから決める）。"""
+    text = "".join(f"{table} {digest}\n" for table, digest in table_hashes.items())
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _verify_snapshot_files(directory: Path, entry: dict) -> None:
+    """スナップショットの CSV がそろい、SHA-256 とデータベース全体のハッシュがマニフェストと一致することを確かめる。"""
+    actual: dict = {}
+    for table, info in entry.get("tables", {}).items():
+        path = directory / info["file"]
+        if not path.is_file():
+            raise DeployError(f"スナップショットの CSV がありません: {path}")
+        actual[table] = _sha256_file(path)
+        if actual[table] != info.get("sha256"):
+            raise DeployError(
+                f"スナップショットの CSV の SHA-256 がマニフェストと一致しません: {path}\n"
+                f"  manifest={info.get('sha256')} / actual={actual[table]}"
+            )
+    if _snapshot_sha256(actual) != entry.get("snapshot_sha256"):
+        raise DeployError(f"スナップショット全体のハッシュがマニフェストと一致しません: {directory}")
+
+
+def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
+    """snapshot/<ts>/ を一時フォルダへ取得・照合し、成功したらスナップショットの場所を置き換える（ADR-0109）。"""
+    incoming = paths.repo_root() / "snapshots" / ".incoming"
+    if incoming.exists():
+        shutil.rmtree(incoming)
+    incoming.mkdir(parents=True)
+
+    base = f"{_SNAPSHOT_PREFIX}/{ts}"
+    log.step(f"スナップショットの取得（s3://{ctx.bucket}/{base}/）")
+    aws.download_file(ctx.bucket, f"{base}/{_BACKUP_MANIFEST}", str(incoming / _BACKUP_MANIFEST), cfg.aws_region)
+    manifest = _read_manifest(incoming)
+    if manifest is None:
+        raise DeployError("取得したマニフェストを読み込めませんでした。")
+    for label in _BACKUP_LABELS:
+        entry = manifest.get("databases", {}).get(label)
+        if not entry:
+            raise DeployError(f"マニフェストに {label} がありません。")
+        (incoming / label).mkdir()
+        for info in entry["tables"].values():
+            aws.download_file(
+                ctx.bucket, f"{base}/{label}/{info['file']}", str(incoming / label / info["file"]), cfg.aws_region
+            )
+        _verify_snapshot_files(incoming / label, entry)
+    log.ok("SHA-256 照合 OK")
+
+    try:
+        commit = gitinfo.current().commit
+    except DeployError:
+        commit = "unknown"
+    environment = {
+        "aws_account_id": aws.account_id(),
+        "aws_region": cfg.aws_region,
+        "cluster": ctx.cluster,
+        "git_commit": commit,
+    }
+    manifest["environment"] = environment
+    # データベースごとのフォルダに、そのデータベースだけのマニフェストを置く。
+    for label in _BACKUP_LABELS:
+        own = {k: v for k, v in manifest.items() if k != "databases"}
+        own["databases"] = {label: manifest["databases"][label]}
+        with open(incoming / label / _BACKUP_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
+            json.dump(own, f, ensure_ascii=False, indent=2)
+
+    # 照合に成功してから、両データベースの場所をまとめて置き換える。
+    for label in _BACKUP_LABELS:
+        target = _snapshot_dir(label)
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(incoming / label, target)
+    shutil.rmtree(incoming)
+    return manifest
+
+
+def _run_export(cfg: config.Config, ctx: _ExportContext, *, restore_on_success: bool, fmt: str = "sql") -> dict:
+    """集約サービスを止めて退避し、ローカルへ取得する。失敗時は必ずサービスを元に戻す（F-13 / F-16）。
+
+    fmt="csv" は ADR-0109 の CSV スナップショット（取得先は _fetch_snapshot）。
+    """
     region = cfg.aws_region
     prior: int | None = None
     succeeded = False
@@ -1092,8 +1189,8 @@ def _run_export(cfg: config.Config, ctx: _ExportContext, *, restore_on_success: 
         aws.wait_services_stable(ctx.cluster, [ctx.app_service], region)
 
         ts = _export_timestamp()
-        _run_export_task(cfg, ctx, ts, manifest_only=False)
-        manifest = _fetch_backup(cfg, ctx, ts)
+        _run_export_task(cfg, ctx, ts, manifest_only=False, fmt=fmt)
+        manifest = _fetch_snapshot(cfg, ctx, ts) if fmt == "csv" else _fetch_backup(cfg, ctx, ts)
         succeeded = True
         return manifest
     finally:
@@ -1129,6 +1226,33 @@ def cmd_export_data(assume_yes: bool = False) -> None:
     manifest = _run_export(cfg, ctx, restore_on_success=True)
     log.step("退避エクスポート完了")
     _print_backup_result(manifest)
+
+
+def cmd_kb_export(assume_yes: bool = False) -> None:
+    """両データベースを CSV スナップショットとして書き出し、dvc add する（ADR-0109 段階 1）。非破壊。"""
+    cfg = config.load_config()
+    prerequisites(cfg)
+    ctx = _export_context(cfg, "kb-export.bat")
+    if ctx is None:
+        return
+    dirs = {label: _snapshot_dir(label).relative_to(paths.repo_root()).as_posix() for label in _BACKUP_LABELS}
+    log.warn("=== スナップショットの書き出し（ADR-0109） ===")
+    log.warn(f"対象: knowledge → {dirs['knowledge']}/ 、conversation → {dirs['conversation']}/（今の中身は置き換わる）")
+    log.warn(f"実行中は集約サービス（{ctx.app_service}）を停止し、終了後に元へ戻します。")
+    prompts.confirm_or_exit("スナップショットを書き出します。", assume_yes)
+
+    manifest = _run_export(cfg, ctx, restore_on_success=True, fmt="csv")
+
+    log.step("dvc add（スナップショットの版を記録）")
+    proc.run(["dvc", "add", *dirs.values()], cwd=paths.repo_root(), what="dvc add")
+    log.step("スナップショットの書き出し完了")
+    for label in _BACKUP_LABELS:
+        entry = manifest["databases"][label]
+        rows = sum(t["rows"] for t in entry["tables"].values())
+        log.info(f"{label}: {len(entry['tables'])} テーブル / {rows} 行 → {dirs[label]}/")
+    log.info("続けて、.dvc をコミットし DVC リモートへ送ってください:")
+    log.info(f"  git add {' '.join(d + '.dvc' for d in dirs.values())} && git commit")
+    log.info("  terraform\\dvc.bat push")
 
 
 def _resume_backup(cfg: config.Config) -> dict:

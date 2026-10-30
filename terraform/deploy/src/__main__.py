@@ -58,6 +58,8 @@ def build_parser() -> argparse.ArgumentParser:
     qry.add_argument("--sql-file", default=None, help="実行する SQL ファイルのパス（既定: query.sql）")
     # ADR-0103: 退避エクスポート（非破壊）と、退避付き一括破棄。
     add("export-data", with_yes=True)
+    # ADR-0109: DB の現状を CSV スナップショットとして書き出し、dvc add する（非破壊）。
+    add("kb-export", with_yes=True)
     da = add("destroy-all")  # 破壊的操作のため --yes は設けない
     da.add_argument(
         "--resume-from",
@@ -100,6 +102,8 @@ def main(argv=None) -> None:
             commands.cmd_query(target=args.target, sql_file=args.sql_file)
         elif args.command == "export-data":
             commands.cmd_export_data(args.yes)
+        elif args.command == "kb-export":
+            commands.cmd_kb_export(args.yes)
         elif args.command == "destroy-all":
             commands.cmd_destroy_all(resume_from=args.resume_from)
         elif args.command == "destroy-app":

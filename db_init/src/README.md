@@ -16,4 +16,5 @@
 | [`seed_description_and_aliases.py`](seed_description_and_aliases.py) | 一部タグの説明文と同義語（`tag_alias`）の暫定シード（Tag Selector MCP の動作確認用） |
 | [`troubleshooting_import.py`](troubleshooting_import.py) | トラブルシューティング記事の CSV（1 行 = 1 記事, ADR-0105 / ADR-0108）を読み、`troubleshooting_article` に冪等投入する。HTML を `<h2>` 単位に分割・構造化する `parse_articles`（ADR-0076）は、変換ツール `tools/troubleshooting_html_to_csv.py` が使う |
 | [`import_data.py`](import_data.py) | `IMPORT_MODE` の全データインポート。事前バックアップを S3 に置き、対象テーブルを TRUNCATE して S3 の SQL ダンプを同一トランザクションで投入する（ADR-0066） |
+| [`snapshot_export.py`](snapshot_export.py) | `EXPORT_MODE` + `EXPORT_FORMAT=csv` のスナップショット書き出し。読み取り専用トランザクションで全対象テーブルを COPY 形式の CSV（主キー順・埋め込みを除く）にし、マニフェストとともに S3 か `EXPORT_DIR` に置く（ADR-0109, kb-export から使用） |
 | [`export_data.py`](export_data.py) | `EXPORT_MODE` の退避エクスポート。読み取り専用トランザクションで全対象テーブルを SQL（TRUNCATE + INSERT）とマニフェストにして S3 に置く（ADR-0103, destroy-all / export-data から使用） |
