@@ -37,7 +37,8 @@ CSV にそろえれば、VS Code の Edit csv などで同じように確認・�
 4. **1 テーブル 1 ファイル。** ファイル名は投入先のテーブルが分かる名前にする。
 5. **列名は投入先テーブルの列名にそろえる。** 例: `hiroba_qa_original` なら `uuid,title,question_text,answer_text,category_id`。DB が採番する列（`id SERIAL`）・埋め込み（`embedding`）・作成/更新日時は持たない。
 6. **外部キーは DB に入る値（ID）で持つ。** 名前から ID への引き直しはシード時に行わない（例: QA のカテゴリは名前ではなく `category_id`）。
-7. **識別子の列を先頭に置き、必ず値を入れる。** 投入のたびに乱数で採番しない（取り込み直しても同じ値になるようにする）。トラブルシューティング記事は `uuid`、QA は `uuid`。
+7. **識別子の列を先頭に置き、必ず値を入れる。** 投入のたびに乱数で採番しない（取り込み直しても同じ値になるようにする）。トラブルシューティング記事は `uuid`、QA は `uuid`、カテゴリは `id`。
+   例外として言い換え質問文（`hiroba_question_altered`）は自身の識別子を持たない（DB が `id SERIAL` で採番し、QA へは `qa_id` で紐づく）。CSV に `id` を持たせると採番の連番とずれる危険があるため、当面この形のままとする。
 8. **取り込みに使わない補足の列を持ってよい**（例: Redmine の元ページ名 `source_page`）。読み込み処理は読み捨てる。
 
 ### 読み込み
@@ -66,7 +67,7 @@ CSV にそろえれば、VS Code の Edit csv などで同じように確認・�
 |---|---|---|
 | 1 | 広場 QA 本体（`exportjson_withguid.json`） | `hiroba_qa_original.csv` にする。カテゴリを ID にする（上の 6）。読み込み箇所（`seed_helpers.load_qa_original_json`・`backfill_title_and_tags.py`・`evals/runner/golden.py`）と `QA_ORIGINAL_FILE` を変える |
 | 2 | トラブルシューティング（`troubleshooting/*.html`） | `parse_articles` で CSV にする。`uuid` は現在の導出値（ADR-0106）をそのまま書き出す（出典 ID とゴールデンセット v3 を変えないため）。元の表を含む `body_html` は列として残し、CSV の読み込みは「`body_html` 列があれば使い、無ければ `guidance` から組み立てる」にする |
-| 3 | 既存の CSV（`category.csv`・`question_altered.csv`・`redmine_error_taiou.csv`） | 書式（上の 1）と列名（上の 5）をそろえる。`question_altered` の `qa_id`、Redmine の `guid` → `uuid` など。列名の変更は変換と同時に行わない（3. の比較を単純にするため） |
+| 3 | 既存の CSV（`category.csv`・`question_altered.csv`・`redmine_error_taiou.csv`） | 書式（上の 1）と列名（上の 5）をそろえる。Redmine の `guid` → `uuid`（`category` の `id,name`、`question_altered` の `qa_id,text` は DB の列名と同じため変えない）。列名の変更は変換と同時に行わない（3. の比較を単純にするため） |
 
 ## 移行の状況
 
@@ -74,7 +75,7 @@ CSV にそろえれば、VS Code の Edit csv などで同じように確認・�
 |---|---|
 | 1 | 済み（2026-10-30）。`hiroba_qa/hiroba_qa_original.csv`（列 `uuid,title,question_text,answer_text,category_id,category_name`。`category_name` は確認用で読み捨て）。変換は `db_init/tools/hiroba_qa_json_to_csv.py`。旧 JSON と CSV で空の DB にシードし、`hiroba_category`・`hiroba_qa_original`（title を含む全列）・タグが一致することを確認した。JSON は削除（DVC の履歴に残る） |
 | 2 | 済み（2026-10-30）。`troubleshooting/trouble_shooting.csv`・`trouble_shooting_netauth.csv`（列は `uuid` と `troubleshooting_article` の列。`body_html` は元の表を含む HTML）。変換は `db_init/tools/troubleshooting_html_to_csv.py`（`parse_articles` を流用）。`uuid` は HTML 時代の導出値と同じ。旧 HTML と CSV で空の DB にシードし、`troubleshooting_article` の全 94 行が id・埋め込み元テキスト・uuid を含めて一致することを確認した。シードは CSV だけを読む。HTML は削除（DVC の履歴に残る） |
-| 3 | 未着手 |
+| 3 | 済み（2026-10-30）。`category.csv`・`question_altered.csv` は書式だけを書き直し（列名は DB と同じ）、`redmine_error_taiou.csv` は書式に加えて `guid` を `uuid` に改名した。書き直しは `db_init/tools/normalize_csv.py`。読み込み結果（カテゴリ 8 件・言い換え 5,033 件・Redmine 29 件の全項目と uuid）が書き直し前と一致することを確認した。読み込み処理の `guid` 列の受け付けは削除。カテゴリと言い換えの読み込みも BOM を許容する（上の 10） |
 
 ## 影響
 

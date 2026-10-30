@@ -72,7 +72,7 @@ ARTICLE_UUID_NAMESPACE = uuid_lib.uuid5(uuid_lib.NAMESPACE_URL, "chatbot_invitro
 
 
 def derive_article_uuid(source_key: str, title: str) -> str:
-    """CSV の guid を持たない記事（HTML 由来）の uuid を決める。同じ (source_key, title) なら常に同じ値。"""
+    """CSV に uuid が無い記事の uuid を決める。同じ (source_key, title) なら常に同じ値。"""
     return str(uuid_lib.uuid5(ARTICLE_UUID_NAMESPACE, f"{source_key}/{title}"))
 
 
@@ -321,7 +321,7 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
 
     - 必須列は title / guidance。どちらかが空の行は投入対象外にする。
     - 任意列は CSV_OPTIONAL_FIELDS と source_updated_at。空欄は None に正規化する。
-    - uuid 列（旧名 guid）があれば uuid に入れる（ADR-0106）。無い・空なら (source_key, title) から決める。
+    - uuid 列があれば uuid に入れる（ADR-0106）。無い・空なら (source_key, title) から決める。
     - body_html 列に値があればそのまま使う（HTML から変換した記事は元の表を含む HTML を持つ）。
       無ければ guidance から組み立てる（CSV だけを正本にし、HTML と二重に直さずに済むようにする）。
     """
@@ -341,7 +341,7 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
             title=title,
             body_html=row.get("body_html") or _text_to_html(title, guidance),
             guidance=guidance,
-            uuid=_clean(row.get("uuid")) or _clean(row.get("guid")) or derive_article_uuid(source_key, title),
+            uuid=_clean(row.get("uuid")) or derive_article_uuid(source_key, title),
         )
         for field_name in CSV_OPTIONAL_FIELDS:
             setattr(article, field_name, _clean(row.get(field_name)))

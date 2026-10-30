@@ -186,7 +186,7 @@ def test_parse_csv_articles_reads_real_seed_csv_if_present():
     import io
     import uuid
 
-    guids = [row["guid"] for row in csv.DictReader(io.StringIO(text))]
+    guids = [row["uuid"] for row in csv.DictReader(io.StringIO(text))]
     assert len(set(guids)) == len(arts)  # 行ごとに異なる UUID
     assert all(uuid.UUID(g).version == 5 for g in guids)
 
@@ -200,11 +200,11 @@ def test_uuid_is_derived_from_source_key_and_title_for_html():
     assert a.to_insert_tuple()[ti.ARTICLE_COLUMNS.index("uuid")] == a.uuid
 
 
-def test_csv_uses_guid_column_as_uuid():
-    text = '"guid","title","guidance"\n"11111111-2222-5333-8444-555555555555","t1","g"\n"","t2","g"\n'
+def test_csv_uses_uuid_column():
+    text = '"uuid","title","guidance"\n"11111111-2222-5333-8444-555555555555","t1","g"\n"","t2","g"\n'
     a, b = ti.parse_csv_articles(text, "redmine_error_taiou")
     assert a.uuid == "11111111-2222-5333-8444-555555555555"
-    assert b.uuid == ti.derive_article_uuid("redmine_error_taiou", "t2")  # guid が空なら導出
+    assert b.uuid == ti.derive_article_uuid("redmine_error_taiou", "t2")  # uuid が空なら導出
 
 
 class _FakeCursor:

@@ -19,7 +19,7 @@ def resolve_csv_path(filename: str, data_dir: str) -> str:
 def load_category_csv(data_dir: str, category_file: str):
     category_path = resolve_csv_path(category_file, data_dir)
     rows: List[Category] = []
-    with open(category_path, "r", encoding="utf-8", newline="") as f:
+    with open(category_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
         required = {"id", "name"}
@@ -74,7 +74,7 @@ def load_qa_original_csv(data_dir: str, qa_original_file: str, category_file: st
 def load_question_altered_csv(data_dir: str, question_altered_file: str):
     question_altered_path = resolve_csv_path(question_altered_file, data_dir)
     rows: List[QuestionAltered] = []
-    with open(question_altered_path, "r", encoding="utf-8", newline="") as f:
+    with open(question_altered_path, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         fieldnames = reader.fieldnames or []
         required = {"qa_id", "text"}

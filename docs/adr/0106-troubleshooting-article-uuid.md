@@ -16,7 +16,7 @@ ADR-0105 で、Redmine Wiki 由来の CSV に行ごとの UUID（`guid` 列）�
 
 1. **マイグレーション 0011 で `troubleshooting_article.uuid TEXT` と一意索引を追加する。** NULL を許す（既存行は次回シードで埋めるため）。
 2. **値はシードが入れる。**
-   - CSV 由来: `guid` 列の値。空なら下の導出値。
+   - CSV 由来: `guid` 列（ADR-0108 で `uuid` に改名）の値。空なら下の導出値。
    - HTML 由来: `(source_key, title)` から UUID v5 で導出する（名前空間は `troubleshooting_import.ARTICLE_UUID_NAMESPACE`。変えない）。同じ元データからは何度取り込んでも同じ値になる。
 3. **既存行は次回シードでバックフィルする。** `(source_key, title)` が一致し `uuid` が NULL の行に、uuid だけを UPDATE する。本文・embedding・タグなどは従来どおり上書きしない。ADR-0066 の全データインポートで 0011 より前のダンプを入れた場合も、次回シードで埋まる。
 4. **新しいタイトルの記事の uuid が、別タイトルの既存行ですでに使われていれば投入しない（警告を出す）。** 元データ側でタイトルを変えた場合に、同じ記事が二重に入るのを防ぐ。DB 側の記事を直すか消してから再シードする。
