@@ -189,3 +189,74 @@ def test_parse_csv_articles_reads_real_seed_csv_if_present():
     guids = [row["guid"] for row in csv.DictReader(io.StringIO(text))]
     assert len(set(guids)) == len(arts)  # 行ごとに異なる UUID
     assert all(uuid.UUID(g).version == 5 for g in guids)
+
+
+def test_uuid_is_derived_from_source_key_and_title_for_html():
+    arts = ti.parse_articles(TABLE_HTML, "trouble_shooting")
+    a = arts[0]
+    assert a.uuid == ti.derive_article_uuid("trouble_shooting", "マスタの読み込み時にエラー")
+    assert a.uuid == ti.parse_articles(TABLE_HTML, "trouble_shooting")[0].uuid  # 何度パースしても同じ
+    assert a.uuid != ti.derive_article_uuid("trouble_shooting_netauth", a.title)  # 出自が違えば別
+    assert a.to_insert_tuple()[ti.ARTICLE_COLUMNS.index("uuid")] == a.uuid
+
+
+def test_csv_uses_guid_column_as_uuid():
+    text = '"guid","title","guidance"\n"11111111-2222-5333-8444-555555555555","t1","g"\n"","t2","g"\n'
+    a, b = ti.parse_csv_articles(text, "redmine_error_taiou")
+    assert a.uuid == "11111111-2222-5333-8444-555555555555"
+    assert b.uuid == ti.derive_article_uuid("redmine_error_taiou", "t2")  # guid が空なら導出
+
+
+class _FakeCursor:
+    def __init__(self, rows, executed):
+        self._rows = rows
+        self._executed = executed
+        self.rowcount = 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def execute(self, sql, params=None):
+        self._executed.append((sql, params))
+
+    def fetchall(self):
+        return self._rows
+
+
+class _FakeConn:
+    def __init__(self, rows):
+        self.rows = rows
+        self.executed = []
+
+    def cursor(self):
+        return _FakeCursor(self.rows, self.executed)
+
+    def commit(self):
+        pass
+
+
+def _article(title, uuid):
+    return ti.TroubleshootingArticle(
+        source_key="redmine_error_taiou", title=title, body_html="b", guidance="g", uuid=uuid
+    )
+
+
+def test_import_articles_backfills_uuid_of_existing_rows():
+    # 既存行（embedding あり・uuid なし）→ uuid だけを埋め、embedding は計算しない。
+    conn = _FakeConn([("redmine_error_taiou", "t1", False, None)])
+    stats = ti.import_articles(conn, [_article("t1", "u-1")], embed_fn=lambda _: [0.0])
+    assert stats["backfilled_uuids"] == 1
+    assert stats["inserted"] == 0
+    assert any("SET uuid" in sql and params[0] == "u-1" for sql, params in conn.executed)
+
+
+def test_import_articles_skips_new_title_whose_uuid_is_already_used():
+    # 元データでタイトルが変わった（uuid は同じ）→ 二重投入せず警告する。
+    conn = _FakeConn([("redmine_error_taiou", "旧タイトル", False, "u-1")])
+    stats = ti.import_articles(conn, [_article("新タイトル", "u-1")], embed_fn=lambda _: [0.0])
+    assert stats["inserted"] == 0
+    assert len(stats["warnings"]) == 1 and "u-1" in stats["warnings"][0]
+    assert not any(sql.startswith("INSERT") for sql, _ in conn.executed)

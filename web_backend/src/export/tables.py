@@ -215,6 +215,7 @@ KNOWLEDGE_TABLES: list[TableSpec] = [
             "created_at",
             "updated_at",
             "is_searchable",
+            "uuid",
         ],
         order_by=["id"],
         csv_exclude={"embedding"},
@@ -241,6 +242,7 @@ KNOWLEDGE_TABLES: list[TableSpec] = [
             "    created_at TIMESTAMP NOT NULL DEFAULT now(),\n"
             "    updated_at TIMESTAMP NOT NULL DEFAULT now(),\n"
             "    is_searchable BOOLEAN NOT NULL DEFAULT true,\n"
+            "    uuid TEXT UNIQUE,\n"
             "    UNIQUE (source_key, title)\n"
             ");"
         ),

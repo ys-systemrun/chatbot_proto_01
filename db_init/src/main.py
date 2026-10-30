@@ -583,6 +583,7 @@ def seed_troubleshooting_articles(url: str):
         f"{_now()} troubleshooting seed done: "
         f"inserted={stats['inserted']}, "
         f"backfilled_embeddings={stats['backfilled_embeddings']}, "
+        f"backfilled_uuids={stats['backfilled_uuids']}, "
         f"skipped_existing={stats['skipped_existing']}."
     )
 

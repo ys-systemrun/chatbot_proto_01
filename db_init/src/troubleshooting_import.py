@@ -22,6 +22,7 @@ from __future__ import annotations
 import csv
 import html
 import io
+import uuid as uuid_lib
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, List, Optional
@@ -62,7 +63,18 @@ ARTICLE_COLUMNS = [
     "keyword_raw",
     "body_html",
     "source_updated_at",
+    "uuid",
 ]
+
+# HTML 由来の記事の uuid を (source_key, title) から決めるための UUID v5 名前空間（ADR-0106）。
+# 値を変えると既存の記事と別の uuid になるため、変えない。
+ARTICLE_UUID_NAMESPACE = uuid_lib.uuid5(uuid_lib.NAMESPACE_URL, "chatbot_invitro/troubleshooting_article")
+
+
+def derive_article_uuid(source_key: str, title: str) -> str:
+    """CSV の guid を持たない記事（HTML 由来）の uuid を決める。同じ (source_key, title) なら常に同じ値。"""
+    return str(uuid_lib.uuid5(ARTICLE_UUID_NAMESPACE, f"{source_key}/{title}"))
+
 
 # 最終更新日時のパース候補フォーマット（10.1節: パース失敗時は NULL とし、ログで気付けるようにする）。
 _DATETIME_FORMATS = (
@@ -92,6 +104,8 @@ class TroubleshootingArticle:
     notes: Optional[str] = None
     keyword_raw: Optional[str] = None
     source_updated_at: Optional[datetime] = None
+    # DB の採番に依存しない識別子（ADR-0106）。
+    uuid: Optional[str] = None
     # パース時に検知した警告（最終更新日時のパース失敗など。運用側がログで気付けるようにする）。
     warnings: List[str] = field(default_factory=list)
 
@@ -114,6 +128,7 @@ class TroubleshootingArticle:
             self.keyword_raw,
             self.body_html,
             self.source_updated_at,
+            self.uuid,
         )
 
 
@@ -249,6 +264,7 @@ def _build_article(
         body_html=body_html,
         guidance="",  # 後で確定させる
         subtitle=subtitle,
+        uuid=derive_article_uuid(source_key, title),
     )
 
     if table is not None:
@@ -305,6 +321,7 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
 
     - 必須列は title / guidance。どちらかが空の行は投入対象外にする。
     - 任意列は CSV_OPTIONAL_FIELDS と source_updated_at。空欄は None に正規化する。
+    - guid 列があれば uuid に入れる（ADR-0106）。無い・空なら (source_key, title) から決める。
     - body_html は guidance から組み立てる（CSV だけを正本にし、HTML と二重に直さずに済むようにする）。
     """
     reader = csv.DictReader(io.StringIO(csv_text))
@@ -323,6 +340,7 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
             title=title,
             body_html=_text_to_html(title, guidance),
             guidance=guidance,
+            uuid=_clean(row.get("guid")) or derive_article_uuid(source_key, title),
         )
         for field_name in CSV_OPTIONAL_FIELDS:
             setattr(article, field_name, _clean(row.get(field_name)))
@@ -338,16 +356,17 @@ def parse_csv_articles(csv_text: str, source_key: str) -> List[TroubleshootingAr
 # DB 投入（冪等: (source_key, title) 存在チェック, 10.2節）
 # ---------------------------------------------------------------------------
 def fetch_existing_state(conn) -> dict:
-    """既存レコードの {(source_key, title): embedding_is_null(bool)} を返す。
+    """既存レコードの {(source_key, title): (embedding_is_null(bool), uuid)} を返す。
 
     embedding_is_null=True の行は、ダンプ再インポート（knowledge.sql には embedding を
     含めない）直後などで embedding 未計算の状態。次回シードで埋め込みをバックフィルする。
+    uuid が None の行は 0011 適用前に投入された行で、次回シードで uuid をバックフィルする（ADR-0106）。
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT source_key, title, embedding IS NULL FROM troubleshooting_article"
+            "SELECT source_key, title, embedding IS NULL, uuid FROM troubleshooting_article"
         )
-        return {(sk, t): is_null for sk, t, is_null in cur.fetchall()}
+        return {(sk, t): (is_null, u) for sk, t, is_null, u in cur.fetchall()}
 
 
 def import_articles(
@@ -361,12 +380,17 @@ def import_articles(
     - 既存 & embedding NULL: ダンプ再インポート直後等。embedding を計算して UPDATE（バックフィル）。
       本文・タイトル等はダンプ由来のものと HTML パース結果が一致する前提（同一原本）。
     - 既存 & embedding あり: 上書きしない（管理UIでの手動編集・タグ付けを保護, 10.2節）。
+    - 既存 & uuid NULL: uuid だけを埋める（ADR-0106。0011 適用前に投入された行）。
+    - 新規だが uuid が別タイトルの既存行と同じ: 元データ側でタイトルを変えたとみなし、投入せず警告する
+      （二重投入を防ぐ。DB 側の記事を直すか消してから再シードする）。
 
-    Returns 統計（inserted / backfilled_embeddings / skipped_existing / warnings）。
+    Returns 統計（inserted / backfilled_embeddings / backfilled_uuids / skipped_existing / warnings）。
     """
     existing = fetch_existing_state(conn)
+    used_uuids = {u: key for key, (_, u) in existing.items() if u}
     inserted = 0
     backfilled = 0
+    backfilled_uuids = 0
     skipped = 0
     all_warnings: List[str] = []
 
@@ -382,7 +406,16 @@ def import_articles(
             all_warnings.extend(article.warnings)
             key = (article.source_key, article.title)
             if key in existing:
-                if existing[key]:  # embedding が NULL の既存行 → バックフィル
+                embedding_is_null, current_uuid = existing[key]
+                if current_uuid is None and article.uuid and article.uuid not in used_uuids:
+                    cur.execute(
+                        "UPDATE troubleshooting_article SET uuid = %s "
+                        "WHERE source_key = %s AND title = %s AND uuid IS NULL",
+                        (article.uuid, article.source_key, article.title),
+                    )
+                    backfilled_uuids += cur.rowcount
+                    used_uuids[article.uuid] = key
+                if embedding_is_null:  # embedding が NULL の既存行 → バックフィル
                     embedding = embed_fn(build_embedding_text(article))
                     cur.execute(
                         "UPDATE troubleshooting_article SET embedding = %s "
@@ -393,13 +426,24 @@ def import_articles(
                 else:
                     skipped += 1
                 continue
+            if article.uuid in used_uuids:
+                other = used_uuids[article.uuid]
+                all_warnings.append(
+                    f"uuid {article.uuid} は既存の記事 {other!r} が使用中のため投入しません"
+                    f"（元データでタイトルが変わった可能性）: {key!r}"
+                )
+                skipped += 1
+                continue
             embedding = embed_fn(build_embedding_text(article))
             cur.execute(insert_sql, article.to_insert_tuple() + (embedding,))
             inserted += cur.rowcount
+            if article.uuid:
+                used_uuids[article.uuid] = key
     conn.commit()
     return {
         "inserted": inserted,
         "backfilled_embeddings": backfilled,
+        "backfilled_uuids": backfilled_uuids,
         "skipped_existing": skipped,
         "warnings": all_warnings,
     }

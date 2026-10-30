@@ -18,3 +18,4 @@ embedding 列の次元数が環境（埋め込みモデル）に依存するス�
 | [`0008_add_tag_display_order.sql`](0008_add_tag_display_order.sql) | `tag`・`tag_folder` に兄弟内の表示順 `display_order` を追加し、既存行に初期値を採番（ADR-0074） |
 | [`0009_add_troubleshooting_article_tables.py`](0009_add_troubleshooting_article_tables.py) | トラブルシューティング記事 `troubleshooting_article` と `troubleshooting_article_tag` を作成（ADR-0076）。embedding 次元は 0002 と同じく環境変数から |
 | [`0010_add_is_searchable.sql`](0010_add_is_searchable.sql) | 情報源レコードの検索対象フラグ `is_searchable`（既定 true）を QA・言い換え・トラブルシューティング記事の3テーブルに追加（ADR-0092） |
+| [`0011_add_troubleshooting_article_uuid.sql`](0011_add_troubleshooting_article_uuid.sql) | `troubleshooting_article.uuid`（DB の採番に依存しない識別子）と一意索引を追加。値はシードが入れ、既存行もシードでバックフィルする（ADR-0106） |
