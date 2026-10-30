@@ -91,9 +91,9 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 | FRONT_PORT | 5173 | デバッグ UI (Vite dev server) の対ホストポート |
 | DB_PORT | 5432 | Q&Aおよび埋め込みベクトルデータを保存するPostgreSQL DBコンテナの対ホストポート |
 | EMBEDDING_VECTOR_DIM | 768 | `db_init` が `question_altered.embedding` を `VECTOR(N)` で作成する際の次元数。埋め込みモデルの出力次元に合わせる（nomic-embed-text→768）。次元を変える場合は `.local/volumes/knowledge_db` を作り直す。埋め込みモデル差異はこの1変数で吸収し、スキーマは単一のマイグレーション履歴で管理する（ADR-0017）。 |
-| CSV_DATA_DIR | data | コンテナ内のデータディレクトリ（`/data`）。`db_init` には `db_init/data/`（情報源別ディレクトリ, ADR-0098）、`web_backend` にはリポジトリ直下の `data/`（評価用CSV）がマウントされる。 |
-| QA_ORIGINAL_FILE | hiroba_qa/small/exportjson_withguid.json | オリジナルの質問・回答の組データのJSONファイル。(GUIDを付与したもの) |
-| QUESTION_ALTERED_FILE | hiroba_qa/small/question_altered.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
+| CSV_DATA_DIR | data | コンテナ内のデータディレクトリ（`/data`）。`db_init` には `db_init/data/`（情報源別ディレクトリ, ADR-0098）、`web_backend` には `evals/queries/`（評価用CSV）がマウントされる。 |
+| QA_ORIGINAL_FILE | hiroba_qa/exportjson_withguid.json | オリジナルの質問・回答の組データのJSONファイル。(GUIDを付与したもの) |
+| QUESTION_ALTERED_FILE | hiroba_qa/question_altered.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
 | CATEGORY_FILE | hiroba_qa/category.csv | 問い合わせを分類するカテゴリとそのコード値を記載したファイル。 |
 | MODEL_EMBEDDING | text-embedding-nomic-embed-text-v1.5@q8_0 | embedding用のモデル名 |
 | LMSTUDIO_EMBDDING_URL | http://host.docker.internal:1234/v1/embeddings | LM Studio 上の embedding用のモデルのエンドポイント |

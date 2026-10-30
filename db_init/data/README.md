@@ -7,7 +7,6 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 | ディレクトリ | `.dvc` | 内容 | 投入先テーブル |
 |---|---|---|---|
 | `hiroba_qa/` | `hiroba_qa.dvc` | 維津美の広場 QA。`category.csv`（カテゴリ）、`exportjson_withguid.json`（QA 本体, GUID 付与済み）、`question_altered.csv`（言い換え質問文） | `hiroba_category` / `hiroba_qa_original` / `hiroba_question_altered` |
-| `hiroba_qa/small/` | （`hiroba_qa.dvc` に含む） | 開発・検証用の縮小版（QA 本体・言い換えのみ。カテゴリはフル版と共通） | 同上 |
 | `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の HTML（`trouble_shooting.html` / `trouble_shooting_netauth.html`）。`<h2>` 単位で記事化（ADR-0076） | `troubleshooting_article` |
 
 どのファイルを読むかは環境変数で指定します（`/data` からの相対パス）:
