@@ -19,6 +19,7 @@
 
 1. **整形済み CSV を元データにする。** 保存 HTML から本文（`div.wiki-page`）だけを取り出して、1 行 = 1 記事の CSV（`db_init/data/redmine_error_taiou/redmine_error_taiou.csv`）にする。
    - 列名は `troubleshooting_article` の列名にそろえる（`title`・`error_message`・`guidance`・`cause`・`notes`・`source_updated_at`）。元のページ名を `source_page` に残す（取り込みには使わない）。
+   - 先頭列 `guid` に、行ごとの UUID を持たせる。Wiki ページの URL から UUID v5 で決めるので、変換し直しても、タイトルを伏せ字で変えても同じ値になる。現時点では DB には入れない（`troubleshooting_article` に列が無い。取り込み時は読み捨てる）。
    - 本文中にエラーメッセージがあれば `error_message` にも入れる。本文（`guidance`）からは消さない。チャットの検索（埋め込み）と回答に渡す情報は `guidance` を使い、`error_message` は使わないため（ADR-0078）。
    - UTF-8（BOM なし）・LF 改行・全フィールドをダブルクォートで囲む。BOM を付けると VS Code の Edit csv で先頭の列名が崩れるため。
 2. **変換は 1 回限りのツールで行い、伏せ字もツールに書く。** `db_init/tools/redmine_wiki_to_csv.py` が変換する。顧客名の伏せ字（`REDACTIONS`）と、本文から取るエラーメッセージ（`ERROR_MESSAGE_FROM_BODY`）をツールに書き、変換し直しても同じ結果になるようにする。更新者名などページ下部は読まない。

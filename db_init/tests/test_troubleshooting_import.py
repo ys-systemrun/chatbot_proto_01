@@ -176,7 +176,16 @@ def test_parse_csv_articles_reads_real_seed_csv_if_present():
 
         pytest.skip("redmine_error_taiou.csv is not pulled (dvc pull)")
     with open(path, encoding="utf-8-sig", newline="") as f:
-        arts = ti.parse_csv_articles(f.read(), "redmine_error_taiou")
+        text = f.read()
+    arts = ti.parse_csv_articles(text, "redmine_error_taiou")
     assert len(arts) == 29
     assert len({a.title for a in arts}) == len(arts)  # (source_key, title) の一意性
     assert all(a.warnings == [] for a in arts)
+
+    import csv
+    import io
+    import uuid
+
+    guids = [row["guid"] for row in csv.DictReader(io.StringIO(text))]
+    assert len(set(guids)) == len(arts)  # 行ごとに異なる UUID
+    assert all(uuid.UUID(g).version == 5 for g in guids)

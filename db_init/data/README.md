@@ -8,7 +8,7 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 |---|---|---|---|
 | `hiroba_qa/` | `hiroba_qa.dvc` | 維津美の広場 QA。`category.csv`（カテゴリ）、`exportjson_withguid.json`（QA 本体, GUID 付与済み）、`question_altered.csv`（言い換え質問文） | `hiroba_category` / `hiroba_qa_original` / `hiroba_question_altered` |
 | `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の HTML（`trouble_shooting.html` / `trouble_shooting_netauth.html`）。`<h2>` 単位で記事化（ADR-0076） | `troubleshooting_article` |
-| `redmine_error_taiou/` | `redmine_error_taiou.dvc` | Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | `troubleshooting_article`（`source_key=redmine_error_taiou`） |
+| `redmine_error_taiou/` | `redmine_error_taiou.dvc` | Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事, 各行に UUID の `guid`）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | `troubleshooting_article`（`source_key=redmine_error_taiou`） |
 
 どのファイルを読むかは環境変数で指定します（`/data` からの相対パス）:
 `QA_ORIGINAL_FILE` / `QUESTION_ALTERED_FILE` / `CATEGORY_FILE`（ローカルは `.env`、AWS は `terraform/.env` の `TF_VAR_*`）。

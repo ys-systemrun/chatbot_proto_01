@@ -8,6 +8,8 @@
 出力は UTF-8（BOM なし, LF 改行）で、全フィールドをダブルクォートで囲む。
 （BOM を付けると VS Code の Edit csv で先頭の列名に BOM が混ざり、正しく表示されないため付けない。）
 
+各行の guid は Wiki ページの URL から UUID v5 で決める。変換し直しても、タイトルを伏せ字で変えても同じ値になる。
+
 使い方（リポジトリルートで実行）:
     python db_init/tools/redmine_wiki_to_csv.py <保存HTMLのディレクトリ> db_init/data/redmine_error_taiou/redmine_error_taiou.csv
 """
@@ -20,12 +22,13 @@ import glob
 import os
 import re
 import sys
+import uuid
 from datetime import datetime
 from urllib.parse import unquote
 
 from bs4 import BeautifulSoup, NavigableString, Tag
 
-COLUMNS = ["title", "error_message", "guidance", "cause", "notes", "source_updated_at", "source_page"]
+COLUMNS = ["guid", "title", "error_message", "guidance", "cause", "notes", "source_updated_at", "source_page"]
 
 # 伏せ字（置換前, 置換後）。タイトル・本文・エラーメッセージのすべてに適用する。
 REDACTIONS = [
@@ -132,13 +135,18 @@ def parse_page(html: str) -> dict:
                 continue
 
     page = ""
+    page_url = ""
     for a in soup.select("div.contextual a[href$='/edit']"):
-        m = re.search(r"/wiki/([^/]+)/edit$", a["href"])
+        m = re.search(r"^(.+/wiki/([^/]+))/edit$", a["href"])
         if m:
-            page = unquote(m.group(1))
+            page_url = unquote(m.group(1))
+            page = unquote(m.group(2))
             break
+    if not page_url:
+        raise ValueError("wiki page URL not found (needed for guid)")
 
     return {
+        "guid": str(uuid.uuid5(uuid.NAMESPACE_URL, page_url)),
         "title": title,
         "error_message": error_message_for(title, guidance),
         "guidance": guidance,
