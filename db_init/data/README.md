@@ -14,6 +14,9 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 `QA_ORIGINAL_FILE` / `QUESTION_ALTERED_FILE` / `CATEGORY_FILE`（ローカルは `.env`、AWS は `terraform/.env` の `TF_VAR_*`）。
 トラブルシューティング記事（HTML・CSV）のパスは `db_init/src/main.py` の `TROUBLESHOOTING_SOURCES` に固定です。
 
+シード元データは CSV に統一していく方針です（ADR-0108）。新しく CSV を作る・書き出すときは ADR-0108 の書式
+（UTF-8・BOM なし・LF・全フィールド引用符、列名は投入先テーブルの列名、識別子を先頭列に必須）に従ってください。
+
 `error_taiou_o/` を置いた場合、それは CSV に変換する前の Redmine Wiki の保存 HTML（顧客名を含む）です。
 git（`.gitignore`）にもイメージ（`../.dockerignore`）にも入りません。
 
