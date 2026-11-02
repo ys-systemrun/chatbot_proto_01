@@ -59,7 +59,13 @@ def build_parser() -> argparse.ArgumentParser:
     # ADR-0103: 退避エクスポート（非破壊）と、退避付き一括破棄。
     add("export-data", with_yes=True)
     # ADR-0109: DB の現状を CSV スナップショットとして書き出し、dvc add する（非破壊）。
-    add("kb-export", with_yes=True)
+    kbe = add("kb-export", with_yes=True)
+    kbe.add_argument(
+        "--target",
+        choices=["knowledge", "conversation", "both"],
+        default="both",
+        help="書き出してスナップショットを置き換えるデータベース（既定: both, ADR-0109）",
+    )
     kbi = add("kb-import")  # 破壊的操作のため --yes は設けない（クラスタ名のタイプ確認）
     kbi.add_argument(
         "--target",
@@ -115,7 +121,7 @@ def main(argv=None) -> None:
         elif args.command == "export-data":
             commands.cmd_export_data(args.yes)
         elif args.command == "kb-export":
-            commands.cmd_kb_export(args.yes)
+            commands.cmd_kb_export(args.yes, target=args.target)
         elif args.command == "kb-import":
             commands.cmd_kb_import(target=args.target, force=args.force)
         elif args.command == "destroy-all":

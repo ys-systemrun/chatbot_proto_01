@@ -13,12 +13,15 @@ rem conversation -> snapshots\conversation\    (restore only; contains chat logs
 rem One CSV per table (PostgreSQL COPY format, embeddings excluded) plus manifest.json, then "dvc add".
 rem The app service is stopped during the export and restored afterwards (success or failure).
 rem After it finishes: commit the .dvc files and run "terraform\dvc.bat push".
+rem If a database has fewer rows than the local snapshot (e.g. a new, empty conversation DB),
+rem it asks before replacing the local snapshot, even with --yes. Use --target to export only one database.
 rem
 rem Prereq: Docker Desktop running; terraform\.env filled; both database and app applied.
 rem
 rem Usage (double-click = asks y/N), or from a prompt:
 rem   kb-export.bat
 rem   kb-export.bat --yes
+rem   kb-export.bat --target knowledge
 call "%~dp0deploy\run.bat" kb-export %*
 echo.
 echo ---- Finished. This window stays open. Type 'exit' to close it. ----

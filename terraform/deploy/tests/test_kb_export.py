@@ -233,3 +233,45 @@ def test_kb_export_rejects_broken_embedding_cache(wired):
     with pytest.raises(DeployError, match="埋め込みキャッシュ"):
         commands.cmd_kb_export(assume_yes=True)
     assert not (repo / "db_init" / "data" / "knowledge").exists()  # 何も置き換えない
+
+
+def _local_conversation_snapshot(repo, rows):
+    d = repo / "snapshots" / "conversation"
+    d.mkdir(parents=True, exist_ok=True)
+    manifest = {"databases": {"conversation": {"tables": {"conversation": {"file": "conversation.csv", "rows": rows}}}}}
+    (d / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    (d / "conversation.csv").write_text("previous", encoding="utf-8")
+    return d
+
+
+def test_kb_export_asks_before_replacing_with_fewer_rows_even_with_yes(wired, monkeypatch):
+    calls, _state, repo = wired
+    asked = []
+
+    def _confirm(message, assume_yes):
+        asked.append(assume_yes)
+        if not assume_yes:
+            raise SystemExit(1)  # 置き換えを断る
+
+    monkeypatch.setattr(commands.prompts, "confirm_or_exit", _confirm)
+    d = _local_conversation_snapshot(repo, rows=9)  # 手元は 9 行、書き出しは 1 行
+
+    with pytest.raises(SystemExit):
+        commands.cmd_kb_export(assume_yes=True)
+
+    assert asked == [True, False]  # 最初の確認は --yes で省略、行数が減る確認は省略しない
+    assert (d / "conversation.csv").read_text(encoding="utf-8") == "previous"  # 手元の版は残る
+    assert not (repo / "snapshots" / ".incoming").exists()
+    assert not any(c[0] == "run" for c in calls)  # dvc add しない
+
+
+def test_kb_export_target_knowledge_keeps_conversation_snapshot(wired):
+    calls, _state, repo = wired
+    d = _local_conversation_snapshot(repo, rows=9)
+
+    commands.cmd_kb_export(assume_yes=True, target="knowledge")
+
+    assert (d / "conversation.csv").read_text(encoding="utf-8") == "previous"  # 触らない
+    assert (repo / "db_init" / "data" / "knowledge" / "tag.csv").is_file()
+    assert ("run", ["dvc", "add", "db_init/data/knowledge"]) in calls
+    assert not (repo / "snapshots" / ".incoming").exists()

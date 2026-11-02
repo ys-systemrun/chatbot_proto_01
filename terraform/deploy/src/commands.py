@@ -1133,9 +1133,16 @@ def _verify_snapshot_files(directory: Path, entry: dict) -> None:
         raise DeployError(f"スナップショット全体のハッシュがマニフェストと一致しません: {directory}")
 
 
+def _incoming_snapshot_dir() -> Path:
+    return paths.repo_root() / "snapshots" / ".incoming"
+
+
 def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
-    """snapshot/<ts>/ を一時フォルダへ取得・照合し、成功したらスナップショットの場所を置き換える（ADR-0109）。"""
-    incoming = paths.repo_root() / "snapshots" / ".incoming"
+    """snapshot/<ts>/ を一時フォルダ（snapshots/.incoming/）へ取得・照合する（ADR-0109）。
+
+    置き換えは _place_snapshot で行う（その前に、手元の版より行数が減っていないかを確かめるため）。
+    """
+    incoming = _incoming_snapshot_dir()
     if incoming.exists():
         shutil.rmtree(incoming)
     incoming.mkdir(parents=True)
@@ -1186,15 +1193,44 @@ def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
             own["embedding_cache"] = cache
         with open(incoming / label / _BACKUP_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             json.dump(own, f, ensure_ascii=False, indent=2)
+    return manifest
 
-    # 照合に成功してから、両データベースの場所をまとめて置き換える。
-    for label in _BACKUP_LABELS:
+
+def _snapshot_shrinks(manifest: dict, labels: list) -> list[str]:
+    """手元のスナップショットより行数が減るデータベースの説明（減らなければ空）。
+
+    新しい環境の DB（例: シードしない conversation）を書き出すと、手元の版が空の版で置き換わってしまう
+    ため、減る場合は置き換える前に確認する。
+    """
+    messages = []
+    for label in labels:
+        old = _read_manifest(_snapshot_dir(label))
+        old_tables = ((old or {}).get("databases", {}).get(label) or {}).get("tables", {})
+        new_tables = manifest["databases"][label]["tables"]
+        old_total = sum(t["rows"] for t in old_tables.values())
+        new_total = sum(t["rows"] for t in new_tables.values())
+        if new_total >= old_total:
+            continue
+        lines = [f"{label}: {old_total} 行 → {new_total} 行" + ("（空になります）" if new_total == 0 else "")]
+        for table, info in new_tables.items():
+            before = old_tables.get(table, {}).get("rows", 0)
+            if info["rows"] < before:
+                lines.append(f"  {table}: {before} → {info['rows']}")
+        messages.append("\n".join(lines))
+    return messages
+
+
+def _place_snapshot(manifest: dict, labels: list) -> None:
+    """取得・照合済みのスナップショットで、指定したデータベースの場所（と埋め込みキャッシュ）を置き換える。"""
+    incoming = _incoming_snapshot_dir()
+    for label in labels:
         target = _snapshot_dir(label)
         if target.exists():
             shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(incoming / label, target)
-    if cache:
+    cache = manifest.get("embedding_cache")
+    if cache and "knowledge" in labels:
         # そのモデルのディレクトリだけを置き換える（別のモデルのキャッシュは残す）。
         target = paths.kb_data_dir() / cache["dir"]
         if target.exists():
@@ -1202,7 +1238,6 @@ def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(incoming / cache["dir"], target)
     shutil.rmtree(incoming)
-    return manifest
 
 
 def _run_export(cfg: config.Config, ctx: _ExportContext, *, restore_on_success: bool, fmt: str = "sql") -> dict:
@@ -1260,30 +1295,49 @@ def cmd_export_data(assume_yes: bool = False) -> None:
     _print_backup_result(manifest)
 
 
-def cmd_kb_export(assume_yes: bool = False) -> None:
-    """両データベースを CSV スナップショットとして書き出し、dvc add する（ADR-0109 段階 1）。非破壊。"""
+def cmd_kb_export(assume_yes: bool = False, target: str = "both") -> None:
+    """データベースを CSV スナップショットとして書き出し、dvc add する（ADR-0109 段階 1）。非破壊。
+
+    手元の版より行数が減るデータベースがあれば、置き換える前に確認する（--yes でも省略しない）。
+    """
     cfg = config.load_config()
     prerequisites(cfg)
+    labels = _import_labels(target)
     ctx = _export_context(cfg, "kb-export.bat")
     if ctx is None:
         return
-    dirs = {label: _snapshot_dir(label).relative_to(paths.repo_root()).as_posix() for label in _BACKUP_LABELS}
+    dirs = {label: _snapshot_dir(label).relative_to(paths.repo_root()).as_posix() for label in labels}
     log.warn("=== スナップショットの書き出し（ADR-0109） ===")
-    log.warn(f"対象: knowledge → {dirs['knowledge']}/ 、conversation → {dirs['conversation']}/（今の中身は置き換わる）")
+    log.warn("対象: " + " 、".join(f"{label} → {d}/" for label, d in dirs.items()) + "（今の中身は置き換わる）")
     log.warn(f"実行中は集約サービス（{ctx.app_service}）を停止し、終了後に元へ戻します。")
     prompts.confirm_or_exit("スナップショットを書き出します。", assume_yes)
 
     manifest = _run_export(cfg, ctx, restore_on_success=True, fmt="csv")
 
+    shrinks = _snapshot_shrinks(manifest, labels)
+    if shrinks:
+        log.warn("手元のスナップショットより行数が減るデータベースがあります:")
+        for message in shrinks:
+            for line in message.splitlines():
+                log.warn(f"  {line}")
+        log.warn("新しい環境の DB を書き出すと、手元の版が空の版で置き換わります（conversation はシードしない）。")
+        log.warn("残したいデータベースは、置き換えずに kb-import.bat --target <対象> で AWS へ戻してください。")
+        try:
+            prompts.confirm_or_exit("それでも手元のスナップショットを置き換えます。", False)
+        except BaseException:
+            shutil.rmtree(_incoming_snapshot_dir(), ignore_errors=True)
+            raise
+    _place_snapshot(manifest, labels)
+
     targets = list(dirs.values())
-    if manifest.get("embedding_cache"):
+    if manifest.get("embedding_cache") and "knowledge" in labels:
         cache = manifest["embedding_cache"]
         targets.append("db_init/data/embedding_cache")
         log.info(f"埋め込みキャッシュ（{cache['model_id']}）: {cache['entries']} 件（DB から {cache['added']} 件追加）")
     log.step("dvc add（スナップショットの版を記録）")
     proc.run(["dvc", "add", *targets], cwd=paths.repo_root(), what="dvc add")
     log.step("スナップショットの書き出し完了")
-    for label in _BACKUP_LABELS:
+    for label in labels:
         entry = manifest["databases"][label]
         rows = sum(t["rows"] for t in entry["tables"].values())
         log.info(f"{label}: {len(entry['tables'])} テーブル / {rows} 行 → {dirs[label]}/")
