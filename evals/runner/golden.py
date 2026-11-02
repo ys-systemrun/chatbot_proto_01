@@ -13,7 +13,7 @@
 | note | 補足 |
 
 QA の回答文はゴールデンセットに複製しない。採点時に DVC 管理のシード元データ
-（`db_init/data/hiroba_qa/hiroba_qa_original.csv`, ADR-0108）から引く（ADR-0097 のデータを git に入れない方針）。
+（knowledge DB のスナップショット `db_init/data/knowledge/hiroba_qa_original.csv`, ADR-0109）から引く（ADR-0097 のデータを git に入れない方針）。
 """
 
 from __future__ import annotations
@@ -33,8 +33,8 @@ COLUMNS = [
     "note",
 ]
 
-QA_CSV = Path("db_init/data/hiroba_qa/hiroba_qa_original.csv")
-PARAPHRASE_CSV = Path("db_init/data/hiroba_qa/question_altered.csv")
+QA_CSV = Path("db_init/data/knowledge/hiroba_qa_original.csv")
+PARAPHRASE_CSV = Path("db_init/data/knowledge/hiroba_question_altered.csv")
 HANDPICKED_CSV = Path("evals/queries/eval_queries.csv")
 NOISE_CSV = Path("evals/queries/eval_noise_queries.csv")
 
@@ -128,7 +128,8 @@ def build_initial(repo: Path, sample: int, seed: int) -> list[dict]:
     by_qa: dict[str, list[str]] = {}
     with (repo / PARAPHRASE_CSV).open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
-            if row["qa_id"] in qa_answers:
+            # 主質問文の行（is_primary=t, QA の質問そのもの）は言い換えではないため除く。
+            if row["qa_id"] in qa_answers and row.get("is_primary") != "t":
                 by_qa.setdefault(row["qa_id"], []).append(row["text"])
     rng = random.Random(seed)
     for i, qa_id in enumerate(rng.sample(sorted(by_qa), min(sample, len(by_qa))), start=1):

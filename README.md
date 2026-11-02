@@ -93,9 +93,6 @@ yoyo mark --batch --database "postgresql://conversation_migrator:<password>@loca
 | DB_PORT | 5432 | Q&Aおよび埋め込みベクトルデータを保存するPostgreSQL DBコンテナの対ホストポート |
 | EMBEDDING_VECTOR_DIM | 768 | `db_init` が `question_altered.embedding` を `VECTOR(N)` で作成する際の次元数。埋め込みモデルの出力次元に合わせる（nomic-embed-text→768）。次元を変える場合は `.local/volumes/knowledge_db` を作り直す。埋め込みモデル差異はこの1変数で吸収し、スキーマは単一のマイグレーション履歴で管理する（ADR-0017）。 |
 | CSV_DATA_DIR | data | コンテナ内のデータディレクトリ（`/data`）。`db_init` には `db_init/data/`（情報源別ディレクトリ, ADR-0098）、`web_backend` には `evals/queries/`（評価用CSV）がマウントされる。 |
-| QA_ORIGINAL_FILE | hiroba_qa/hiroba_qa_original.csv | 広場 QA 本体（質問・回答・タイトル・カテゴリ ID）の CSV。各行に uuid を持つ（ADR-0108） |
-| QUESTION_ALTERED_FILE | hiroba_qa/question_altered.csv | オリジナルと同様のことを違う聞き方で聞いた場合のパターン群。ChatGPTにより生成。 |
-| CATEGORY_FILE | hiroba_qa/category.csv | 問い合わせを分類するカテゴリとそのコード値を記載したファイル。 |
 | MODEL_EMBEDDING | text-embedding-nomic-embed-text-v1.5@q8_0 | embedding用のモデル名 |
 | LMSTUDIO_EMBDDING_URL | http://host.docker.internal:1234/v1/embeddings | LM Studio 上の embedding用のモデルのエンドポイント |
 | MODEL_CHAT | google/gemma-4-e4b | チャット作成用のモデル名 |
@@ -406,7 +403,7 @@ python -m main.evaluate --top-k 10 --output /tmp/results.csv
 
 `title` 列・`tag` / `hiroba_qa_tag` テーブル、および `question_altered.is_primary` 列の作成は、`db_init` サービスが `docker compose up` 時に自動的に適用します（IMPL-202608061016）。従来の手動 SQL 適用（`docker compose exec ... psql ...`）や `title` 補完バッチの手動実行は不要になりました。旧 `knowledge_mcp/migrations/` の内容は `db_init/migrations/` の単一マイグレーション履歴（`0003_add_title_and_tag_tables.sql`, `0004_add_question_altered_is_primary.sql`）へ統合済みです。
 
-> 注: 現行の `db_init/data/hiroba_qa/hiroba_qa_original.csv` にはタグの列が無いため、`db_init` の補完処理では `title` のみが補完されます（タグ投入は 0 件）。
+> 注: QA・タグ・タグ付けなどの初期データは、knowledge DB のスナップショット（`db_init/data/knowledge/`）を空の DB に取り込んで入れます（ADR-0109）。
 
 ### 起動
 

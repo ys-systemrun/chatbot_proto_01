@@ -53,20 +53,12 @@ import psycopg2
 from psycopg2 import sql
 from yoyo import get_backend, read_migrations
 
-import backfill_title_and_tags
 import export_data
 import import_data
-import seed_description_and_aliases
 import snapshot_export
 import snapshot_import
 import troubleshooting_import
-from db import DB
 from embedding import get_embedding
-from seed_helpers import (
-    load_category_csv,
-    load_qa_original_csv,
-    load_question_altered_csv,
-)
 
 
 DATABASE_URL = os.environ["DATABASE_URL"]
@@ -145,23 +137,15 @@ else:
     EMBEDDING_MODEL = os.environ["MODEL_EMBEDDING"]
     BEDROCK_REGION = None
 # ADR-0034: シード元データはイメージに /data として同梱済み。
-# ADR-0098: /data 配下は情報源別ディレクトリ（hiroba_qa/・troubleshooting/）。
-# QA_ORIGINAL_FILE 等は CSV_DATA_DIR からの相対パス（例: hiroba_qa/hiroba_qa_original.csv）で指定する。
+# ADR-0109: knowledge DB のスナップショットは /data/knowledge/、埋め込みキャッシュは /data/embedding_cache/。
 CSV_DATA_DIR = "/" + os.environ.get("CSV_DATA_DIR", "data")
-QA_ORIGINAL_FILE = os.environ["QA_ORIGINAL_FILE"]
 # イメージに同梱したシード元データの版（ADR-0097）。ローカル実行では未設定。
 KB_DATA_VERSION = os.environ.get("KB_DATA_VERSION", "")
-QUESTION_ALTERED_FILE = os.environ["QUESTION_ALTERED_FILE"]
-CATEGORY_FILE = os.environ["CATEGORY_FILE"]
 
-# トラブルシューティング記事のソース（ADR-0076 / REQ-202609071337 10章）。
-# (CSV_DATA_DIR からの相対パス, source_key)。ADR-0034 に従いイメージ同梱の /data から読み込む。
-# ADR-0098: 情報源別ディレクトリ troubleshooting/ に配置（source_key は変更しない）。
-# ADR-0108: すべて整形済み CSV（1行 = 1記事）。troubleshooting/ の 2 本は元の HTML を
-# db_init/tools/troubleshooting_html_to_csv.py で変換したもの、redmine_error_taiou は ADR-0105。
+# 追加用のトラブルシューティング記事（ADR-0105 / ADR-0109 §9）。スナップショットに含まれていない
+# 新しい情報源だけを置き、(source_key, title) で未投入の記事だけを入れる。取り込まれた後は
+# スナップショット（次の kb-export）が正本になる。(CSV_DATA_DIR からの相対パス, source_key)。
 TROUBLESHOOTING_SOURCES = [
-    ("troubleshooting/trouble_shooting.csv", "trouble_shooting"),
-    ("troubleshooting/trouble_shooting_netauth.csv", "trouble_shooting_netauth"),
     ("redmine_error_taiou/redmine_error_taiou.csv", "redmine_error_taiou"),
 ]
 
@@ -460,92 +444,42 @@ def ensure_export_reader_role():
 
 
 # ---------------------------------------------------------------------------
-# 2-4. シード（テーブル単位の存在チェックによる冪等投入, ADR-0018）
+# シード（ADR-0109 段階 4: 空の knowledge DB へのスナップショットの取り込み + 追加分）
 # ---------------------------------------------------------------------------
-def seed_category(url: str):
-    print(f"{_now()} ====== Start seeding category...")
-    rows = load_category_csv(CSV_DATA_DIR, CATEGORY_FILE)
-    with DB(url) as db:
-        if db.exists_category():
-            print(f"{_now()} category table already has data. Skipping insertion.")
-            return
-        if rows:
-            db.insert_category(rows)
-    print(f"{_now()} Inserted {len(rows)} categories.")
+def seed_knowledge_snapshot(url: str):
+    """knowledge DB が空なら、イメージ同梱のスナップショット（/data/knowledge）を取り込む。
 
-
-def seed_qa_original(url: str):
-    print(f"{_now()} ====== Start seeding qa_original...")
-    rows = load_qa_original_csv(CSV_DATA_DIR, QA_ORIGINAL_FILE, CATEGORY_FILE)
-    with DB(url) as db:
-        if db.exists_qa_original():
-            print(f"{_now()} qa_original table already has data. Skipping insertion.")
-            return
-        if rows:
-            db.insert_qa_original(rows)
-    print(f"{_now()} Inserted {len(rows)} qa_original rows.")
-
-
-def seed_question_altered(url: str):
-    print(f"{_now()} ====== Start seeding question_altered...")
-    rows = load_question_altered_csv(CSV_DATA_DIR, QUESTION_ALTERED_FILE)
-    with DB(url) as db:
-        if db.exists_question_altered():
-            print(
-                f"{_now()} question_altered table already has data. Skipping insertion."
-            )
-            return
-        for row in rows:
-            if row.embedding is None:
-                row.embedding = get_embedding(
-                    EMBEDDING_PROVIDER,
-                    EMBEDDING_URL,
-                    EMBEDDING_MODEL,
-                    row.text,
-                    BEDROCK_REGION,
-                )
-        if rows:
-            db.insert_question_altered(rows)
-    print(f"{_now()} Inserted {len(rows)} question_altered rows.")
-
-
-# ---------------------------------------------------------------------------
-# 5-6. バックフィル / 暫定シード（既存レコードへの冪等な補完）
-# ---------------------------------------------------------------------------
-def backfill_titles_and_tags(url: str):
-    print(f"{_now()} ====== Start backfilling title / tags...")
-    csv_path = os.path.join(CSV_DATA_DIR, QA_ORIGINAL_FILE)
-    items = backfill_title_and_tags.load_records(csv_path)
+    データがあれば何もしない（取り込み直しは kb-import で明示的に行う）。スキーマ版が合わなければ
+    失敗する（マイグレーションを追加したら、スナップショットを書き出し直す, ADR-0109）。
+    埋め込みはキャッシュ（/data/embedding_cache）から補う。
+    """
+    print(f"{_now()} ====== Start seeding knowledge snapshot...")
+    if not os.path.exists(os.path.join(CSV_DATA_DIR, "knowledge", export_data.MANIFEST_FILE)):
+        print(f"{_now()} knowledge snapshot not found in {CSV_DATA_DIR}/knowledge; skipping.")
+        return
     conn = psycopg2.connect(url)
     try:
-        stats = backfill_title_and_tags.backfill(conn, items)
+        with conn.cursor() as cur:
+            has_data = snapshot_import._has_data(cur, import_data.tables_for("knowledge"))
+        conn.rollback()
     finally:
         conn.close()
-    print(
-        f"{_now()} backfill done: "
-        f"titles updated={stats['updated_titles']}, "
-        f"unique tags={stats['unique_tags']}, "
-        f"qa_tag links={stats['qa_tag_links']}"
+    if has_data:
+        print(f"{_now()} knowledge tables already have data. Skipping snapshot import.")
+        return
+    snapshot_import.run_snapshot_import(
+        target="knowledge",
+        knowledge_url=url,
+        conversation_url="",
+        timestamp=_now().strftime("%Y%m%d%H%M%S"),
+        directory=CSV_DATA_DIR,
+        cache_root=os.path.join(CSV_DATA_DIR, "embedding_cache"),
+        model_id=EMBEDDING_MODEL,
     )
 
 
-def seed_tag_descriptions_and_aliases(url: str):
-    print(f"{_now()} ====== Start seeding tag description / aliases (provisional)...")
-    conn = psycopg2.connect(url)
-    try:
-        stats = seed_description_and_aliases.seed(conn)
-    finally:
-        conn.close()
-    print(
-        f"{_now()} tag description/alias seed done: "
-        f"descriptions updated={stats['updated_descriptions']}, "
-        f"aliases inserted={stats['inserted_aliases']}, "
-        f"skipped missing tags={stats['skipped_missing_tags']}"
-    )
-
-
-def _troubleshooting_embed_fn():
-    """トラブルシューティング記事の embedding 計算関数（question_altered と同一の embed 設定）。"""
+def _embed_fn():
+    """埋め込みの計算関数（記事・言い換え質問文で共通の設定。EMBEDDING_PROVIDER に従う）。"""
 
     def embed(text: str) -> list[float]:
         return get_embedding(
@@ -587,7 +521,7 @@ def seed_troubleshooting_articles(url: str):
     conn = psycopg2.connect(url)
     try:
         stats = troubleshooting_import.import_articles(
-            conn, articles, _troubleshooting_embed_fn()
+            conn, articles, _embed_fn()
         )
     finally:
         conn.close()
@@ -603,12 +537,11 @@ def seed_troubleshooting_articles(url: str):
 
 
 def seed_if_empty(url: str):
-    seed_category(url)
-    seed_qa_original(url)
-    seed_question_altered(url)
-    backfill_titles_and_tags(url)
-    seed_tag_descriptions_and_aliases(url)
+    seed_knowledge_snapshot(url)
     seed_troubleshooting_articles(url)
+    # キャッシュに無かった埋め込み（別モデルのローカル環境・本番で欠けていた記事など）を計算して埋める。
+    print(f"{_now()} ====== Start backfilling missing embeddings...")
+    snapshot_import.backfill_missing_embeddings(url, _embed_fn())
 
 
 def _resolve_import_work_urls() -> "tuple[str, str]":
@@ -656,6 +589,8 @@ def run_import_mode():
                 cache_root=os.path.join(CSV_DATA_DIR, "embedding_cache"),
                 model_id=EMBEDDING_MODEL,
             )
+            if "knowledge" in import_data.parse_targets(IMPORT_TARGET):
+                snapshot_import.backfill_missing_embeddings(knowledge_url, _embed_fn())
         else:
             import_data.run_import(
                 target=IMPORT_TARGET,

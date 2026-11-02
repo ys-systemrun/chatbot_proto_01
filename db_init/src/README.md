@@ -8,12 +8,7 @@
 | 名前 | 説明 |
 |---|---|
 | [`main.py`](main.py) | エントリポイント。ロール作成（ADR-0052）→ knowledge マイグレーション → シード → 権限付与 → conversation DB の作成・マイグレーション → エクスポート用読み取りロール作成、を順に実行する。`MIGRATE_ONLY` / `IMPORT_MODE` / `QUERY_MODE` / `EXPORT_MODE` で起動モードを切り替える |
-| [`db.py`](db.py) | シード投入用の DB アクセス（カテゴリ・QA・言い換え質問文の存在チェックと INSERT）。テーブル単位の存在チェックで冪等にする（ADR-0018） |
-| [`models.py`](models.py) | シード対象のデータクラス（`Category`・`QAOriginal`・`QuestionAltered`） |
-| [`seed_helpers.py`](seed_helpers.py) | シード元データ（カテゴリ CSV・QA 本体 CSV・言い換え CSV）の読み込み（ADR-0108） |
 | [`embedding.py`](embedding.py) | シード時の embedding 計算。`EMBEDDING_PROVIDER` で LM Studio（OpenAI 互換 API）と Amazon Bedrock を切り替える（ADR-0031） |
-| [`backfill_title_and_tags.py`](backfill_title_and_tags.py) | QA JSON から `title` を補完し、レコードにタグがあれば `tag`・`hiroba_qa_tag` に投入する（冪等。現行データにはタグが無く title のみ補完） |
-| [`seed_description_and_aliases.py`](seed_description_and_aliases.py) | 一部タグの説明文と同義語（`tag_alias`）の暫定シード（Tag Selector MCP の動作確認用） |
 | [`troubleshooting_import.py`](troubleshooting_import.py) | トラブルシューティング記事の CSV（1 行 = 1 記事, ADR-0105 / ADR-0108）を読み、`troubleshooting_article` に冪等投入する。HTML を `<h2>` 単位に分割・構造化する `parse_articles`（ADR-0076）は、変換ツール `tools/troubleshooting_html_to_csv.py` が使う |
 | [`import_data.py`](import_data.py) | `IMPORT_MODE` の全データインポート。事前バックアップを S3 に置き、対象テーブルを TRUNCATE して S3 の SQL ダンプを同一トランザクションで投入する（ADR-0066） |
 | [`snapshot_import.py`](snapshot_import.py) | `IMPORT_MODE` + `IMPORT_FORMAT=csv` のスナップショット取り込み。CSV とハッシュの照合、スキーマ版と投入先の版の照合、S3 からなら事前退避、1 トランザクションで全消去→COPY→シーケンス調整→再書き出しでの照合→埋め込みキャッシュからの補完→記録（ADR-0109, kb-import から使用） |

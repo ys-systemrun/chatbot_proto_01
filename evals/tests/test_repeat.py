@@ -66,8 +66,8 @@ def test_compare_markdown_flags_only_differences_beyond_noise():
 
 
 def _setup(tmp_path):
-    (tmp_path / "db_init/data/hiroba_qa").mkdir(parents=True)
-    write_qa_csv(tmp_path / "db_init/data/hiroba_qa/hiroba_qa_original.csv", [(QA, "t", "a")])
+    (tmp_path / "db_init/data/knowledge").mkdir(parents=True)
+    write_qa_csv(tmp_path / "db_init/data/knowledge/hiroba_qa_original.csv", [(QA, "t", "a")])
     golden_path = tmp_path / "evals/golden/v9.csv"
     golden.write(golden_path, [
         {"id": "h001", "question": "見積書を複製するには", "expected_source_ids": f"qa:{QA}", "should_answer": "true"},

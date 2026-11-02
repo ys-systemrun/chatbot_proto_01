@@ -182,6 +182,55 @@ def fill_embeddings(cur, cache: dict[str, str]) -> dict:
     return stats
 
 
+def backfill_missing_embeddings(url: str, embed_fn, *, batch_size: int = 100) -> dict:
+    """knowledge の embedding が NULL の行を、埋め込み API で計算して埋める（ADR-0109 段階 3）。
+
+    キャッシュに無かった行（別の埋め込みモデルのローカル環境・本番で欠けていた記事など）が対象。
+    取り込みのトランザクションとは分け、batch_size 件ごとにコミットする（途中で止まっても、次の実行で
+    残りだけを続きから埋める）。埋め込みはスナップショットのハッシュに含めないため、取り込みの記録は変わらない。
+    """
+    stats = {}
+    targets = {
+        "hiroba_question_altered": "SELECT id, text FROM hiroba_question_altered WHERE embedding IS NULL ORDER BY id",
+        "troubleshooting_article": (
+            "SELECT id, title, subtitle, symptom, cause, guidance FROM troubleshooting_article "
+            "WHERE embedding IS NULL ORDER BY id"
+        ),
+    }
+    conn = psycopg2.connect(url)
+    try:
+        for table, query in targets.items():
+            with conn.cursor() as cur:
+                cur.execute(query)
+                rows = cur.fetchall()
+            done = 0
+            for start in range(0, len(rows), batch_size):
+                with conn.cursor() as cur:
+                    for row in rows[start:start + batch_size]:
+                        if table == "hiroba_question_altered":
+                            text = row[1] or ""
+                        else:
+                            article = troubleshooting_import.TroubleshootingArticle(
+                                source_key="", title=row[1], body_html="", guidance=row[5] or "",
+                                subtitle=row[2], symptom=row[3], cause=row[4],
+                            )
+                            text = troubleshooting_import.build_embedding_text(article)
+                        if not text:
+                            continue
+                        vector = "[" + ",".join(str(v) for v in embed_fn(text)) + "]"
+                        cur.execute(
+                            sql.SQL("UPDATE {} SET embedding = %s::vector WHERE id = %s").format(sql.Identifier(table)),
+                            (vector, row[0]),
+                        )
+                        done += 1
+                conn.commit()
+            stats[table] = done
+            print(f"{import_data._now()} [knowledge] {table}: embeddings computed {done} / {len(rows)}")
+    finally:
+        conn.close()
+    return stats
+
+
 # ---------------------------------------------------------------------------
 # 取り込み
 # ---------------------------------------------------------------------------

@@ -126,21 +126,6 @@ variable "csv_data_dir" {
   default = "data"
 }
 
-variable "qa_original_file" {
-  type    = string
-  default = "hiroba_qa/hiroba_qa_original.csv"
-}
-
-variable "question_altered_file" {
-  type    = string
-  default = "hiroba_qa/question_altered.csv"
-}
-
-variable "category_file" {
-  type    = string
-  default = "hiroba_qa/category.csv"
-}
-
 # 埋め込み（ADR-0031, モデルIDは実装時に確定）。db_init のシード計算で使用。
 variable "bedrock_embedding_model_id" {
   type        = string

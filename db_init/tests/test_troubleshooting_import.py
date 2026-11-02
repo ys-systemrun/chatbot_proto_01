@@ -275,15 +275,18 @@ def test_csv_uses_body_html_and_uuid_columns_when_present():
     assert b.body_html == "<h2>t2</h2>\n<p>g2</p>"  # 空なら guidance から組み立てる
 
 
-def test_real_html_derived_csv_keeps_uuid_if_present():
-    path = os.path.join(os.path.dirname(__file__), "..", "data", "troubleshooting", "trouble_shooting.csv")
+def test_snapshot_articles_keep_derived_uuid_if_present():
+    """knowledge スナップショットの記事の uuid が、HTML 時代の導出値と同じであること（ADR-0107 / ADR-0109）。"""
+    import csv
+
+    path = os.path.join(os.path.dirname(__file__), "..", "data", "knowledge", "troubleshooting_article.csv")
     if not os.path.exists(path):
         import pytest
 
-        pytest.skip("trouble_shooting.csv is not pulled (dvc pull)")
-    with open(path, encoding="utf-8-sig", newline="") as f:
-        arts = ti.parse_csv_articles(f.read(), "trouble_shooting")
-    assert len(arts) == 35
-    # uuid は HTML 時代の導出値と同じ（出典 ID・ゴールデンセット v3 の正解を変えない, ADR-0107）
-    assert all(a.uuid == ti.derive_article_uuid("trouble_shooting", a.title) for a in arts)
-    assert "64ea266f-64ac-50ef-b82f-8ea7fd1db08d" in {a.uuid for a in arts}
+        pytest.skip("knowledge snapshot is not pulled (dvc pull)")
+    with open(path, encoding="utf-8", newline="") as f:
+        rows = [r for r in csv.DictReader(f) if r["source_key"] in ("trouble_shooting", "trouble_shooting_netauth")]
+    assert len(rows) == 65
+    # 出典 ID・ゴールデンセット v3 の正解を変えない
+    assert all(r["uuid"] == ti.derive_article_uuid(r["source_key"], r["title"]) for r in rows)
+    assert "64ea266f-64ac-50ef-b82f-8ea7fd1db08d" in {r["uuid"] for r in rows}

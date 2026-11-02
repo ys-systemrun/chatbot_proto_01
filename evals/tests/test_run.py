@@ -13,7 +13,7 @@ QA_GUID = "11111111-1111-1111-1111-111111111111"
 
 
 def write_qa_csv(path, records):
-    """テスト用に hiroba_qa_original.csv（ADR-0108）を書く。records は (uuid, title, answer_text) の並び。"""
+    """テスト用に knowledge スナップショットの hiroba_qa_original.csv（ADR-0109）を書く。records は (uuid, title, answer_text) の並び。"""
     with path.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f, quoting=csv.QUOTE_ALL, lineterminator="\n")
         w.writerow(["uuid", "title", "question_text", "answer_text", "category_id"])
@@ -22,13 +22,13 @@ def write_qa_csv(path, records):
 
 
 def _repo(tmp_path):
-    (tmp_path / "db_init/data/hiroba_qa").mkdir(parents=True)
+    (tmp_path / "db_init/data/knowledge").mkdir(parents=True)
     (tmp_path / "evals/queries").mkdir(parents=True)
-    write_qa_csv(tmp_path / "db_init/data/hiroba_qa/hiroba_qa_original.csv", [
+    write_qa_csv(tmp_path / "db_init/data/knowledge/hiroba_qa_original.csv", [
         (QA_GUID, "見積書の複製", "［複写］ボタンで複製します。"),
         ("22222222-2222-2222-2222-222222222222", "別QA", "別回答"),
     ])
-    (tmp_path / "db_init/data/hiroba_qa/question_altered.csv").write_text(
+    (tmp_path / "db_init/data/knowledge/hiroba_question_altered.csv").write_text(
         f"qa_id,text\n{QA_GUID},見積書を複製したい\n{QA_GUID},見積書のコピー方法\n"
         "22222222-2222-2222-2222-222222222222,別の質問\n", encoding="utf-8")
     (tmp_path / "evals/queries/eval_queries.csv").write_text(
