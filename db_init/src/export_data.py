@@ -28,6 +28,8 @@ import import_data
 
 # yoyo-migrations が作る管理テーブル（対象外テーブルの検出から除く）。
 YOYO_TABLES = ("_yoyo_migration", "_yoyo_log", "_yoyo_version", "yoyo_lock")
+# スナップショットの取り込み・書き出しの記録（ADR-0109 §6。snapshot_state が作る管理テーブル）。
+META_TABLES = ("snapshot_state",)
 
 LABELS = ("knowledge", "conversation")
 MANIFEST_FILE = "manifest.json"
@@ -40,7 +42,7 @@ def sql_file_name(label: str) -> str:
 
 def unexpected_tables(existing: list[str], expected: list[str]) -> list[str]:
     """public スキーマのテーブルのうち、対象テーブルにも yoyo の管理テーブルにも無いものを返す。"""
-    known = set(expected) | set(YOYO_TABLES)
+    known = set(expected) | set(YOYO_TABLES) | set(META_TABLES)
     return sorted(t for t in existing if t not in known)
 
 

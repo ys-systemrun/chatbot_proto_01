@@ -506,6 +506,60 @@ def _target_schema_versions(cfg: config.Config, ctx: "_ExportContext") -> dict:
     }
 
 
+def _run_import_in_maintenance(
+    cfg: config.Config, cluster: str, services: list, family: str, subnets: list, sg: str,
+    import_bucket: str, env: dict, *, what: str,
+) -> None:
+    """対象サービスを止めて db_init を IMPORT_MODE で run-task 起動し、成功・失敗どちらでもサービスを戻す。
+
+    import-data（ADR-0066）と kb-import（ADR-0109）が共用する。
+    """
+    region = cfg.aws_region
+    # 2. メンテナンス: 対象サービスを停止（desired_count=0）。停止前の値を控える（§8）。
+    prior_counts: dict[str, int] = {}
+    try:
+        log.step("対象サービスの停止（desired_count=0）")
+        for svc in services:
+            prior_counts[svc] = aws.service_desired_count(cluster, svc, region)
+            aws.set_service_desired_count(cluster, svc, 0, region)
+            log.info(f"{svc}: desired_count {prior_counts[svc]} -> 0")
+        if services:
+            aws.wait_services_stable(cluster, services, region)
+            log.ok("対象サービス停止完了")
+
+        # 3. IMPORT_MODE の run-task を起動し、exitCode=0 まで待機（§1）。
+        log_group = f"/ecs/{family}"
+        log.step(f"インポート run-task 起動（{family}, {what}）")
+        task_arn = aws.run_import_task(
+            cluster, family, subnets, sg, region, container_name=family, environment=env
+        )
+        log.info(f"task: {task_arn}")
+        task = aws.wait_task_stopped(cluster, task_arn, region)
+        exit_code = aws.task_exit_code(task)
+        if str(exit_code) != "0":
+            raise DeployError(
+                f"インポートが異常終了しました (exitCode={exit_code})。CloudWatch Logs "
+                f"{log_group} を確認してください。退避バックアップは "
+                f"s3://{import_bucket}/rollback/ に保存済みです（§5）。"
+            )
+        log.ok("インポート完了（exitCode=0）")
+    finally:
+        # 4. 停止したサービスを停止前の値へ戻して安定化（成功・失敗どちらでも再開する, §8）。
+        if prior_counts:
+            log.step("対象サービスの再開（停止前の desired_count へ復元）")
+            for svc, count in prior_counts.items():
+                try:
+                    aws.set_service_desired_count(cluster, svc, count, region)
+                    log.info(f"{svc}: desired_count -> {count}")
+                except Exception as exc:  # noqa: BLE001 - 再開失敗は警告に留め、他サービスの復元は続ける
+                    log.warn(f"{svc} の再開に失敗しました: {exc}")
+            try:
+                aws.wait_services_stable(cluster, list(prior_counts.keys()), region)
+                log.ok("対象サービス再開完了")
+            except Exception as exc:  # noqa: BLE001
+                log.warn(f"サービス安定待機に失敗しました: {exc}")
+
+
 def cmd_import_data(
     target: str = "both",
     knowledge_sql: str | None = None,
@@ -592,55 +646,15 @@ def cmd_import_data(
         aws.upload_file(import_bucket, key, path, region)
         log.ok(f"s3://{import_bucket}/{key} ← {path}")
 
-    # 2. メンテナンス: 対象サービスを停止（desired_count=0）。停止前の値を控える（§8）。
-    prior_counts: dict[str, int] = {}
-    try:
-        log.step("対象サービスの停止（desired_count=0）")
-        for svc in services:
-            prior_counts[svc] = aws.service_desired_count(cluster, svc, region)
-            aws.set_service_desired_count(cluster, svc, 0, region)
-            log.info(f"{svc}: desired_count {prior_counts[svc]} -> 0")
-        if services:
-            aws.wait_services_stable(cluster, services, region)
-            log.ok("対象サービス停止完了")
-
-        # 3. IMPORT_MODE の run-task を起動し、exitCode=0 まで待機（§1）。
-        log_group = f"/ecs/{family}"
-        env = {
-            "IMPORT_MODE": "true",
-            "IMPORT_TARGET": target,
-            "IMPORT_BUCKET": import_bucket,
-            "AWS_REGION": region,
-        }
-        log.step(f"インポート run-task 起動（{family}, IMPORT_MODE, target={target}）")
-        task_arn = aws.run_import_task(
-            cluster, family, subnets, sg, region, container_name=family, environment=env
-        )
-        log.info(f"task: {task_arn}")
-        task = aws.wait_task_stopped(cluster, task_arn, region)
-        exit_code = aws.task_exit_code(task)
-        if str(exit_code) != "0":
-            raise DeployError(
-                f"インポートが異常終了しました (exitCode={exit_code})。CloudWatch Logs "
-                f"{log_group} を確認してください。退避バックアップは "
-                f"s3://{import_bucket}/rollback/ に保存済みです（§5）。"
-            )
-        log.ok("インポート完了（exitCode=0）")
-    finally:
-        # 4. 停止したサービスを停止前の値へ戻して安定化（成功・失敗どちらでも再開する, §8）。
-        if prior_counts:
-            log.step("対象サービスの再開（停止前の desired_count へ復元）")
-            for svc, count in prior_counts.items():
-                try:
-                    aws.set_service_desired_count(cluster, svc, count, region)
-                    log.info(f"{svc}: desired_count -> {count}")
-                except Exception as exc:  # noqa: BLE001 - 再開失敗は警告に留め、他サービスの復元は続ける
-                    log.warn(f"{svc} の再開に失敗しました: {exc}")
-            try:
-                aws.wait_services_stable(cluster, list(prior_counts.keys()), region)
-                log.ok("対象サービス再開完了")
-            except Exception as exc:  # noqa: BLE001
-                log.warn(f"サービス安定待機に失敗しました: {exc}")
+    env = {
+        "IMPORT_MODE": "true",
+        "IMPORT_TARGET": target,
+        "IMPORT_BUCKET": import_bucket,
+        "AWS_REGION": region,
+    }
+    _run_import_in_maintenance(
+        cfg, cluster, services, family, subnets, sg, import_bucket, env, what=f"IMPORT_MODE, target={target}"
+    )
 
     log.step("全データインポート完了")
     log.info(f"退避バックアップ: s3://{import_bucket}/rollback/<対象>/<時刻>/（復旧手段, §5）")
@@ -1253,6 +1267,80 @@ def cmd_kb_export(assume_yes: bool = False) -> None:
     log.info("続けて、.dvc をコミットし DVC リモートへ送ってください:")
     log.info(f"  git add {' '.join(d + '.dvc' for d in dirs.values())} && git commit")
     log.info("  terraform\\dvc.bat push")
+
+
+def cmd_kb_import(target: str = "both", force: bool = False) -> None:
+    """CSV スナップショットで DB を全消去→上書きする（ADR-0109 段階 2）。破壊的。
+
+    手元のスナップショット（knowledge: db_init/data/knowledge/、conversation: snapshots/conversation/）を
+    照合して S3 の snapshot-import/<ts>/ へアップロードし、サービスを止めて db_init を IMPORT_MODE +
+    IMPORT_FORMAT=csv で run-task 起動する。db_init 側でもスキーマ版と、投入先が最後に取り込んだ・書き出した
+    版のままかを照合し、合わなければ中止する（force=True で続行）。
+    """
+    cfg = config.load_config()
+    prerequisites(cfg)
+    region = cfg.aws_region
+    labels = _import_labels(target)
+
+    log.step("スナップショットの照合（手元）")
+    entries: dict[str, dict] = {}
+    for label in labels:
+        directory = _snapshot_dir(label)
+        manifest = _read_manifest(directory)
+        if manifest is None or label not in manifest.get("databases", {}):
+            raise DeployError(
+                f"{label} のスナップショットがありません: {directory}\n"
+                "  terraform\\dvc.bat pull で取得するか、kb-export.bat で書き出してください。"
+            )
+        entries[label] = manifest["databases"][label]
+        _verify_snapshot_files(directory, entries[label])
+        rows = sum(t["rows"] for t in entries[label]["tables"].values())
+        log.ok(f"{label}: {len(entries[label]['tables'])} テーブル / {rows} 行（{manifest.get('created_at', '?')}）")
+
+    ctx = _export_context(cfg, "kb-import.bat")
+    if ctx is None:
+        raise DeployError("database 構成がありません。apply-database.bat と apply-app.bat を先に実行してください。")
+
+    log.step("スキーマ版の照合（スナップショット / 投入先）")
+    target_versions = _target_schema_versions(cfg, ctx)
+    _confirm_schema_versions(labels, {label: entries[label]["schema_version"] for label in labels}, target_versions)
+
+    log.warn("=== スナップショットの取り込み（全消去→上書き, ADR-0109） ===")
+    log.warn(f"対象データベース: {', '.join(labels)}")
+    log.warn(f"停止するサービス: {ctx.app_service}")
+    log.warn(
+        f"実行内容: 投入先にデータがあれば s3://{ctx.bucket}/rollback/ に退避 → 対象テーブルを全消去 → "
+        "スナップショットで上書き → 埋め込みをキャッシュから補う。"
+    )
+    if force:
+        log.warn("--force: 投入先がスナップショットの版から変わっていても上書きします。")
+    prompts.confirm_typed(f"実行する場合は対象クラスタ名 '{ctx.cluster}' を入力してください: ", ctx.cluster)
+
+    prefix = f"snapshot-import/{_export_timestamp()}"
+    log.step(f"スナップショットを S3 へアップロード（s3://{ctx.bucket}/{prefix}/）")
+    for label in labels:
+        directory = _snapshot_dir(label)
+        aws.upload_file(ctx.bucket, f"{prefix}/{label}/{_BACKUP_MANIFEST}", str(directory / _BACKUP_MANIFEST), region)
+        for info in entries[label]["tables"].values():
+            aws.upload_file(ctx.bucket, f"{prefix}/{label}/{info['file']}", str(directory / info["file"]), region)
+        log.ok(f"{label}: {len(entries[label]['tables'])} ファイル")
+
+    env = {
+        "IMPORT_MODE": "true",
+        "IMPORT_FORMAT": "csv",
+        "IMPORT_TARGET": target,
+        "IMPORT_PREFIX": prefix,
+        "IMPORT_BUCKET": ctx.bucket,
+        "AWS_REGION": region,
+    }
+    if force:
+        env["IMPORT_FORCE"] = "true"
+    _run_import_in_maintenance(
+        cfg, ctx.cluster, [ctx.app_service], ctx.family, ctx.subnets, ctx.security_group, ctx.bucket, env,
+        what=f"IMPORT_MODE, IMPORT_FORMAT=csv, target={target}",
+    )
+    log.step("スナップショットの取り込み完了")
+    log.info(f"消す前の退避（投入先にデータがあった場合）: s3://{ctx.bucket}/rollback/<対象>/<時刻>/")
 
 
 def _resume_backup(cfg: config.Config) -> dict:

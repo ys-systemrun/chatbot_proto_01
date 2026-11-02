@@ -119,3 +119,72 @@ def test_kb_export_rejects_hash_mismatch_and_keeps_previous(wired):
     assert (knowledge / "keep.csv").read_text(encoding="utf-8") == "previous"
     assert not any(c[0] == "run" for c in calls)  # dvc add しない
     assert ("set", 1) in calls  # 失敗しても集約サービスは元に戻す
+
+
+# --------------------------------------------------------------------------- #
+# kb-import（ADR-0109 段階 2）
+# --------------------------------------------------------------------------- #
+def _place_local_snapshots(repo, *, broken=None):
+    files, manifest = _remote(broken=broken)
+    for label, (*parts,) in commands._SNAPSHOT_DIRS.items():
+        d = repo.joinpath(*parts)
+        d.mkdir(parents=True, exist_ok=True)
+        for tail, data in files.items():
+            if tail.startswith(label + "/"):
+                (d / tail.split("/", 1)[1]).write_bytes(data)
+        own = dict(manifest, databases={label: manifest["databases"][label]})
+        (d / "manifest.json").write_text(json.dumps(own), encoding="utf-8")
+
+
+@pytest.fixture
+def wired_import(wired, monkeypatch):
+    calls, state, repo = wired
+    monkeypatch.setattr(commands, "_target_schema_versions", lambda cfg, ctx: {"knowledge": ["0001"], "conversation": ["0001"]})
+    monkeypatch.setattr(commands.prompts, "confirm_typed", lambda prompt, expected: calls.append(("typed", expected)))
+    monkeypatch.setattr(commands.aws, "upload_file", lambda b, key, path, r: calls.append(("upload", key)))
+
+    def _run_task(cluster, family, subnets, sg, region, container_name, environment):
+        calls.append(("task-env", dict(environment)))
+        return "arn"
+
+    monkeypatch.setattr(commands.aws, "run_import_task", _run_task)
+    return calls, state, repo
+
+
+def test_kb_import_uploads_snapshots_and_runs_csv_import(wired_import):
+    calls, _state, repo = wired_import
+    _place_local_snapshots(repo)
+
+    commands.cmd_kb_import(target="knowledge")
+
+    assert ("typed", "cluster") in calls
+    uploads = [c[1] for c in calls if c[0] == "upload"]
+    assert all(k.startswith("snapshot-import/") and "/knowledge/" in k for k in uploads)
+    assert sorted(k.rsplit("/", 1)[1] for k in uploads) == ["hiroba_category.csv", "manifest.json", "tag.csv"]
+    env = next(c[1] for c in calls if c[0] == "task-env")
+    assert env["IMPORT_FORMAT"] == "csv" and env["IMPORT_TARGET"] == "knowledge"
+    assert env["IMPORT_PREFIX"] == uploads[0].rsplit("/", 2)[0]
+    assert "IMPORT_FORCE" not in env
+    assert ("set", 0) in calls and ("set", 1) in calls  # 停止して元に戻した
+
+
+def test_kb_import_force_flag_is_passed(wired_import):
+    calls, _state, repo = wired_import
+    _place_local_snapshots(repo)
+    commands.cmd_kb_import(target="both", force=True)
+    env = next(c[1] for c in calls if c[0] == "task-env")
+    assert env["IMPORT_FORCE"] == "true"
+
+
+def test_kb_import_stops_before_upload_when_local_snapshot_is_broken(wired_import):
+    calls, _state, repo = wired_import
+    _place_local_snapshots(repo, broken=("knowledge", "tag"))
+    with pytest.raises(DeployError, match="SHA-256"):
+        commands.cmd_kb_import(target="knowledge")
+    assert not any(c[0] in ("upload", "typed", "task-env") for c in calls)
+
+
+def test_kb_import_requires_snapshot(wired_import):
+    calls, _state, _repo = wired_import
+    with pytest.raises(DeployError, match="スナップショットがありません"):
+        commands.cmd_kb_import(target="conversation")

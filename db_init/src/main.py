@@ -26,6 +26,9 @@
     手順1・2・4・5・6は通常どおり実行する。スキーマ変更のみを反映したいとき（データ投入は後日
     import-data で行う）に使う。非破壊的。
   - IMPORT_MODE=true（ADR-0066）: 通常フローを実行せず、全消去→上書き投入バッチのみを実行する。
+    IMPORT_FORMAT=csv（ADR-0109）なら SQL ダンプではなく CSV スナップショットを、IMPORT_BUCKET の
+    <IMPORT_PREFIX>/<db>/ か IMPORT_DIR（ローカル）から取り込む。スキーマ版・投入先の版の照合に
+    合わなければ中止する（IMPORT_FORCE=true で続行）。埋め込みはキャッシュ（/data/embedding_cache）から補う。
   - QUERY_MODE=true（ADR-0083）: 通常フローを実行せず、QUERY_SQL に渡されたアドホック SQL を
     QUERY_TARGET_DB（knowledge / conversation / both）へマスター接続で1トランザクション実行する。
     SELECT 結果（最終文のみ）または影響行数を標準出力へ出力する。
@@ -55,6 +58,7 @@ import export_data
 import import_data
 import seed_description_and_aliases
 import snapshot_export
+import snapshot_import
 import troubleshooting_import
 from db import DB
 from embedding import get_embedding
@@ -122,6 +126,12 @@ IMPORT_TARGET = os.environ.get("IMPORT_TARGET", "both").strip()
 IMPORT_BUCKET = os.environ.get("IMPORT_BUCKET", "").strip()
 IMPORT_PREFIX = os.environ.get("IMPORT_PREFIX", "import").strip()
 IMPORT_ROLLBACK_PREFIX = os.environ.get("IMPORT_ROLLBACK_PREFIX", "rollback").strip()
+# 取り込みの形式（ADR-0109）。sql（既定, ADR-0066 の SQL ダンプ）/ csv（CSV スナップショット）。
+IMPORT_FORMAT = os.environ.get("IMPORT_FORMAT", "sql").strip().lower()
+# csv のときの取り込み元（ローカル実行用）。<IMPORT_DIR>/<db>/manifest.json と CSV を読む。
+IMPORT_DIR = os.environ.get("IMPORT_DIR", "").strip()
+# 照合（スキーマ版・投入先が記録した版のままか）に合わなくても続行する（ADR-0109 §6）。
+IMPORT_FORCE = os.environ.get("IMPORT_FORCE", "").strip().lower() in ("1", "true", "yes")
 AWS_REGION = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION")
 
 # 埋め込み接続先の切り替え（IMPL-202608101616 4.3 / ADR-0031）。既定はローカル開発の lmstudio。
@@ -626,18 +636,36 @@ def run_import_mode():
         f"{_now()}          S3 の投入ダンプで上書きします（事前バックアップは自動取得）。"
     )
     try:
-        if not IMPORT_BUCKET:
-            raise RuntimeError("IMPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です。")
+        if IMPORT_FORMAT not in ("sql", "csv"):
+            raise RuntimeError(f"IMPORT_FORMAT は sql / csv のいずれかです: {IMPORT_FORMAT!r}")
+        if not IMPORT_BUCKET and not (IMPORT_FORMAT == "csv" and IMPORT_DIR):
+            raise RuntimeError("IMPORT_MODE では IMPORT_BUCKET（S3 バケット名）が必須です（csv は IMPORT_DIR でも可）。")
         knowledge_url, conversation_url = _resolve_import_work_urls()
-        import_data.run_import(
-            target=IMPORT_TARGET,
-            knowledge_url=knowledge_url,
-            conversation_url=conversation_url,
-            bucket=IMPORT_BUCKET,
-            import_prefix=IMPORT_PREFIX,
-            rollback_prefix=IMPORT_ROLLBACK_PREFIX,
-            region=AWS_REGION,
-        )
+        if IMPORT_FORMAT == "csv":
+            snapshot_import.run_snapshot_import(
+                target=IMPORT_TARGET,
+                knowledge_url=knowledge_url,
+                conversation_url=conversation_url,
+                timestamp=_now().strftime("%Y%m%d%H%M%S"),
+                directory=IMPORT_DIR or None,
+                bucket=IMPORT_BUCKET or None,
+                prefix=IMPORT_PREFIX,
+                rollback_prefix=IMPORT_ROLLBACK_PREFIX,
+                region=AWS_REGION,
+                force=IMPORT_FORCE,
+                cache_root=os.path.join(CSV_DATA_DIR, "embedding_cache"),
+                model_id=EMBEDDING_MODEL,
+            )
+        else:
+            import_data.run_import(
+                target=IMPORT_TARGET,
+                knowledge_url=knowledge_url,
+                conversation_url=conversation_url,
+                bucket=IMPORT_BUCKET,
+                import_prefix=IMPORT_PREFIX,
+                rollback_prefix=IMPORT_ROLLBACK_PREFIX,
+                region=AWS_REGION,
+            )
     except Exception as exc:  # noqa: BLE001 - ワンショット処理として全例外を捕捉し非0終了する
         print(f"{_now()} ERROR: db_init import failed: {exc}", file=sys.stderr)
         traceback.print_exc()

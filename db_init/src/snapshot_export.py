@@ -27,6 +27,7 @@ from psycopg2 import sql
 
 import export_data
 import import_data
+import snapshot_state
 
 MANIFEST_FORMAT = 2
 
@@ -70,9 +71,48 @@ def _copy_table(cur, table: str, columns: list[str], order_by: list[str]) -> byt
     return buf.getvalue()
 
 
-def export_snapshot(conn, label: str) -> "tuple[dict[str, bytes], dict]":
-    """1 データベースを同一時点で CSV に書き出し、({テーブル: CSV}, マニフェストの項目) を返す。"""
+def read_snapshot(cur, label: str) -> "tuple[dict[str, bytes], dict]":
+    """開いているトランザクションの中で 1 データベースを CSV にし、({テーブル: CSV}, マニフェストの項目) を返す。
+
+    書き出し（読み取り専用トランザクション）と、取り込み（書き込みトランザクションの中での照合）の両方で使う。
+    """
     tables = import_data.tables_for(label)
+    existing = export_data._public_tables(cur)
+    extra = export_data.unexpected_tables(existing, tables)
+    if extra:
+        raise RuntimeError(
+            f"{label} データベースに、書き出しの対象外のテーブルがあります: {', '.join(extra)}。"
+            " db_init/src/import_data.py の KNOWLEDGE_TABLES / CONVERSATION_TABLES に追加してください。"
+        )
+    missing = [t for t in tables if t not in existing]
+    if missing:
+        raise RuntimeError(f"{label} データベースに、対象テーブルが存在しません: {', '.join(missing)}。")
+
+    files: dict[str, bytes] = {}
+    entries: dict[str, dict] = {}
+    for table in tables:
+        columns = _snapshot_columns(cur, table)
+        order_by = import_data._pk_columns(cur, table) or columns
+        data = _copy_table(cur, table, columns, order_by)
+        cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table)))
+        files[table] = data
+        entries[table] = {
+            "file": csv_file_name(table),
+            "rows": cur.fetchone()[0],
+            "columns": columns,
+            "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+    info = {
+        "tables": entries,
+        "schema_version": export_data._schema_version(cur, existing),
+        "snapshot_sha256": snapshot_sha256({t: e["sha256"] for t, e in entries.items()}),
+    }
+    return files, info
+
+
+def export_snapshot(conn, label: str) -> "tuple[dict[str, bytes], dict]":
+    """1 データベースを同一時点（REPEATABLE READ READ ONLY）で CSV に書き出す。"""
     conn.set_session(
         isolation_level=psycopg2.extensions.ISOLATION_LEVEL_REPEATABLE_READ,
         readonly=True,
@@ -80,41 +120,10 @@ def export_snapshot(conn, label: str) -> "tuple[dict[str, bytes], dict]":
     )
     try:
         with conn.cursor() as cur:
-            existing = export_data._public_tables(cur)
-            extra = export_data.unexpected_tables(existing, tables)
-            if extra:
-                raise RuntimeError(
-                    f"{label} データベースに、書き出しの対象外のテーブルがあります: {', '.join(extra)}。"
-                    " db_init/src/import_data.py の KNOWLEDGE_TABLES / CONVERSATION_TABLES に追加してください。"
-                )
-            missing = [t for t in tables if t not in existing]
-            if missing:
-                raise RuntimeError(f"{label} データベースに、対象テーブルが存在しません: {', '.join(missing)}。")
-
-            files: dict[str, bytes] = {}
-            entries: dict[str, dict] = {}
-            for table in tables:
-                columns = _snapshot_columns(cur, table)
-                order_by = import_data._pk_columns(cur, table) or columns
-                data = _copy_table(cur, table, columns, order_by)
-                cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table)))
-                files[table] = data
-                entries[table] = {
-                    "file": csv_file_name(table),
-                    "rows": cur.fetchone()[0],
-                    "columns": columns,
-                    "bytes": len(data),
-                    "sha256": hashlib.sha256(data).hexdigest(),
-                }
-            schema_version = export_data._schema_version(cur, existing)
-        info = {
-            "tables": entries,
-            "schema_version": schema_version,
-            "snapshot_sha256": snapshot_sha256({t: e["sha256"] for t, e in entries.items()}),
-        }
-        return files, info
+            return read_snapshot(cur, label)
     finally:
         conn.rollback()  # 読み取り専用トランザクションを閉じる
+        conn.set_session(isolation_level=None, readonly=False, autocommit=False)
 
 
 def build_manifest(*, created_at: str, timestamp: str, databases: dict) -> dict:
@@ -163,6 +172,8 @@ def run_snapshot_export(
         conn = psycopg2.connect(url)
         try:
             files, info = export_snapshot(conn, label)
+            # 書き出した版を記録する（次の取り込みで「最後の書き出しから変わっていないか」を照合するため）。
+            snapshot_state.record(conn, info["snapshot_sha256"], kind="export", source=f"{where} ts={timestamp}")
         finally:
             conn.close()
         if directory:

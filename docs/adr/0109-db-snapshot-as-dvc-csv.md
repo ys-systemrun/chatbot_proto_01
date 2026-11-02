@@ -102,7 +102,8 @@ DB の現状を、DVC で版管理できる CSV として書き出し、そこ�
 | 1 | 済み（2026-10-30）。db_init の `EXPORT_MODE` に `EXPORT_FORMAT=csv`（S3 の `snapshot/<ts>/` か `EXPORT_DIR` へ）を追加（`snapshot_export.py`）。デプロイツールに `kb-export`（`kb-export.bat`）を追加し、取得・照合のうえ `db_init/data/knowledge/` と `snapshots/conversation/` を置き換えて `dvc add` する。2026-10-26 の AWS の退避 SQL を pgvector の DB に入れて書き出し → 空の DB に COPY で取り込み → 再度書き出し、で knowledge 9・conversation 7 テーブルすべての CSV のハッシュが一致し、NULL と空文字列の数も一致することを確認した（knowledge は CSV 約 2.1MB。退避 SQL は埋め込み込みで約 67MB）。AWS 上での `kb-export.bat` の実行は未確認 |
 | 4（一部を前倒し） | 2026-11-02。AWS の DB は破棄済みで、本番データは 2026-10-26 の退避 SQL だけになったため、その SQL を `snapshots/legacy_sql/2026-10-26/`（DVC）に保全し、pgvector に復元して最初のスナップショットを作った（`db_init/data/knowledge/`・`snapshots/conversation/`）。退避は 0011 より前のため、記事の `uuid` は導出値で埋めた（ゴールデンセット v3 の `h004` の記事と一致）。シードの切り替えは未着手 |
 | 3（一部を前倒し） | 2026-11-02。同じ DB から埋め込みを抜き出し、`db_init/data/embedding_cache/amazon.titan-embed-text-v2_0/`（4,945 件, 言い換え 5,126 行をすべて賄う）に置いた。キャッシュを使う取り込み処理は未着手 |
-| 2・5・6 | 未着手（2 の次に、スナップショットから戻した DB が退避 SQL と一致することを確かめ、`legacy_sql` を削除する） |
+| 2 | 済み（2026-11-02）。db_init の `IMPORT_MODE` に `IMPORT_FORMAT=csv`（S3 の `<IMPORT_PREFIX>/<db>/` か `IMPORT_DIR`）を追加（`snapshot_import.py`）。管理テーブル `snapshot_state`（`snapshot_state.py`）はマイグレーションで作らず、スキーマ版に含めない（作るとそれまでのスナップショットのスキーマ版が合わなくなるため）。デプロイツールに `kb-import`（`kb-import.bat`, `--target` / `--force`）を追加し、`import-data` とサービス停止・run-task の処理を共用にした。確認: 退避 SQL を戻した DB と、空の DB に `main.py` でスナップショットを取り込んだ DB とで、knowledge 9・conversation 7 テーブルの**全列（id・埋め込みを含む）が一致**。再取り込みは通り、DB の 1 行を変えると中止され、`IMPORT_FORCE=true` で上書きされること、シーケンスが最大値の次から採番されることも確認した。AWS 上での `kb-import.bat` の実行は未確認 |
+| 5・6 | 未着手（`legacy_sql` の削除は、AWS での `kb-import` を確かめてから） |
 
 **気づいたこと（2026-10-26 の本番データ）**: 記事 65 件のうち埋め込みがあるのは 13 件だけだった（`trouble_shooting` 11 / 35、`trouble_shooting_netauth` 2 / 30）。検索は埋め込みのある行だけを対象にするため、残る 52 件は検索に出ていなかったと考えられる。取り込み（段階 2・3）では、キャッシュに無い行の埋め込みを計算して補う。
 

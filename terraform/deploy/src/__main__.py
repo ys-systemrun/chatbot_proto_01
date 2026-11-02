@@ -60,6 +60,18 @@ def build_parser() -> argparse.ArgumentParser:
     add("export-data", with_yes=True)
     # ADR-0109: DB の現状を CSV スナップショットとして書き出し、dvc add する（非破壊）。
     add("kb-export", with_yes=True)
+    kbi = add("kb-import")  # 破壊的操作のため --yes は設けない（クラスタ名のタイプ確認）
+    kbi.add_argument(
+        "--target",
+        choices=["knowledge", "conversation", "both"],
+        default="both",
+        help="全消去→上書きの対象データベース（既定: both, ADR-0109）",
+    )
+    kbi.add_argument(
+        "--force",
+        action="store_true",
+        help="投入先がスナップショットの版から変わっていても・スキーマ版が違っても上書きする",
+    )
     da = add("destroy-all")  # 破壊的操作のため --yes は設けない
     da.add_argument(
         "--resume-from",
@@ -104,6 +116,8 @@ def main(argv=None) -> None:
             commands.cmd_export_data(args.yes)
         elif args.command == "kb-export":
             commands.cmd_kb_export(args.yes)
+        elif args.command == "kb-import":
+            commands.cmd_kb_import(target=args.target, force=args.force)
         elif args.command == "destroy-all":
             commands.cmd_destroy_all(resume_from=args.resume_from)
         elif args.command == "destroy-app":
