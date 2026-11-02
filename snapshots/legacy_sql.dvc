@@ -1,0 +1,6 @@
+outs:
+- md5: 40e42a1fa27f1ae987661bb51594a129.dir
+  size: 67736349
+  nfiles: 3
+  hash: md5
+  path: legacy_sql

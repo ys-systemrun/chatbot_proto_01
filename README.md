@@ -11,6 +11,7 @@
 | [`tag_selector_mcp/`](tag_selector_mcp/README.md) | Tag Selector MCP サーバ（質問に合うタグの選定ツール） |
 | [`db_init/`](db_init/README.md) | DB マイグレーション・ロール作成・シードを1回実行するワンショットサービス。全データインポート / 退避エクスポートのモードも持つ |
 | [`evals/`](evals/README.md) | 回答品質の評価ランナーと評価結果（ADR-0099） |
+| [`snapshots/`](snapshots/README.md) | 復旧専用のデータ（DVC 管理）。conversation DB のスナップショットと、2026-10-26 の本番データの退避 SQL（ADR-0109） |
 | [`terraform/`](terraform/README.md) | AWS へのデプロイ（Terraform 構成と、apply / destroy / seed / import-data / dvc 等の .bat） |
 | [`docs/`](docs/README.md) | ADR・要件定義・実装指示書・画面遷移図・ネットワーク構成図などの設計文書 |
 | [`.devcontainer/`](.devcontainer/README.md) | VS Code Dev Container の設定（Python / Node / Go の開発環境） |

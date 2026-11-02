@@ -1,0 +1,6 @@
+outs:
+- md5: 66b488e725e401c4a5a9ac09cb2b75fd.dir
+  size: 151432
+  nfiles: 8
+  hash: md5
+  path: conversation

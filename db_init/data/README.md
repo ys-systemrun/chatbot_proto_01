@@ -8,6 +8,8 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 |---|---|---|---|
 | `hiroba_qa/` | `hiroba_qa.dvc` | 維津美の広場 QA。`category.csv`（カテゴリ）、`hiroba_qa_original.csv`（QA 本体。各行に uuid、カテゴリは ID, ADR-0108）、`question_altered.csv`（言い換え質問文） | `hiroba_category` / `hiroba_qa_original` / `hiroba_question_altered` |
 | `troubleshooting/` | `troubleshooting.dvc` | トラブルシューティング記事の CSV（`trouble_shooting.csv` / `trouble_shooting_netauth.csv`, 1 行 = 1 記事）。元の HTML を `<h2>` 単位で記事化（ADR-0076）したものを [`../tools/troubleshooting_html_to_csv.py`](../tools/troubleshooting_html_to_csv.py) で変換。`uuid` と元の表を含む `body_html` を持つ（ADR-0108） | `troubleshooting_article`（`source_key` はファイル名と同じ） |
+| `knowledge/` | `knowledge.dvc` | knowledge DB の CSV スナップショット（テーブルごと, PostgreSQL の COPY 形式, 埋め込みなし）と `manifest.json`（ADR-0109）。最初の版は 2026-10-26 の本番データ（`snapshots/legacy_sql/`）から作った。**シードはまだ使っていない**（段階 4 で切り替える） | 全 9 テーブル |
+| `embedding_cache/<モデル ID>/` | `embedding_cache.dvc` | 埋め込みのキャッシュ。`embeddings.csv`（列 `text_sha256,embedding`。埋め込み元テキストの SHA-256 → pgvector 形式のベクトル）と `meta.json`。いまは `amazon.titan-embed-text-v2_0`（1024 次元, 4,945 件）のみ（ADR-0109 §5） | （取り込み時に `embedding` を補う） |
 | `redmine_error_taiou/` | `redmine_error_taiou.dvc` | Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事, 各行に `uuid`）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | `troubleshooting_article`（`source_key=redmine_error_taiou`） |
 
 どのファイルを読むかは環境変数で指定します（`/data` からの相対パス）:
