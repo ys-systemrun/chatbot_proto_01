@@ -188,3 +188,48 @@ def test_kb_import_requires_snapshot(wired_import):
     calls, _state, _repo = wired_import
     with pytest.raises(DeployError, match="スナップショットがありません"):
         commands.cmd_kb_import(target="conversation")
+
+
+def test_kb_export_places_embedding_cache_and_adds_it(wired):
+    calls, state, repo = wired
+    files, manifest = _remote()
+    cache_csv = b'"text_sha256","embedding"\n"aa","[0.1]"\n'
+    cache_meta = b'{"model_id": "m:1"}'
+    files["embedding_cache/m_1/embeddings.csv"] = cache_csv
+    files["embedding_cache/m_1/meta.json"] = cache_meta
+    manifest["embedding_cache"] = {
+        "model_id": "m:1", "dir": "embedding_cache/m_1", "entries": 1, "added": 1,
+        "files": {
+            "embeddings.csv": {"bytes": len(cache_csv), "sha256": hashlib.sha256(cache_csv).hexdigest()},
+            "meta.json": {"bytes": len(cache_meta), "sha256": hashlib.sha256(cache_meta).hexdigest()},
+        },
+    }
+    state["remote"] = (files, manifest)
+    other = repo / "db_init" / "data" / "embedding_cache" / "other_model"
+    other.mkdir(parents=True)
+    (other / "embeddings.csv").write_text("keep", encoding="utf-8")  # 別モデルのキャッシュは残す
+
+    commands.cmd_kb_export(assume_yes=True)
+
+    placed = repo / "db_init" / "data" / "embedding_cache" / "m_1"
+    assert (placed / "embeddings.csv").read_bytes() == cache_csv
+    assert (other / "embeddings.csv").read_text(encoding="utf-8") == "keep"
+    own = json.loads((repo / "db_init" / "data" / "knowledge" / "manifest.json").read_text(encoding="utf-8"))
+    assert own["embedding_cache"]["model_id"] == "m:1"
+    conv = json.loads((repo / "snapshots" / "conversation" / "manifest.json").read_text(encoding="utf-8"))
+    assert "embedding_cache" not in conv
+    assert ("run", ["dvc", "add", "db_init/data/knowledge", "snapshots/conversation", "db_init/data/embedding_cache"]) in calls
+
+
+def test_kb_export_rejects_broken_embedding_cache(wired):
+    calls, state, repo = wired
+    files, manifest = _remote()
+    files["embedding_cache/m_1/embeddings.csv"] = b"broken"
+    manifest["embedding_cache"] = {
+        "model_id": "m:1", "dir": "embedding_cache/m_1", "entries": 1, "added": 0,
+        "files": {"embeddings.csv": {"bytes": 1, "sha256": "0" * 64}},
+    }
+    state["remote"] = (files, manifest)
+    with pytest.raises(DeployError, match="埋め込みキャッシュ"):
+        commands.cmd_kb_export(assume_yes=True)
+    assert not (repo / "db_init" / "data" / "knowledge").exists()  # 何も置き換えない

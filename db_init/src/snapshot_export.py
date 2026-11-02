@@ -25,6 +25,7 @@ import psycopg2
 import psycopg2.extensions
 from psycopg2 import sql
 
+import embedding_cache
 import export_data
 import import_data
 import snapshot_state
@@ -137,12 +138,51 @@ def build_manifest(*, created_at: str, timestamp: str, databases: dict) -> dict:
     }
 
 
+def split_manifest(manifest: dict) -> dict[str, dict]:
+    """全体のマニフェストを、データベースごとのマニフェストに分ける（埋め込みキャッシュの項目は knowledge に付ける）。"""
+    common = {k: v for k, v in manifest.items() if k not in ("databases", "embedding_cache")}
+    result = {}
+    for label, entry in manifest["databases"].items():
+        own = dict(common, databases={label: entry})
+        if label == "knowledge" and manifest.get("embedding_cache"):
+            own["embedding_cache"] = manifest["embedding_cache"]
+        result[label] = own
+    return result
+
+
 def _write_local(directory: str, label: str, files: dict[str, bytes]) -> None:
     target = os.path.join(directory, label)
     os.makedirs(target, exist_ok=True)
     for table, data in files.items():
         with open(os.path.join(target, csv_file_name(table)), "wb") as f:
             f.write(data)
+
+
+def build_embedding_cache(knowledge_url: str, cache_root: "str | None", model_id: str, *, source: str) -> "tuple[dict[str, bytes], dict]":
+    """既存のキャッシュに knowledge DB の埋め込みを足した新しいキャッシュを作る（ADR-0109 段階 3）。
+
+    ({ファイル名: 中身}, マニフェストの項目) を返す。置き場所は <embedding_cache>/<モデル ID のディレクトリ名>/。
+    """
+    existing = embedding_cache.load(cache_root, model_id) if cache_root else None
+    conn = psycopg2.connect(knowledge_url)
+    try:
+        with conn.cursor() as cur:
+            from_db = embedding_cache.collect_from_db(cur)
+        conn.rollback()
+    finally:
+        conn.close()
+    merged, added = embedding_cache.merge(existing, from_db)
+    data = embedding_cache.render(merged)
+    meta = embedding_cache.render_meta(model_id, merged, source=source)
+    files = {embedding_cache.EMBEDDINGS_FILE: data, embedding_cache.META_FILE: meta}
+    entry = {
+        "model_id": model_id,
+        "dir": f"embedding_cache/{embedding_cache.dir_name(model_id)}",
+        "entries": len(merged),
+        "added": added,
+        "files": {name: {"bytes": len(body), "sha256": hashlib.sha256(body).hexdigest()} for name, body in files.items()},
+    }
+    return files, entry
 
 
 def run_snapshot_export(
@@ -154,8 +194,14 @@ def run_snapshot_export(
     prefix: str = "snapshot",
     directory: str | None = None,
     region: str | None = None,
+    cache_root: str | None = None,
+    model_id: str | None = None,
 ) -> dict:
-    """両データベースを書き出す。directory があればローカルへ、無ければ s3://<bucket>/<prefix>/<ts>/ へ置く。"""
+    """両データベースを書き出す。directory があればローカルへ、無ければ s3://<bucket>/<prefix>/<ts>/ へ置く。
+
+    model_id があれば、埋め込みキャッシュ（cache_root の既存分に knowledge DB の埋め込みを足したもの）も
+    <置き場所>/embedding_cache/<モデル ID のディレクトリ名>/ に書き出す。
+    """
     if not directory and not bucket:
         raise RuntimeError("書き出し先がありません（EXPORT_DIR か IMPORT_BUCKET を指定してください）。")
     urls = {"knowledge": knowledge_url, "conversation": conversation_url}
@@ -192,10 +238,30 @@ def run_snapshot_export(
         databases[label] = info
 
     manifest = build_manifest(created_at=import_data._now().isoformat(), timestamp=timestamp, databases=databases)
+    if model_id:
+        files, entry = build_embedding_cache(knowledge_url, cache_root, model_id, source=f"{where} ts={timestamp}")
+        for name, data in files.items():
+            if directory:
+                target = os.path.join(directory, entry["dir"])
+                os.makedirs(target, exist_ok=True)
+                with open(os.path.join(target, name), "wb") as f:
+                    f.write(data)
+            else:
+                s3.put_object(Bucket=bucket, Key=f"{base}/{entry['dir']}/{name}", Body=data)
+        print(
+            f"{import_data._now()} [embedding cache] {model_id}: {entry['entries']} entries"
+            f" ({entry['added']} added from the database)"
+        )
+        manifest["embedding_cache"] = entry
     body = json.dumps(manifest, ensure_ascii=False, indent=2).encode("utf-8")
     if directory:
         with open(os.path.join(directory, export_data.MANIFEST_FILE), "wb") as f:
             f.write(body)
+        # データベースごとのフォルダにも、そのデータベースだけのマニフェストを置く（kb-export と同じ形。
+        # そのまま IMPORT_DIR・シードの取り込み元に使える）。
+        for label, own in split_manifest(manifest).items():
+            with open(os.path.join(directory, label, export_data.MANIFEST_FILE), "w", encoding="utf-8", newline="\n") as f:
+                json.dump(own, f, ensure_ascii=False, indent=2)
     else:
         s3.put_object(
             Bucket=bucket,

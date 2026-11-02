@@ -9,6 +9,7 @@
 |---|---|
 | [`test_embedding.py`](test_embedding.py) | `embedding.get_embedding` の provider 分岐（LM Studio / Bedrock）。boto3・requests をモックする |
 | [`test_import_data.py`](test_import_data.py) | 全データインポート（ADR-0066）の対象テーブル解決・TRUNCATE 文の組み立て・コミット／失敗時ロールバック |
+| [`test_embedding_cache.py`](test_embedding_cache.py) | 埋め込みキャッシュ（ディレクトリ名・統合・並び・メタ情報・埋め込み元テキスト）と、スナップショットのマニフェストのデータベースごとの分割 |
 | [`test_snapshot_import.py`](test_snapshot_import.py) | CSV スナップショットの取り込み（ADR-0109）の照合（ハッシュ・テーブル構成・スキーマ版・投入先の版）と埋め込みキャッシュの読み込み |
 | [`test_snapshot_export.py`](test_snapshot_export.py) | CSV スナップショット（ADR-0109）のデータベース全体ハッシュ・マニフェスト・ファイル名 |
 | [`test_export_data.py`](test_export_data.py) | 退避エクスポート（ADR-0103）の対象外テーブル検出・マニフェスト組み立て・ハッシュ・読み取りトランザクションの扱い |

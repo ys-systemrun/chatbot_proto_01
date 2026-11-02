@@ -60,13 +60,3 @@ def test_drift_problem():
     assert snapshot_import.drift_problem(True, "a", "a") is None  # 記録した版のまま
     assert "変わっています" in snapshot_import.drift_problem(True, "b", "a")
     assert "記録がありません" in snapshot_import.drift_problem(True, "a", None)
-
-
-def test_embedding_cache_dir_and_loading(tmp_path):
-    assert snapshot_import.cache_dir_name("amazon.titan-embed-text-v2:0") == "amazon.titan-embed-text-v2_0"
-    assert snapshot_import.load_embedding_cache(str(tmp_path), "m:1") is None
-    d = tmp_path / "m_1"
-    d.mkdir()
-    key = snapshot_import.text_key("こんにちは")
-    (d / "embeddings.csv").write_text(f'"text_sha256","embedding"\n"{key}","[0.1,0.2]"\n', encoding="utf-8")
-    assert snapshot_import.load_embedding_cache(str(tmp_path), "m:1") == {key: "[0.1,0.2]"}

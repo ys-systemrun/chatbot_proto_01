@@ -1156,6 +1156,15 @@ def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
                 ctx.bucket, f"{base}/{label}/{info['file']}", str(incoming / label / info["file"]), cfg.aws_region
             )
         _verify_snapshot_files(incoming / label, entry)
+    cache = manifest.get("embedding_cache")
+    if cache:
+        # 埋め込みキャッシュ（ADR-0109 段階 3）。<base>/embedding_cache/<モデル>/ に置かれる。
+        (incoming / cache["dir"]).mkdir(parents=True)
+        for name, info in cache["files"].items():
+            path = incoming / cache["dir"] / name
+            aws.download_file(ctx.bucket, f"{base}/{cache['dir']}/{name}", str(path), cfg.aws_region)
+            if _sha256_file(path) != info["sha256"]:
+                raise DeployError(f"埋め込みキャッシュの SHA-256 がマニフェストと一致しません: {path}")
     log.ok("SHA-256 照合 OK")
 
     try:
@@ -1171,8 +1180,10 @@ def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
     manifest["environment"] = environment
     # データベースごとのフォルダに、そのデータベースだけのマニフェストを置く。
     for label in _BACKUP_LABELS:
-        own = {k: v for k, v in manifest.items() if k != "databases"}
+        own = {k: v for k, v in manifest.items() if k not in ("databases", "embedding_cache")}
         own["databases"] = {label: manifest["databases"][label]}
+        if label == "knowledge" and cache:
+            own["embedding_cache"] = cache
         with open(incoming / label / _BACKUP_MANIFEST, "w", encoding="utf-8", newline="\n") as f:
             json.dump(own, f, ensure_ascii=False, indent=2)
 
@@ -1183,6 +1194,13 @@ def _fetch_snapshot(cfg: config.Config, ctx: _ExportContext, ts: str) -> dict:
             shutil.rmtree(target)
         target.parent.mkdir(parents=True, exist_ok=True)
         os.replace(incoming / label, target)
+    if cache:
+        # そのモデルのディレクトリだけを置き換える（別のモデルのキャッシュは残す）。
+        target = paths.kb_data_dir() / cache["dir"]
+        if target.exists():
+            shutil.rmtree(target)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(incoming / cache["dir"], target)
     shutil.rmtree(incoming)
     return manifest
 
@@ -1257,15 +1275,20 @@ def cmd_kb_export(assume_yes: bool = False) -> None:
 
     manifest = _run_export(cfg, ctx, restore_on_success=True, fmt="csv")
 
+    targets = list(dirs.values())
+    if manifest.get("embedding_cache"):
+        cache = manifest["embedding_cache"]
+        targets.append("db_init/data/embedding_cache")
+        log.info(f"埋め込みキャッシュ（{cache['model_id']}）: {cache['entries']} 件（DB から {cache['added']} 件追加）")
     log.step("dvc add（スナップショットの版を記録）")
-    proc.run(["dvc", "add", *dirs.values()], cwd=paths.repo_root(), what="dvc add")
+    proc.run(["dvc", "add", *targets], cwd=paths.repo_root(), what="dvc add")
     log.step("スナップショットの書き出し完了")
     for label in _BACKUP_LABELS:
         entry = manifest["databases"][label]
         rows = sum(t["rows"] for t in entry["tables"].values())
         log.info(f"{label}: {len(entry['tables'])} テーブル / {rows} 行 → {dirs[label]}/")
     log.info("続けて、.dvc をコミットし DVC リモートへ送ってください:")
-    log.info(f"  git add {' '.join(d + '.dvc' for d in dirs.values())} && git commit")
+    log.info(f"  git add {' '.join(d + '.dvc' for d in targets)} && git commit")
     log.info("  terraform\\dvc.bat push")
 
 

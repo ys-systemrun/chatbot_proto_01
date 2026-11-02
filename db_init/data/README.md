@@ -7,7 +7,7 @@ git に入っているのは、このファイルと情報源ごとの `.dvc`（
 | ディレクトリ | `.dvc` | 内容 | 使い方 |
 |---|---|---|---|
 | `knowledge/` | `knowledge.dvc` | **knowledge DB のスナップショット**（テーブルごとの CSV, PostgreSQL の COPY 形式, 埋め込みなし）と `manifest.json`（ADR-0109）。最初の版は 2026-10-26 の本番データ（`snapshots/legacy_sql/`）から作った | シード: knowledge DB が空なら全 9 テーブルをここから取り込む。`kb-import` の取り込み元、`kb-export` の書き出し先 |
-| `embedding_cache/<モデル ID>/` | `embedding_cache.dvc` | 埋め込みのキャッシュ。`embeddings.csv`（列 `text_sha256,embedding`。埋め込み元テキストの SHA-256 → pgvector 形式のベクトル）と `meta.json`。いまは `amazon.titan-embed-text-v2_0`（1024 次元, 4,945 件）のみ（ADR-0109 §5） | 取り込み後に `embedding` を補う。キャッシュに無い行（別モデルのローカル環境など）は埋め込み API で計算する |
+| `embedding_cache/<モデル ID>/` | `embedding_cache.dvc` | 埋め込みのキャッシュ。`embeddings.csv`（列 `text_sha256,embedding`。埋め込み元テキストの SHA-256 → pgvector 形式のベクトル）と `meta.json`。いまは `amazon.titan-embed-text-v2_0`（1024 次元, 4,945 件）のみ（ADR-0109 §5） | 取り込み後に `embedding` を補う。キャッシュに無い行（別モデルのローカル環境など）は埋め込み API で計算する。`kb-export` が DB の埋め込みを足して更新する |
 | `redmine_error_taiou/` | `redmine_error_taiou.dvc` | **追加用**の情報源。Redmine Wiki のエラー対応ページを整形した CSV（`redmine_error_taiou.csv`, 1 行 = 1 記事, 各行に `uuid`）。顧客名は伏せ字済み。変換は [`../tools/redmine_wiki_to_csv.py`](../tools/redmine_wiki_to_csv.py)（ADR-0105） | シード: `troubleshooting_article`（`source_key=redmine_error_taiou`）に未投入の記事だけを入れる。次の `kb-export` でスナップショットに含まれる |
 
 シードの流れ（db_init の通常起動, ADR-0109 段階 4）: knowledge DB が空ならスナップショットを取り込む → 追加用の記事を入れる

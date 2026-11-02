@@ -629,6 +629,8 @@ def run_export_mode():
                 prefix=EXPORT_PREFIX or "snapshot",
                 directory=EXPORT_DIR or None,
                 region=AWS_REGION,
+                cache_root=os.path.join(CSV_DATA_DIR, "embedding_cache"),
+                model_id=EMBEDDING_MODEL,
             )
         else:
             export_data.run_export(

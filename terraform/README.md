@@ -460,7 +460,7 @@ database 構成を apply すること（逆順だと SG の削除が ENI の使�
 | [`query.bat`](query.bat) | `deploy query` を実行（`terraform/query.sql` をマスターロールで実行し結果を表示, ADR-0083） |
 | [`query.sql.example`](query.sql.example) | `query.bat` 用 SQL のテンプレート。コピーして `query.sql`（Git 管理外）を作る |
 | [`export-data.bat`](export-data.bat) | `deploy export-data` を実行（両 DB を `terraform/backup/` へ SQL で退避。非破壊, ADR-0103） |
-| [`kb-export.bat`](kb-export.bat) | `deploy kb-export` を実行（両 DB をテーブルごとの CSV スナップショットとして書き出す。knowledge は `db_init/data/knowledge/`、conversation は `snapshots/conversation/` に置いて `dvc add` する。非破壊, ADR-0109） |
+| [`kb-export.bat`](kb-export.bat) | `deploy kb-export` を実行（両 DB をテーブルごとの CSV スナップショットとして書き出す。knowledge は `db_init/data/knowledge/`、conversation は `snapshots/conversation/` に置き、埋め込みキャッシュ（`db_init/data/embedding_cache/<モデル>/`）も DB の埋め込みを足して更新して `dvc add` する。非破壊, ADR-0109） |
 | [`kb-import.bat`](kb-import.bat) | `deploy kb-import` を実行（手元のスナップショットを照合して S3 へ上げ、DB を全消去→上書き。埋め込みはキャッシュから補う。スキーマ版が違う・投入先が最後の取り込み/書き出しから変わっていれば中止、`--force` で続行。破壊的, ADR-0109） |
 | [`destroy-app.bat`](destroy-app.bat) | `deploy destroy-app` を実行（app 構成のみ破棄。RDS は残る） |
 | [`destroy-database.bat`](destroy-database.bat) | `deploy destroy-database` を実行（database 構成を破棄。RDS とデータが消える） |

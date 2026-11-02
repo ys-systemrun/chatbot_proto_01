@@ -31,11 +31,11 @@ import psycopg2
 from psycopg2 import sql
 from psycopg2.extras import execute_batch
 
+import embedding_cache
 import export_data
 import import_data
 import snapshot_export
 import snapshot_state
-import troubleshooting_import
 
 MANIFEST_FILE = export_data.MANIFEST_FILE
 
@@ -116,27 +116,8 @@ def drift_problem(has_data: bool, current: "str | None", recorded: "str | None")
 
 
 # ---------------------------------------------------------------------------
-# 埋め込みキャッシュ（ADR-0109 §5）
+# 埋め込みキャッシュからの補完・計算（ADR-0109 §5, キャッシュの読み書きは embedding_cache）
 # ---------------------------------------------------------------------------
-def cache_dir_name(model_id: str) -> str:
-    """モデル ID をディレクトリ名にする（Windows で使えない ':' などを '_' に）。"""
-    return "".join(c if c.isalnum() or c in "._-" else "_" for c in model_id)
-
-
-def load_embedding_cache(cache_root: str, model_id: str) -> "dict[str, str] | None":
-    """{埋め込み元テキストの SHA-256: pgvector 形式のベクトル}。キャッシュが無ければ None。"""
-    path = os.path.join(cache_root, cache_dir_name(model_id), "embeddings.csv")
-    if not os.path.exists(path):
-        return None
-    csv.field_size_limit(1 << 30)
-    with open(path, encoding="utf-8", newline="") as f:
-        return {row["text_sha256"]: row["embedding"] for row in csv.DictReader(f)}
-
-
-def text_key(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
 def _vector_dim(cur, table: str) -> "int | None":
     cur.execute(
         "SELECT format_type(atttypid, atttypmod) FROM pg_attribute WHERE attrelid = %s::regclass AND attname = 'embedding'",
@@ -152,12 +133,13 @@ def fill_embeddings(cur, cache: dict[str, str]) -> dict:
     """knowledge の embedding が NULL の行を、キャッシュから補う。{テーブル: (補った件数, 残った件数)} を返す。"""
     stats = {}
     any_vec = next(iter(cache.values()), None)
-    cache_dim = len(any_vec.strip("[]").split(",")) if any_vec else None
+    cache_dim = embedding_cache.dimensions(any_vec) if any_vec else None
+    key = embedding_cache.text_key
 
     # 言い換え質問文: 埋め込み元は text。
     if _vector_dim(cur, "hiroba_question_altered") == cache_dim:
         cur.execute("SELECT id, text FROM hiroba_question_altered WHERE embedding IS NULL")
-        pairs = [(cache[text_key(t)], i) for i, t in cur.fetchall() if t is not None and text_key(t) in cache]
+        pairs = [(cache[key(t)], i) for i, t in cur.fetchall() if t is not None and key(t) in cache]
         execute_batch(cur, "UPDATE hiroba_question_altered SET embedding = %s::vector WHERE id = %s", pairs)
         cur.execute("SELECT COUNT(*) FROM hiroba_question_altered WHERE embedding IS NULL")
         stats["hiroba_question_altered"] = (len(pairs), cur.fetchone()[0])
@@ -169,13 +151,9 @@ def fill_embeddings(cur, cache: dict[str, str]) -> dict:
         )
         pairs = []
         for aid, title, subtitle, symptom, cause, guidance in cur.fetchall():
-            article = troubleshooting_import.TroubleshootingArticle(
-                source_key="", title=title, body_html="", guidance=guidance or "",
-                subtitle=subtitle, symptom=symptom, cause=cause,
-            )
-            key = text_key(troubleshooting_import.build_embedding_text(article))
-            if key in cache:
-                pairs.append((cache[key], aid))
+            k = key(embedding_cache.article_text(title, subtitle, symptom, cause, guidance))
+            if k in cache:
+                pairs.append((cache[k], aid))
         execute_batch(cur, "UPDATE troubleshooting_article SET embedding = %s::vector WHERE id = %s", pairs)
         cur.execute("SELECT COUNT(*) FROM troubleshooting_article WHERE embedding IS NULL")
         stats["troubleshooting_article"] = (len(pairs), cur.fetchone()[0])
@@ -210,11 +188,7 @@ def backfill_missing_embeddings(url: str, embed_fn, *, batch_size: int = 100) ->
                         if table == "hiroba_question_altered":
                             text = row[1] or ""
                         else:
-                            article = troubleshooting_import.TroubleshootingArticle(
-                                source_key="", title=row[1], body_html="", guidance=row[5] or "",
-                                subtitle=row[2], symptom=row[3], cause=row[4],
-                            )
-                            text = troubleshooting_import.build_embedding_text(article)
+                            text = embedding_cache.article_text(*row[1:6])
                         if not text:
                             continue
                         vector = "[" + ",".join(str(v) for v in embed_fn(text)) + "]"
@@ -317,7 +291,7 @@ def run_snapshot_import(
 
     cache = None
     if "knowledge" in labels and cache_root and model_id:
-        cache = load_embedding_cache(cache_root, model_id)
+        cache = embedding_cache.load(cache_root, model_id)
         print(f"{import_data._now()} embedding cache ({model_id}): {len(cache) if cache else 'なし'}")
 
     for label in labels:
