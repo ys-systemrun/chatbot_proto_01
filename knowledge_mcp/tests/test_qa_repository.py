@@ -183,6 +183,21 @@ def test_results_sorted_by_combined_score_desc_and_truncated_to_top_k():
     assert [d.id for d in docs] == ["g2", "g3"]  # 降順・上位2件
 
 
+def test_same_qa_hit_by_multiple_paraphrases_is_returned_once_with_best_score():
+    # 候補は言い換え質問文の行単位。同じ QA（g1）の言い換えが上位を占めても、QA ごとに 1 件だけ残す。
+    rows = [
+        ("g1", "t1", "a1", None, [], [], None, 0.0),  # score = 1.0
+        ("g1", "t1", "a1", None, [], [], None, 0.2),  # 同じ QA の別の言い換え
+        ("g1", "t1", "a1", None, [], [], None, 0.4),
+        ("g2", "t2", "a2", None, [], [], None, 1.0),  # score = 0.5
+        ("g3", "t3", "a3", None, [], [], None, 3.0),  # score = 0.25
+    ]
+    repo = QARepository(FakeDatabase(rows), _embed)
+    docs = repo.search("q", top_k=3)
+    assert [d.id for d in docs] == ["g1", "g2", "g3"]
+    assert docs[0].score == 1.0  # いちばん近い言い換えのスコアを使う
+
+
 # --------------------------------------------------------------------------- #
 # 検索対象フラグによる除外（ADR-0092 決定2・決定3）
 # --------------------------------------------------------------------------- #

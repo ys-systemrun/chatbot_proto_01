@@ -161,5 +161,17 @@ class QARepository:
                 ),
             ))
 
+        # 候補は言い換え質問文の行単位のため、同じ QA が複数行ヒットしうる。QA ごとに最もスコアの高い
+        # 1 件だけを残してから top_k 件にする（同じ QA が上位枠を占め、他の QA や他の情報源の記事が
+        # SearchService の top_k に入れなくなるのを防ぐ）。
         scored.sort(key=lambda pair: pair[0], reverse=True)
-        return [doc for _, doc in scored[:top_k]]
+        best: List[Document] = []
+        seen: set = set()
+        for _, doc in scored:
+            if doc.id in seen:
+                continue
+            seen.add(doc.id)
+            best.append(doc)
+            if len(best) >= top_k:
+                break
+        return best
