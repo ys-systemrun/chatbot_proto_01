@@ -13,6 +13,7 @@ rem (run "terraform\dvc.bat pull" first), uploads them to S3, then wipes and rel
 rem Embeddings are filled from db_init\data\embedding_cache\.
 rem Stops if the schema version differs or if the target database changed since the last import/export;
 rem --force overrides those checks. A rollback SQL of the old data is saved to S3 first.
+rem The db_init task log (imported rows, checks, rollback location) is printed when the task ends.
 rem
 rem Prereq: Docker Desktop running; terraform\.env filled; both database and app applied.
 rem

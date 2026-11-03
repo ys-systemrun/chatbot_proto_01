@@ -58,7 +58,29 @@ def _wire_common(monkeypatch, calls, *, exit_code="0"):
 
     monkeypatch.setattr(commands.aws, "run_import_task", _run_import_task)
     monkeypatch.setattr(commands.aws, "wait_task_stopped", lambda *a, **k: {"containers": []})
+    monkeypatch.setattr(
+        commands.aws, "get_task_log_events", lambda *a, **k: ["[knowledge] imported 9 tables / 10 rows."]
+    )
     monkeypatch.setattr(commands.aws, "task_exit_code", lambda t: exit_code)
+
+
+def test_import_prints_task_logs(monkeypatch, capsys):
+    calls = []
+    _wire_common(monkeypatch, calls)
+    commands.cmd_import_data(target="both")
+    assert "[knowledge] imported 9 tables / 10 rows." in capsys.readouterr().out
+
+
+def test_import_continues_when_log_fetch_fails(monkeypatch):
+    calls = []
+    _wire_common(monkeypatch, calls)
+
+    def _boom(*a, **k):
+        raise RuntimeError("logs unavailable")
+
+    monkeypatch.setattr(commands.aws, "get_task_log_events", _boom)
+    commands.cmd_import_data(target="both")  # 例外にならない
+    assert any(c[0] == "run" for c in calls)
 
 
 def test_import_both_orders_stop_run_restart(monkeypatch):

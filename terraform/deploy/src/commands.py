@@ -506,6 +506,20 @@ def _target_schema_versions(cfg: config.Config, ctx: "_ExportContext") -> dict:
     }
 
 
+def _print_task_logs(log_group: str, family: str, task_arn: str, region: str) -> None:
+    """db_init タスクの CloudWatch Logs を表示する（best-effort。取得に失敗しても処理は続ける）。"""
+    log.step(f"タスクのログ（CloudWatch Logs {log_group}）")
+    try:
+        messages = aws.get_task_log_events(log_group, family, family, task_arn, region)
+    except Exception as exc:  # noqa: BLE001 - ログ表示は best-effort。exitCode 判定は続ける
+        log.warn(f"CloudWatch Logs の取得に失敗しました: {exc}")
+        return
+    if not messages:
+        log.warn("ログがまだ反映されていません（CloudWatch Logs で確認してください）。")
+    for message in messages:
+        print(message)
+
+
 def _run_import_in_maintenance(
     cfg: config.Config, cluster: str, services: list, family: str, subnets: list, sg: str,
     import_bucket: str, env: dict, *, what: str,
@@ -535,6 +549,8 @@ def _run_import_in_maintenance(
         )
         log.info(f"task: {task_arn}")
         task = aws.wait_task_stopped(cluster, task_arn, region)
+        # 取り込みの結果（件数・照合・退避先）を画面で確かめられるよう、タスクのログを表示する。
+        _print_task_logs(log_group, family, task_arn, region)
         exit_code = aws.task_exit_code(task)
         if str(exit_code) != "0":
             raise DeployError(

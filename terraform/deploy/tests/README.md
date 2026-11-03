@@ -12,7 +12,7 @@
 | [`test_gate.py`](test_gate.py) | apply-all のゲート順序（database → app(0) → seed → app(1)） |
 | [`test_app_stable_diagnostics.py`](test_app_stable_diagnostics.py) | 集約サービスの安定待機失敗時に、落ちたコンテナを名指しした診断を出すこと（ADR-0095） |
 | [`test_migrate.py`](test_migrate.py) | migrate / `seed --skip-seed` が `MIGRATE_ONLY=true` で run-task を起動し確認を求めないこと（ADR-0075） |
-| [`test_import.py`](test_import.py) | import-data の「ダンプアップロード → サービス停止 → IMPORT_MODE run-task → 再開」の順序と、失敗時の desired count 復元（ADR-0066） |
+| [`test_import.py`](test_import.py) | import-data の「ダンプアップロード → サービス停止 → IMPORT_MODE run-task → 再開」の順序と、失敗時の desired count 復元（ADR-0066）。終了後のタスクのログ表示と、ログ取得に失敗しても続行すること |
 | [`test_query.py`](test_query.py) | query の `QUERY_MODE` オーバーライド、対象 DB 名のタイプ確認、CloudWatch Logs からの結果表示、不正入力のエラー（ADR-0083） |
 | [`test_destroy_database.py`](test_destroy_database.py) | destroy-database の削除保護解除 apply を RDS だけに `-target` で絞ること、state の有無に応じたスキップ |
 | [`test_kb_export.py`](test_kb_export.py) | kb-export（CSV スナップショットと埋め込みキャッシュの取得・SHA-256 とデータベース全体のハッシュの照合・置き換え・dvc add）、行数が減るときの確認・--target と kb-import（手元の照合・アップロード・run-task の環境変数・--force, ADR-0109） |
