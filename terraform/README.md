@@ -190,6 +190,8 @@ apply-database.bat → seed.bat                     （AWS へ反映）
 
 - 過去の版を再現: `git checkout <tag>` → `terraform\dvc.bat checkout`
 - 版どうしの差分（どのファイルが変わったか）: `terraform\dvc.bat diff <旧> <新>`
+- CSV の中身の差分（どの行・どのセルが変わったか）: `py db_init/tools/dvc_csv_diff.py <CSV かディレクトリ> [--old <旧>] [--new <新>]`。既定は「最後のコミット → 作業ツリー」で、差分を HTML にしてブラウザで開く（要 `py -m pip install daff`）。ローカルの DVC キャッシュから読むため、手元に無い版は先に `terraform\dvc.bat fetch --all-commits <対象の .dvc>` で取り寄せる
+- CSV の閲覧・編集は VS Code の Edit csv / Rainbow CSV を使う（`.vscode/extensions.json` の推奨拡張）。Excel で上書き保存すると書式（ADR-0108）が崩れ、全行が変更扱いになるため避ける
 - `.dvc/config` の remote URL は `apply-datastore` が表示する `DVC remote` と一致させる。
 
 ### Phase 1: database 構成（ネットワーク + RDS + シード用イメージ）

@@ -36,3 +36,6 @@ evals/.env
 
 # ADR-0109: kb-export の取得中の一時フォルダ
 snapshots/.incoming/
+
+# VS Code の個人設定（dvc.exe のパスなど環境依存）。extensions.json・README.md は追跡する。
+.vscode/settings.json
